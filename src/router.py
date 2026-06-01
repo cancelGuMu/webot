@@ -146,7 +146,7 @@ class MessageRouter:
         # Find the requester's last message BEFORE this trigger.
         # Uses the messages table directly so the current @bot trigger
         # is excluded. If the most recent prior message is very close
-        # (≤5s) it is skipped in favour of an earlier boundary.
+        # (≤30s) it is skipped in favour of an earlier boundary.
         since_ts = self._store.get_user_previous_timestamp(
             chat_id, sender_id, trigger_ts,
         )

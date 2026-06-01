@@ -1,0 +1,90 @@
+{
+  "base_model": "/root/gumu.skill/base_models/uer_gpt2_chinese",
+  "device": "cpu",
+  "train_file": "/root/gumu.skill/dataset/style_private_instruction_train_clean.jsonl",
+  "val_file": "/root/gumu.skill/dataset/style_private_instruction_val_clean.jsonl",
+  "train_rows": 106179,
+  "val_rows": 2162,
+  "tokenized_train": 105990,
+  "tokenized_val": 2155,
+  "output_dir": "/root/gumu.skill/models/style_lora_cn_srv_full",
+  "adapter_dir": "/root/gumu.skill/models/style_lora_cn_srv_full/adapter",
+  "lora_targets": [
+    "c_attn",
+    "c_fc",
+    "c_proj"
+  ],
+  "generation_config": {
+    "preview_max_new_tokens": 80,
+    "preview_temperature": 0.65,
+    "preview_top_p": 0.85,
+    "preview_top_k": 40,
+    "preview_repetition_penalty": 1.18,
+    "preview_no_repeat_ngram_size": 4
+  },
+  "train_config": {
+    "lr": 0.0002,
+    "warmup_ratio": 0.0,
+    "warmup_steps": 0,
+    "weight_decay": 0.01,
+    "max_grad_norm": 0.6,
+    "max_steps": -1,
+    "batch_size": 2,
+    "grad_accum": 16,
+    "max_length": 384
+  },
+  "metrics": {
+    "train_runtime": 1249.5029,
+    "train_samples_per_second": 84.826,
+    "train_steps_per_second": 2.651,
+    "total_flos": 8259787750017024.0,
+    "train_loss": 0.11736118505542405,
+    "epoch": 0.9999433908859326,
+    "eval_loss": 3.382411241531372,
+    "eval_runtime": 393.5893,
+    "eval_samples_per_second": 5.475,
+    "eval_steps_per_second": 1.369
+  },
+  "preview_samples": [
+    {
+      "context": "对方: 因为我说上完这星期是上完周五周六\n对方: 因为他提前和我说过了\n对方: [表情包]\n我: 这\n我: 要不\n我: 还是去吧",
+      "target": "你都说了",
+      "prediction": "我 : 这 一 周 是 周 六 啊? 我 : 这 您 好 像 有 点 什 么 事 呀? 我 : 你 好 像 没 啥 事 呀? 您 好 像 是 上 完 这 周 六 我 : 这 就 是 上 完 那 星 期? 您 好 象 也 没 啥 事 哟? 我 : 您 好 像 没 咋 事 呀? 那 您 好 像 又 没 啥 事"
+    },
+    {
+      "context": "我: 我今天下午来啊\n我: 姐姐\n对方: 喔喔\n对方: 忘了\n我: 我看看我这个月干多少天了\n我: 貌似没啥问题）",
+      "target": "但其实我周日只来了半天）",
+      "prediction": "???? / ／ ／ ／ ／ （ 我 今 天 早 晨 来 呀 我 : 姐 姊 對 方 : 您 好 ， 妳 可 以 問 您 問 您 有 啥 問 題 ？ 您 今 天 晚 上 來 嘛 我 : 妳 妳 可 以 找 您 问 妳 今 天 晚 晨 來 呀 妳 可 以 請 您 问 妳 可 以 请 您 問 妳 可 以 邀 您 问"
+    },
+    {
+      "context": "对方: 昂\n我: 我是积水潭女子师专\n我: 哈哈哈哈哈哈哈\n我: 俩人都搁这不说大名\n对方: 行走江湖都说混名是吧\n我: 哈哈哈哈哈哈哈哈",
+      "target": "你知道你们学校有魔术社嘛",
+      "prediction": "....? 您 是 该 用 戶 本 人 ， 請 根 據 上 下 文... 這 裡... 請 根 據 下 文. [ www ] 我 : 您 是 該 用 戶 本 身 是 誰 : 您 是 誰 : 請 根 據 @ \". gov. org. jp. jp. net. jp. aspx ( yahoo! ) @ yahoo!!!"
+    },
+    {
+      "context": "我: 行\n我: [表情包：握爪]\n对方: <msg> <appmsg appid=\"\" sdkver=\"0\"> <title /> <des /> <type>8</type> <appattach cdnurl=\"http://vweixinf.tc.qq.com/110/20401/stodownload?m=cc496be388474161cf87735bee689d2c&amp;fi…\n对方: 看\n对方: 好猥琐的猫の背影\n我: 哈哈哈哈",
+      "target": "周三虽然没课但很忙",
+      "prediction": "##kitty! < / breathinkhttp : / v weixinf @ gmail. com / urllinkurlhttp : / / www. android. com / www. facebook. com / email / url / url / api / api / url / documents / api / index. html / url / json / api / search / api / maps / url / article / url"
+    },
+    {
+      "context": "对方: 手机号就\n我: 直播间里扫是吧\n我: okok\n我: 我进下直播\n对方: 速度\n对方: 验证码",
+      "target": "122193",
+      "prediction": "....linklinklinklink linklinklinklinksharelinklinklinkidlinklinklink -linklinkid linklinkidlinkidlink -linkidlinklinkidlink linklinkid linkidlinklinkidsharelinkidlink /linkidlink. htmllinkidlinksharelinkid link linklinkidshareidlinkid link. htmllinklinkidiumlinkid"
+    },
+    {
+      "context": "对方: 就是本来一个月我只用值五天\n对方: 现在是至少7天\n对方: [表情包]\n我: [表情包]\n对方: 招人也不可能让人家直接做t0呀\n对方: 也要给人家成长的时间",
+      "target": "至少把白天的活分摊出去点吧",
+      "prediction": ".... 我 : [ t0 ] 对 方 ： 你 是 哪 位???? @ @???...? @?? @?..?? @..?.. ． @??. ．? @? @? ·??? ．? @ •?? @ • •??? ＠???? @?"
+    },
+    {
+      "context": "我: 哦\n对方: 喔对了 那天你拉出来打球的\n我: 那从本上划了\n对方: 是啥人啊\n我: 舍友\n对方: 他不太适合运动",
+      "target": "是的",
+      "prediction": "？???? 我 : 您 好 像 是 啥 人 呀 你 要 问 我 们 有 没 有 一 个 好 像 是 什 么 人 呢 我 : 噢 对 方 : 您 说 您 好 像 有 一 个 特 别 像 是 啥 呀 你 要 是 说 您 说 您 的 话 您 就 得 问 您 的 话 ， 您 就 得 問 您 的 话 妳 妳 妳 妳"
+    },
+    {
+      "context": "对方: 你真的再很认真教我\n对方: [表情包]\n我: 一般精神状态很差\n对方: 啊\n我: 情绪没有大波动不喝酒\n对方: 小酌怡情哎可是",
+      "target": "可是我酒精过敏",
+      "prediction": "我 : 唉 我 : 小 酌? 我 : 嗯 我 : 唉 你 : 唉 我 \" 我 : 唉 您 : 呃 我 : 哎 呀 你 : 欸 我 : 哎 哎 呀 我 : 哎 呦 我 : 哎 哟 您 : 欸 我 ： 哎 呀 我 ∶ 欸 我 : 欸 您 : 欸 欸 我 : 诶 呀 我 : 欸 呀! 我 : 欸 我 ∶ 欸! 我 :"
+    }
+  ]
+}

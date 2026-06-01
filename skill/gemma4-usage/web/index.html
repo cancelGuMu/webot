@@ -1,0 +1,222 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gemma Chat Demo</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --text: #1a1b1f;
+      --sub: #5a6070;
+      --line: #d9dfeb;
+      --pri: #0f62fe;
+      --pri2: #134ed7;
+      --user: #e8f0ff;
+      --bot: #f2f4f8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at 10% 10%, #eef4ff 0%, var(--bg) 45%, #edf7f3 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 18px;
+    }
+    .wrap {
+      width: min(960px, 100%);
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 14px 36px rgba(23, 29, 45, .08);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: calc(100vh - 36px);
+      overflow: hidden;
+    }
+    .top {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .title { font-weight: 700; }
+    .top-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    select, input, button, textarea {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 14px;
+      background: #fff;
+      color: var(--text);
+    }
+    button {
+      background: var(--pri);
+      color: #fff;
+      border-color: var(--pri);
+      cursor: pointer;
+    }
+    button:hover { background: var(--pri2); }
+    button.ghost {
+      background: #fff;
+      color: var(--text);
+      border-color: var(--line);
+    }
+    #chat {
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .msg {
+      max-width: min(80%, 760px);
+      padding: 10px 12px;
+      border-radius: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      animation: pop .15s ease-out;
+    }
+    .user { align-self: flex-end; background: var(--user); }
+    .assistant { align-self: flex-start; background: var(--bot); }
+    .meta { font-size: 12px; color: var(--sub); margin-top: 4px; }
+    .bottom {
+      border-top: 1px solid var(--line);
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: end;
+    }
+    textarea {
+      width: 100%;
+      min-height: 70px;
+      max-height: 180px;
+      resize: vertical;
+    }
+    .status { font-size: 12px; color: var(--sub); }
+    @keyframes pop {
+      from { transform: translateY(4px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @media (max-width: 700px) {
+      .wrap { min-height: calc(100vh - 20px); }
+      body { padding: 10px; }
+      .msg { max-width: 94%; }
+      .bottom { grid-template-columns: 1fr; }
+      .bottom button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <div>
+        <div class="title">Gemma Chat Demo</div>
+        <div class="meta">支持 thinking / nothinking 两种通道</div>
+      </div>
+      <div class="top-right">
+        <label>模式
+          <select id="mode">
+            <option value="thinking">thinking</option>
+            <option value="nothinking">nothinking</option>
+          </select>
+        </label>
+        <button class="ghost" id="clearBtn">清空对话</button>
+      </div>
+    </header>
+
+    <section id="chat"></section>
+
+    <footer class="bottom">
+      <div>
+        <textarea id="input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+        <div id="status" class="status">就绪</div>
+      </div>
+      <button id="sendBtn">发送</button>
+    </footer>
+  </main>
+
+  <script>
+    const chatEl = document.getElementById('chat');
+    const inputEl = document.getElementById('input');
+    const sendBtn = document.getElementById('sendBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const modeEl = document.getElementById('mode');
+    const statusEl = document.getElementById('status');
+
+    const history = [];
+
+    function addMsg(role, content) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      div.textContent = content;
+      chatEl.appendChild(div);
+      chatEl.scrollTop = chatEl.scrollHeight;
+      history.push({ role, content });
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    async function send() {
+      const text = inputEl.value.trim();
+      if (!text) return;
+
+      addMsg('user', text);
+      inputEl.value = '';
+      setStatus('请求中...');
+      sendBtn.disabled = true;
+
+      try {
+        const resp = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: modeEl.value,
+            message: text,
+            history,
+            temperature: 0.7,
+            max_tokens: 512,
+          })
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          addMsg('assistant', '请求失败：' + (data.error || ('HTTP ' + resp.status)));
+        } else {
+          addMsg('assistant', data.reply || '(空输出)');
+        }
+      } catch (err) {
+        addMsg('assistant', '网络异常：' + err.message);
+      } finally {
+        setStatus('就绪');
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.addEventListener('click', send);
+    clearBtn.addEventListener('click', () => {
+      history.length = 0;
+      chatEl.innerHTML = '';
+      setStatus('已清空');
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+
+    addMsg('assistant', '你好，我已经准备好。你可以开始聊天。');
+  </script>
+</body>
+</html>

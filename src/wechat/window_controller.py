@@ -444,12 +444,11 @@ class WeChatWindowController:
         navigated = False
         for down_presses in range(6):
             if down_presses > 0:
-                # Esc×2: first Esc exits 搜一搜 (if we landed there),
-                # second Esc dismisses search results. Then Ctrl+F fresh.
-                self._press_key(0x1B)  # Esc (exit 搜一搜 / back one level)
-                time.sleep(0.3)
-                self._press_key(0x1B)  # Esc (dismiss search panel)
-                time.sleep(0.2)
+                # Close any open search panel / 搜一搜 page.
+                # Esc doesn't work for WeChat's search overlay;
+                # Alt+F4 dismisses it without closing the main window.
+                self._send_combo(0x12, 0x73)  # Alt+F4
+                time.sleep(0.35)
                 self._send_combo(0x11, 0x46)  # Ctrl+F
                 time.sleep(0.25)
                 self._send_combo(0x11, 0x41)  # Ctrl+A

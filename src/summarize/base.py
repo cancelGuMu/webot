@@ -92,6 +92,9 @@ class AbstractSummarizer(ABC):
 ## 禁止用词
 根据上下文、综上所述、首先其次最后、需要注意的是、值得一提的是、可谓是、不得不说、从某种角度来说、建议您、希望对你有所帮助
 
+## 你在这个群里的记忆
+{group_memory}
+
 {search_section}## 当前
 群：{group_name}  时间：{current_time}
 @你的人：{sender_name}
@@ -105,7 +108,8 @@ class AbstractSummarizer(ABC):
              context_messages: list[dict] | None = None,
              requester_name: str = "",
              bot_name: str = "群聊小助手",
-             group_name: str = "群聊") -> str:
+             group_name: str = "群聊",
+             group_memory: str = "") -> str:
         """Conversational AI response for @bot mentions.
 
         Args:
@@ -114,11 +118,18 @@ class AbstractSummarizer(ABC):
             requester_name: Display name of the person asking.
             bot_name: Bot's display name.
             group_name: WeChat group display name.
+            group_memory: Group's long-term memory text (first-person diary).
 
         Returns:
             AI response text.
         """
         import datetime
+
+        # ── 0. Memory display ────────────────────────────────────
+        memory_display = (
+            group_memory if group_memory
+            else "（你刚进这个群，还没有形成对这个群的印象）"
+        )
 
         # ── 1. Web search (if enabled) ────────────────────────────
         search_section = ""
@@ -158,6 +169,7 @@ class AbstractSummarizer(ABC):
             search_section=search_section,
             context_section=context_section,
             current_message=message,
+            group_memory=memory_display,
         )
 
         # ── 4. Build user message (just the trigger) ──────────────
@@ -207,6 +219,9 @@ class AbstractSummarizer(ABC):
 ## 禁止用词
 根据上下文、综上所述、首先其次最后、需要注意的是、值得一提的是、可谓是、不得不说、从某种角度来说、建议您、希望对你有所帮助
 
+## 你在这个群里的记忆
+{group_memory}
+
 群：{group_name}  时间：{current_time}
 
 最近群聊：
@@ -216,7 +231,8 @@ class AbstractSummarizer(ABC):
 
     def proactive_chat(self, mode, context_messages: list[dict],
                        bot_name: str = "群聊小助手",
-                       group_name: str = "群聊") -> str:
+                       group_name: str = "群聊",
+                       group_memory: str = "") -> str:
         """Generate a spontaneous chat reply based on conversation context.
 
         The AI is explicitly told it may return blank when it judges the
@@ -229,11 +245,18 @@ class AbstractSummarizer(ABC):
             context_messages: Recent chat history (already nickname-resolved).
             bot_name: Bot's display name.
             group_name: WeChat group display name.
+            group_memory: Group's long-term memory text (first-person diary).
 
         Returns:
             AI reply text, or empty string if the AI chose not to speak.
         """
         import datetime
+
+        # Build memory display
+        memory_display = (
+            group_memory if group_memory
+            else "（你刚进这个群，还没有形成对这个群的印象）"
+        )
 
         # Build recent messages string (use only what the mode requests)
         limit = mode.context_count
@@ -256,6 +279,7 @@ class AbstractSummarizer(ABC):
             max_chars=mode.max_chars,
             current_time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             recent_messages="\n".join(recent_lines),
+            group_memory=memory_display,
         )
 
         user_prompt = "如果你想说话，现在就发一条。如果不想说话，回复空白。"

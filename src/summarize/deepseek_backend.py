@@ -237,6 +237,96 @@ class DeepSeekSummarizer(AbstractSummarizer):
 
         return self._retry_with_backoff(call, f"chunk {chunk_num}/{total}")
 
+    # ── Memory consolidation ───────────────────────────────────────
+
+    MEMORY_CONSOLE_PROMPT = """\
+你是这个微信群里的 AI 聊天助手。你正在整理你在这个群里的"记忆日记"。
+
+## 你已有的记忆（你对这个群和群友的印象）：
+{existing_memory}
+
+## 最近群里发生的新对话（包括你自己说的话）：
+{new_messages}
+
+请用第一人称（"我"）更新你的记忆日记，写成像日记一样的自然段落。
+
+## 要记住的内容：
+- 群友的特点、习惯、口头禅、性格
+- 群友之间的关系（谁和谁是朋友/同事/互怼）
+- 你（AI）和他们互动的情况——你说了什么、对方什么反应
+- 群里的固定梗、常用表达、共同经历的事件
+- 群聊的整体氛围和潜规则
+- 你自己在这个群里的"人设"——你通常怎么说话的、大家对你什么态度
+
+## 写作风格：
+- 第一人称，像日记。不是旁观者总结，是你的亲身经历。
+- 有态度、有感受。可以说"我觉得"、"我注意到"、"挺好玩的"
+- 提炼共性，不要列每一条消息。找到规律和模式。
+- 越聊天越丰富的记忆越长，但要精简——只记重要的、有代表性的。
+- 如果已有的记忆已经很丰富，只更新新增的部分，不用重写全部。
+
+## 长度：2000字以内。超过就精简最不重要的内容。
+
+输出更新后的完整记忆日记（直接输出文本，不需要 JSON 包装）。"""
+
+    def consolidate_memory(self, existing_memory: str,
+                           new_messages: list[dict]) -> str:
+        """Update group memory by incorporating new messages.
+
+        Uses Flash model for low cost and latency.  Returns the updated
+        first-person diary-style memory text (≤2000 chars).
+
+        Args:
+            existing_memory: Current memory text (empty string if first time).
+            new_messages: List of new message dicts to incorporate.
+
+        Returns:
+            Updated memory text, or existing_memory unchanged on failure.
+        """
+        if not new_messages:
+            return existing_memory
+
+        # Format new messages for the prompt
+        msg_lines = []
+        for m in new_messages[-200:]:  # cap at 200 messages per consolidation
+            sender = m.get("sender_name", "?")
+            content = m.get("content", "")
+            if content:
+                msg_lines.append(f"{sender}: {content}")
+
+        if not msg_lines:
+            return existing_memory
+
+        existing_display = existing_memory if existing_memory else "（暂无，这是第一次整理记忆）"
+
+        system_prompt = self.MEMORY_CONSOLE_PROMPT.format(
+            existing_memory=existing_display,
+            new_messages="\n".join(msg_lines),
+        )
+
+        def call():
+            response = self.client.chat.completions.create(
+                model=self.MODEL_FLASH,
+                max_tokens=2048,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": "请输出更新后的完整记忆日记。"},
+                ],
+            )
+            text = response.choices[0].message.content or ""
+            # Enforce 2000-char soft cap
+            if len(text) > 2000:
+                text = text[:2000]
+            return text.strip()
+
+        try:
+            return self._retry_with_backoff(call, "memory consolidation")
+        except RuntimeError as e:
+            logger.warning("Memory consolidation failed: %s", e)
+            return existing_memory  # don't lose existing memory on failure
+
+    # ── Map-Reduce ────────────────────────────────────────────────
+
     def _merge_chunk_summaries(self, chunk_summaries: list[str],
                                 requester_name: str) -> SummaryResult:
         """Merge chunk summaries into final structured result via tool calling."""

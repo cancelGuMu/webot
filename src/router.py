@@ -13,6 +13,7 @@ import time
 from typing import Optional
 
 from .proactive.gate import ProactiveGate
+from .memory.consolidator import MemoryConsolidator
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class MessageRouter:
         self._nicks = nickname_service
         self._config = config
         self._proactive = ProactiveGate(config)
+        self._memory = MemoryConsolidator(store, summarizer)
 
     @staticmethod
     def _strip_markdown(text: str) -> str:
@@ -81,6 +83,9 @@ class MessageRouter:
         stored = self._store.insert_message(msg)
         if not stored:
             return None  # Duplicate — nothing more to do
+
+        # Check memory consolidation trigger (fast no-op unless threshold hit)
+        self._memory.check_and_consolidate(msg["chat_id"])
 
         # ── Route: @mention vs proactive ─────────────────────────
         is_at = msg["is_at_mentioned"]
@@ -138,6 +143,13 @@ class MessageRouter:
 
         # ── Strip markdown — WeChat can't render it ──────────────
         return self._strip_markdown(reply) if reply else None
+
+    # ── Memory helper ────────────────────────────────────────────
+
+    def _get_group_memory(self, chat_id: str) -> str:
+        """Return the group's memory text, or empty string if none."""
+        mem = self._store.get_group_memory(chat_id)
+        return mem["memory_text"] if mem else ""
 
     # ── Summary handler ──────────────────────────────────────────
 
@@ -275,6 +287,7 @@ class MessageRouter:
                 requester_name=display_name,
                 bot_name=self._config.bot_display_name,
                 group_name=msg.get("group_name", msg.get("chat_id", "群聊")),
+                group_memory=self._get_group_memory(msg["chat_id"]),
             )
             ai_reply = self._nicks.resolve_wxids(ai_reply)
             return f"@{display_name} {ai_reply}"
@@ -324,6 +337,7 @@ class MessageRouter:
                 context_messages=context,
                 bot_name=self._config.bot_display_name,
                 group_name=msg.get("group_name", msg.get("chat_id", "群聊")),
+                group_memory=self._get_group_memory(msg["chat_id"]),
             )
         except RuntimeError as e:
             logger.error("Proactive chat API failed: %s", e)

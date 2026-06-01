@@ -150,11 +150,10 @@ class MessageRouter:
         since_ts = self._store.get_user_previous_timestamp(
             chat_id, sender_id, trigger_ts,
         )
+        min_window_sec = self._config.fallback_window_hours * 3600
+
         if since_ts is None:
-            since_ts = (
-                int(time.time())
-                - self._config.fallback_window_hours * 3600
-            )
+            since_ts = int(time.time()) - min_window_sec
             logger.info(
                 "No prior message from '%s'. Using fallback: last %dh.",
                 sender_name, self._config.fallback_window_hours,
@@ -162,6 +161,17 @@ class MessageRouter:
         else:
             # Start AFTER the boundary message (exclude the message itself)
             since_ts += 1
+
+        # Safety net: if the resulting window is smaller than min_window,
+        # expand it to guarantee a minimum amount of context for the summary.
+        actual_window = trigger_ts - since_ts
+        if actual_window < min_window_sec:
+            expanded_since = trigger_ts - min_window_sec
+            logger.info(
+                "Summary window too small (%dmin), expanding to %dh minimum.",
+                actual_window // 60, self._config.fallback_window_hours,
+            )
+            since_ts = expanded_since
 
         raw_messages = self._store.get_messages_since(
             chat_id, since_ts, until_ts=trigger_ts,

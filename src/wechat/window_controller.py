@@ -436,33 +436,62 @@ class WeChatWindowController:
         time.sleep(0.6)  # wait for search results to populate
         hwnd = self._adopt_foreground_hwnd(hwnd, "after search paste")
 
-        # Phase 3: Enter to select the first search result and open the chat.
-        # After Enter, WeChat auto-focuses the input area — ready to paste.
-        self._press_key(0x0D)  # Enter
-        time.sleep(0.5)
-        hwnd = self._adopt_foreground_hwnd(hwnd, "after search Enter")
+        # Phase 3: Adaptive result selection.
+        # When multiple groups or "搜索网络结果" appears in search results,
+        # the first Enter may land on the wrong item.  We try with 0, 1, 2, 3
+        # Down presses before Enter until title verification passes.
+        navigated = False
+        for down_presses in range(4):
+            if down_presses > 0:
+                # Re-open search: Esc to dismiss, then Ctrl+F again
+                self._press_key(0x1B)  # Esc
+                time.sleep(0.25)
+                self._send_combo(0x11, 0x46)  # Ctrl+F
+                time.sleep(0.25)
+                self._send_combo(0x11, 0x41)  # Ctrl+A
+                time.sleep(0.05)
+                self._set_clipboard(group_name)
+                time.sleep(0.05)
+                self._send_combo(0x11, 0x56)  # Ctrl+V
+                time.sleep(0.6)  # wait for search results
+                hwnd = self._adopt_foreground_hwnd(hwnd, "after re-paste")
+                # Press Down N times to skip past headers / "搜索网络结果"
+                for _ in range(down_presses):
+                    self._press_key(0x28)  # Down arrow
+                    time.sleep(0.08)
 
-        # Phase 4: Verify we're in the right chat
-        if self._verify_chat_title(hwnd, group_name):
-            logger.info(
-                "Navigation confirmed: chat title contains '%s'", group_name,
+            self._press_key(0x0D)  # Enter
+            time.sleep(0.5)
+            hwnd = self._adopt_foreground_hwnd(
+                hwnd, f"after search Enter (down={down_presses})",
             )
-            return hwnd
 
-        # UIA may be unavailable (2-node skeleton). Accept as long as
-        # foreground stayed with us through every step.
-        if self._foreground_matches(hwnd):
-            logger.warning(
-                "Navigation to '%s' completed via keyboard; "
-                "UIA title verification unavailable.", group_name,
+            if self._verify_chat_title(hwnd, group_name):
+                if down_presses > 0:
+                    logger.info(
+                        "Navigation confirmed after %d Down press(es): '%s'",
+                        down_presses, group_name,
+                    )
+                navigated = True
+                break
+
+        if not navigated:
+            # UIA may be unavailable (2-node skeleton). Accept as long as
+            # foreground stayed with us through every step.
+            if self._foreground_matches(hwnd):
+                logger.warning(
+                    "Navigation to '%s' completed via keyboard; "
+                    "UIA title verification unavailable.", group_name,
+                )
+                return hwnd
+
+            logger.error(
+                "Navigation to '%s' lost foreground after %d attempts. %s",
+                group_name, 4, self.get_foreground_info(),
             )
-            return hwnd
+            return False
 
-        logger.error(
-            "Navigation to '%s' lost foreground; refusing to send. %s",
-            group_name, self.get_foreground_info(),
-        )
-        return False
+        return hwnd
 
     def _verify_chat_title(self, hwnd: int, group_name: str) -> bool:
         """Try to verify we're in the right chat using window title or UIA."""

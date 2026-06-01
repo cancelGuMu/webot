@@ -163,6 +163,8 @@ class WeChatWindowController:
         self._cached_hwnd: Optional[int] = None
         self._cached_at: float = 0.0
         self._cache_ttl: float = 30.0  # seconds
+        # Per-group Down-press cache → avoids re-discovering every time
+        self._down_cache: dict[str, int] = {}
 
     # ── HWND discovery ────────────────────────────────────────────
 
@@ -436,44 +438,53 @@ class WeChatWindowController:
         time.sleep(0.6)  # wait for search results to populate
         hwnd = self._adopt_foreground_hwnd(hwnd, "after search paste")
 
-        # Phase 3: Adaptive result selection.
-        # When multiple groups or "搜索网络结果" appears in search results,
-        # the first Enter may land on the wrong item — even the 搜一搜 page.
-        # We try with 0-5 Down presses before Enter until title verification
-        # passes.  Each retry Esc×2 to exit any nested pages before re-searching.
+        # Phase 3: Adaptive result selection with Down-press cache.
+        # Each group remembers how many Down presses it took to land on
+        # the right search result.  The cached value is tried first
+        # (using the search already open from Phase 2), avoiding the
+        # Alt+F4→re-search retry loop on subsequent calls.
+        cached_down = self._down_cache.get(group_name)
+        attempts: list[int] = []
+        if cached_down is not None:
+            attempts.append(cached_down)
+        attempts.extend(n for n in range(6) if n not in attempts)
+
         navigated = False
-        for down_presses in range(6):
-            if down_presses > 0:
-                # Close any open search panel / 搜一搜 page.
-                # Esc doesn't work for WeChat's search overlay;
-                # Alt+F4 dismisses it without closing the main window.
+        for attempt_idx, down_presses in enumerate(attempts):
+            if attempt_idx > 0:
+                # Retry: close current panel → re-open clean search
                 self._send_combo(0x12, 0x73)  # Alt+F4
-                time.sleep(0.35)
+                time.sleep(0.3)
                 self._send_combo(0x11, 0x46)  # Ctrl+F
-                time.sleep(0.25)
+                time.sleep(0.2)
                 self._send_combo(0x11, 0x41)  # Ctrl+A
                 time.sleep(0.05)
                 self._set_clipboard(group_name)
                 time.sleep(0.05)
                 self._send_combo(0x11, 0x56)  # Ctrl+V
-                time.sleep(0.6)  # wait for search results
+                time.sleep(0.4)
                 hwnd = self._adopt_foreground_hwnd(hwnd, "after re-paste")
-                # Press Down N times to skip past headers / "搜索网络结果"
-                for _ in range(down_presses):
-                    self._press_key(0x28)  # Down arrow
-                    time.sleep(0.08)
+
+            # Apply Down presses before Enter.  Required even on the
+            # first attempt when using a cached value >0 (the search
+            # from Phase 2 is already open — just navigate and Enter).
+            for _ in range(down_presses):
+                self._press_key(0x28)  # Down arrow
+                time.sleep(0.06)
 
             self._press_key(0x0D)  # Enter
-            time.sleep(0.5)
+            time.sleep(0.3)
             hwnd = self._adopt_foreground_hwnd(
                 hwnd, f"after search Enter (down={down_presses})",
             )
 
             if self._verify_chat_title(hwnd, group_name):
-                if down_presses > 0:
+                if down_presses != cached_down:
+                    self._down_cache[group_name] = down_presses
                     logger.info(
-                        "Navigation confirmed after %d Down press(es): '%s'",
-                        down_presses, group_name,
+                        "Navigation cache %s: '%s' down=%d",
+                        "seeded" if cached_down is None else "updated",
+                        group_name, down_presses,
                     )
                 navigated = True
                 break

@@ -1,0 +1,52 @@
+# Environment
+.env
+
+# Data — runtime files only (nicknames.json is tracked config)
+data/messages.db
+data/messages.db-shm
+data/messages.db-wal
+data/bot.log
+data/send_failures.log
+data/*.log
+data/nickname_reconcile_report.json
+data/ocr_result.txt
+data/test_results.json
+data/uia_dump.txt
+
+# Logs
+*.log
+wx4py.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Cached WeChat assets
+wechatdata/
+
+# Screenshot references
+wxid2p/
+
+# Model weights (large binaries)
+skill/**/*.bin
+skill/**/*.safetensors
+
+# Runtime training artifacts
+TRAIN_DONE.flag
+
+# Private persona data
+skill/gumu-persona/data/
+skill/gumu-persona/self.md

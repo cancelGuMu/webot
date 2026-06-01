@@ -53,6 +53,19 @@ CREATE TABLE IF NOT EXISTS trigger_log (
     processed_at       INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
+-- Per-group long-term memory. Consolidates conversation history into
+-- a first-person diary-style text that is injected into every prompt,
+-- giving the bot a persistent sense of identity and group awareness.
+CREATE TABLE IF NOT EXISTS group_memory (
+    chat_id           TEXT    PRIMARY KEY,
+    memory_text       TEXT    NOT NULL DEFAULT '',
+    message_count     INTEGER NOT NULL DEFAULT 0,
+    last_message_id   TEXT,
+    last_consolidated REAL,
+    created_at        REAL    NOT NULL DEFAULT (unixepoch()),
+    updated_at        REAL    NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE INDEX IF NOT EXISTS idx_trigger_chat_time
     ON trigger_log(chat_id, processed_at DESC);
 """

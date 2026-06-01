@@ -202,3 +202,119 @@ class MessageStore:
             (chat_id, cutoff),
         ).fetchone()
         return row["cnt"] > 0 if row else False
+
+    # ── Group memory operations ────────────────────────────────────
+
+    def get_group_memory(self, chat_id: str) -> dict | None:
+        """Retrieve the memory record for a group.
+
+        Returns:
+            Dict with keys: chat_id, memory_text, message_count,
+            last_message_id, last_consolidated, created_at, updated_at.
+            None if no memory exists yet for this group.
+        """
+        row = self.conn.execute(
+            """SELECT chat_id, memory_text, message_count,
+                      last_message_id, last_consolidated,
+                      created_at, updated_at
+               FROM group_memory
+               WHERE chat_id = ?""",
+            (chat_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_group_memory(self, chat_id: str, memory_text: str,
+                            message_count: int, last_message_id: str) -> None:
+        """Insert or update a group's memory record.
+
+        Args:
+            chat_id: Group chat ID.
+            memory_text: The consolidated first-person memory text.
+            message_count: Total messages incorporated into this memory.
+            last_message_id: The last message ID that was incorporated.
+        """
+        now = time.time()
+        with self.conn:
+            self.conn.execute(
+                """INSERT INTO group_memory
+                   (chat_id, memory_text, message_count, last_message_id,
+                    last_consolidated, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(chat_id) DO UPDATE SET
+                   memory_text = excluded.memory_text,
+                   message_count = excluded.message_count,
+                   last_message_id = excluded.last_message_id,
+                   last_consolidated = excluded.last_consolidated,
+                   updated_at = excluded.updated_at""",
+                (chat_id, memory_text, message_count, last_message_id,
+                 now, now, now),
+            )
+
+    def get_new_message_count(self, chat_id: str,
+                              since_message_id: str | None) -> int:
+        """Count new messages in a chat since a given message ID.
+
+        Args:
+            chat_id: Group chat ID.
+            since_message_id: The last incorporated message ID.
+                              If None, count all messages.
+
+        Returns:
+            Number of messages after the given ID.
+        """
+        if since_message_id is None:
+            row = self.conn.execute(
+                "SELECT COUNT(*) as cnt FROM messages WHERE chat_id = ?",
+                (chat_id,),
+            ).fetchone()
+        else:
+            # Get the id of the last incorporated message, then count newer ones
+            row = self.conn.execute(
+                """SELECT COUNT(*) as cnt FROM messages
+                   WHERE chat_id = ? AND id > (
+                       SELECT COALESCE(
+                           (SELECT id FROM messages WHERE message_id = ?), 0
+                       )
+                   )""",
+                (chat_id, since_message_id),
+            ).fetchone()
+        return row["cnt"] if row else 0
+
+    def get_messages_since_id(self, chat_id: str,
+                              since_message_id: str | None,
+                              limit: int = 200) -> list[dict]:
+        """Fetch messages since a given message ID.
+
+        Args:
+            chat_id: Group chat ID.
+            since_message_id: Last incorporated message ID. None = from beginning.
+            limit: Max messages to return.
+
+        Returns:
+            List of message dicts in chronological order.
+        """
+        if since_message_id is None:
+            rows = self.conn.execute(
+                """SELECT message_id, chat_id, sender_id, sender_name,
+                          content, msg_type, timestamp
+                   FROM messages
+                   WHERE chat_id = ?
+                   ORDER BY timestamp ASC
+                   LIMIT ?""",
+                (chat_id, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """SELECT message_id, chat_id, sender_id, sender_name,
+                          content, msg_type, timestamp
+                   FROM messages
+                   WHERE chat_id = ? AND id > (
+                       SELECT COALESCE(
+                           (SELECT id FROM messages WHERE message_id = ?), 0
+                       )
+                   )
+                   ORDER BY timestamp ASC
+                   LIMIT ?""",
+                (chat_id, since_message_id, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]

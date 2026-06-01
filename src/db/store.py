@@ -96,7 +96,7 @@ class MessageStore:
 
         Queries the messages table directly (not user_last_message cursor)
         so we can exclude the current @bot trigger message.  If the most
-        recent prior message is within 5 seconds of before_ts (i.e. the
+        recent prior message is within 30 seconds of before_ts (i.e. the
         user sent a message and immediately @mentioned the bot), that
         adjacent message is skipped and the one before it is used instead.
 
@@ -126,10 +126,10 @@ class MessageStore:
             return rows[0]["timestamp"]
 
         # Skip the most recent prior message if it's too close to the
-        # trigger (≤5 seconds) — it's likely a setup line right before
+        # trigger (≤30 seconds) — it's likely a setup line right before
         # the @bot mention, not a meaningful conversation boundary.
         most_recent = rows[0]["timestamp"]
-        if before_ts - most_recent <= 5:
+        if before_ts - most_recent <= 30:
             logger.info(
                 "Skipping close prior message from sender_id=%s "
                 "(gap=%ds). Using earlier message.",

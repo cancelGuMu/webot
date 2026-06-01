@@ -95,10 +95,13 @@ class MessageStore:
         """Get the timestamp of a user's last message BEFORE the given time.
 
         Queries the messages table directly (not user_last_message cursor)
-        so we can exclude the current @bot trigger message.  If the most
-        recent prior message is within 30 seconds of before_ts (i.e. the
-        user sent a message and immediately @mentioned the bot), that
-        adjacent message is skipped and the one before it is used instead.
+        so the current @bot trigger message is excluded.
+
+        Walks backward through the user's recent messages.  Any message
+        whose gap to the next message toward the trigger is ≤30 seconds
+        is considered part of a "burst" and skipped.  The first message
+        with a gap >30s becomes the summary boundary.  If all fetched
+        messages are within a single burst, the oldest one is used.
 
         Args:
             chat_id: The chatroom ID.
@@ -106,38 +109,52 @@ class MessageStore:
             before_ts: Upper bound (exclusive) — find messages before this.
 
         Returns:
-            Unix timestamp of the user's last meaningful message before
-            the trigger, or None if no prior message exists.
+            Unix timestamp of the boundary message, or None if the user
+            has no prior messages at all.
         """
-        # Fetch the user's most recent messages before the trigger
+        # Fetch the user's most recent messages before the trigger.
+        # LIMIT 30 covers the case where the user sent a rapid burst
+        # of many messages — we walk backward through all of them.
         rows = self.conn.execute(
             """SELECT timestamp FROM messages
                WHERE chat_id = ? AND sender_id = ? AND timestamp < ?
                ORDER BY timestamp DESC
-               LIMIT 5""",
+               LIMIT 30""",
             (chat_id, sender_id, before_ts),
         ).fetchall()
 
         if not rows:
             return None
 
-        # If only one prior message exists, use it regardless of gap
-        if len(rows) == 1:
-            return rows[0]["timestamp"]
+        # Walk backward: skip messages that form a close chain (gap ≤30s)
+        # ending at the @bot trigger.  When a user sends several messages
+        # in quick succession then @mentions the bot, the entire burst is
+        # treated as a setup preamble and skipped.  The first message that
+        # has a >30s gap from the next message toward the trigger becomes
+        # the summary boundary.
+        prev_ts = before_ts
+        skipped = 0
+        for row in rows:
+            gap = prev_ts - row["timestamp"]
+            if gap > 30:
+                if skipped > 0:
+                    logger.info(
+                        "Skipped %d close prior messages from sender_id=%s "
+                        "(final gap=%ds). Using earlier message as boundary.",
+                        skipped, sender_id, gap,
+                    )
+                return row["timestamp"]
+            skipped += 1
+            prev_ts = row["timestamp"]
 
-        # Skip the most recent prior message if it's too close to the
-        # trigger (≤30 seconds) — it's likely a setup line right before
-        # the @bot mention, not a meaningful conversation boundary.
-        most_recent = rows[0]["timestamp"]
-        if before_ts - most_recent <= 30:
-            logger.info(
-                "Skipping close prior message from sender_id=%s "
-                "(gap=%ds). Using earlier message.",
-                sender_id, before_ts - most_recent,
-            )
-            return rows[1]["timestamp"]
-
-        return most_recent
+        # All fetched messages are within the close chain — use the
+        # oldest one as the best available boundary.
+        logger.info(
+            "All %d prior messages from sender_id=%s are within close chain. "
+            "Using oldest as boundary.",
+            len(rows), sender_id,
+        )
+        return rows[-1]["timestamp"]
 
     def get_messages_since(self, chat_id: str, since_ts: int,
                            until_ts: Optional[int] = None,

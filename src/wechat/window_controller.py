@@ -438,14 +438,18 @@ class WeChatWindowController:
 
         # Phase 3: Adaptive result selection.
         # When multiple groups or "搜索网络结果" appears in search results,
-        # the first Enter may land on the wrong item.  We try with 0, 1, 2, 3
-        # Down presses before Enter until title verification passes.
+        # the first Enter may land on the wrong item — even the 搜一搜 page.
+        # We try with 0-5 Down presses before Enter until title verification
+        # passes.  Each retry Esc×2 to exit any nested pages before re-searching.
         navigated = False
-        for down_presses in range(4):
+        for down_presses in range(6):
             if down_presses > 0:
-                # Re-open search: Esc to dismiss, then Ctrl+F again
-                self._press_key(0x1B)  # Esc
-                time.sleep(0.25)
+                # Esc×2: first Esc exits 搜一搜 (if we landed there),
+                # second Esc dismisses search results. Then Ctrl+F fresh.
+                self._press_key(0x1B)  # Esc (exit 搜一搜 / back one level)
+                time.sleep(0.3)
+                self._press_key(0x1B)  # Esc (dismiss search panel)
+                time.sleep(0.2)
                 self._send_combo(0x11, 0x46)  # Ctrl+F
                 time.sleep(0.25)
                 self._send_combo(0x11, 0x41)  # Ctrl+A
@@ -487,7 +491,7 @@ class WeChatWindowController:
 
             logger.error(
                 "Navigation to '%s' lost foreground after %d attempts. %s",
-                group_name, 4, self.get_foreground_info(),
+                group_name, 6, self.get_foreground_info(),
             )
             return False
 

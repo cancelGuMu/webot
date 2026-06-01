@@ -144,7 +144,7 @@ Nicknames are persisted to `data/nicknames.json`.
 | `DEDUP_WINDOW_SEC` | `60` | Min seconds between triggers per group |
 | `MAX_MESSAGES_FOR_SUMMARY` | `5000` | Max messages per summary query |
 | `CHUNK_SIZE` | `400` | Messages per chunk in Map-Reduce mode |
-| `FALLBACK_WINDOW_HOURS` | `6` | Lookback when user has no prior message |
+| `FALLBACK_WINDOW_HOURS` | `8` | Minimum summary window (fallback & safety net) |
 | `LOG_LEVEL` | `INFO` | Logging level |
 | `LOG_FILE` | `data/bot.log` | Log file path |
 

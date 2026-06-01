@@ -60,7 +60,7 @@ class BotConfig:
     dedup_window_sec: int = 60
     max_messages_for_summary: int = 5000
     chunk_size: int = 400
-    fallback_window_hours: int = 6
+    fallback_window_hours: int = 8
 
     # === Logging ===
     log_level: str = "INFO"
@@ -114,7 +114,7 @@ def load_config() -> BotConfig:
         "dedup_window_sec": int(os.getenv("DEDUP_WINDOW_SEC", "60")),
         "max_messages_for_summary": int(os.getenv("MAX_MESSAGES_FOR_SUMMARY", "5000")),
         "chunk_size": int(os.getenv("CHUNK_SIZE", "400")),
-        "fallback_window_hours": int(os.getenv("FALLBACK_WINDOW_HOURS", "6")),
+        "fallback_window_hours": int(os.getenv("FALLBACK_WINDOW_HOURS", "8")),
         "enable_web_search": os.getenv("ENABLE_WEB_SEARCH", "true").strip().lower() == "true",
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),
         "log_file": os.getenv("LOG_FILE", "data/bot.log").strip(),

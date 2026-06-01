@@ -33,8 +33,6 @@ WEFLOW_BASE = "http://127.0.0.1:5031"
 WEFLOW_TIMEOUT = 5
 DEFAULT_POLL_SEC = 1.0
 MAX_DEDUP_SIZE = 5000
-SEND_CONFIRM_TIMEOUT_SEC = 6.0
-SEND_CONFIRM_POLL_SEC = 0.8
 
 
 # ── WeFlow HTTP client ────────────────────────────────────────────
@@ -147,8 +145,6 @@ class WeFlowBackend(AbstractWeChatBackend):
         self._nicknames: dict[str, str] = {}
         # Dedup
         self._known_ids: set[str] = set()
-        self._send_confirm_timeout = SEND_CONFIRM_TIMEOUT_SEC
-        self._send_confirm_poll = SEND_CONFIRM_POLL_SEC
 
     # ── Public API ─────────────────────────────────────────────────
 
@@ -395,60 +391,10 @@ class WeFlowBackend(AbstractWeChatBackend):
     # ── Message standardization ────────────────────────────────────
 
     def _send_and_confirm(self, group_name: str, talker: str, content: str) -> bool:
-        """Send through the window controller and confirm via WeFlow."""
-        before_ids = self._sent_message_ids(talker, content)
-
-        if not self._window.send_to_chat(group_name, content):
-            return False
-
-        if self._confirm_sent_message(talker, content, before_ids):
-            return True
-
-        logger.error(
-            "send confirmation missing: group='%s' talker=%s len=%d",
-            group_name, talker, len(content),
-        )
-        return False
-
-    def _sent_message_ids(self, talker: str, content: str) -> set[str]:
-        ids: set[str] = set()
-        for msg in self._client.get_messages(talker=talker, limit=80):
-            if msg.get("isSend") == 1 and str(msg.get("content", "")) == content:
-                ids.add(self._message_identity(msg))
-        return ids
-
-    def _confirm_sent_message(
-        self,
-        talker: str,
-        content: str,
-        before_ids: set[str] | None = None,
-    ) -> bool:
-        before_ids = before_ids or set()
-        deadline = time.time() + self._send_confirm_timeout
-
-        while True:
-            for msg in self._client.get_messages(talker=talker, limit=100):
-                if msg.get("isSend") != 1:
-                    continue
-                if str(msg.get("content", "")) != content:
-                    continue
-                if self._message_identity(msg) not in before_ids:
-                    logger.info(
-                        "send confirmed by WeFlow: talker=%s localId=%s",
-                        talker, msg.get("localId"),
-                    )
-                    return True
-
-            if time.time() >= deadline:
-                return False
-            time.sleep(self._send_confirm_poll)
-
-    @staticmethod
-    def _message_identity(msg: dict) -> str:
-        return "|".join(
-            str(msg.get(key, ""))
-            for key in ("serverId", "localId", "createTime", "content")
-        )
+        """Send through the window controller. Skip WeFlow confirmation —
+        the message is sent as soon as Enter is pressed; polling WeFlow adds
+        0-6s latency with no user-visible benefit."""
+        return self._window.send_to_chat(group_name, content)
 
     def _standardize(self, msg: dict, group_name: str,
                      talker: str) -> Optional[dict]:

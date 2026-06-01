@@ -89,6 +89,56 @@ class MessageStore:
         ).fetchone()
         return row["last_timestamp"] if row else None
 
+    def get_user_previous_timestamp(self, chat_id: str,
+                                    sender_id: str,
+                                    before_ts: int) -> Optional[int]:
+        """Get the timestamp of a user's last message BEFORE the given time.
+
+        Queries the messages table directly (not user_last_message cursor)
+        so we can exclude the current @bot trigger message.  If the most
+        recent prior message is within 5 seconds of before_ts (i.e. the
+        user sent a message and immediately @mentioned the bot), that
+        adjacent message is skipped and the one before it is used instead.
+
+        Args:
+            chat_id: The chatroom ID.
+            sender_id: The user's WeChat ID.
+            before_ts: Upper bound (exclusive) — find messages before this.
+
+        Returns:
+            Unix timestamp of the user's last meaningful message before
+            the trigger, or None if no prior message exists.
+        """
+        # Fetch the user's most recent messages before the trigger
+        rows = self.conn.execute(
+            """SELECT timestamp FROM messages
+               WHERE chat_id = ? AND sender_id = ? AND timestamp < ?
+               ORDER BY timestamp DESC
+               LIMIT 5""",
+            (chat_id, sender_id, before_ts),
+        ).fetchall()
+
+        if not rows:
+            return None
+
+        # If only one prior message exists, use it regardless of gap
+        if len(rows) == 1:
+            return rows[0]["timestamp"]
+
+        # Skip the most recent prior message if it's too close to the
+        # trigger (≤5 seconds) — it's likely a setup line right before
+        # the @bot mention, not a meaningful conversation boundary.
+        most_recent = rows[0]["timestamp"]
+        if before_ts - most_recent <= 5:
+            logger.info(
+                "Skipping close prior message from sender_id=%s "
+                "(gap=%ds). Using earlier message.",
+                sender_id, before_ts - most_recent,
+            )
+            return rows[1]["timestamp"]
+
+        return most_recent
+
     def get_messages_since(self, chat_id: str, since_ts: int,
                            until_ts: Optional[int] = None,
                            limit: int = 500) -> list[dict]:

@@ -143,9 +143,14 @@ class MessageRouter:
         sender_name = msg["sender_name"]
         chat_id = msg["chat_id"]
 
-        # Find the requester's last message BEFORE this trigger
-        since_ts = self._store.get_user_last_timestamp(chat_id, sender_id)
-        if since_ts is None or since_ts >= trigger_ts - 5:
+        # Find the requester's last message BEFORE this trigger.
+        # Uses the messages table directly so the current @bot trigger
+        # is excluded. If the most recent prior message is very close
+        # (≤5s) it is skipped in favour of an earlier boundary.
+        since_ts = self._store.get_user_previous_timestamp(
+            chat_id, sender_id, trigger_ts,
+        )
+        if since_ts is None:
             since_ts = (
                 int(time.time())
                 - self._config.fallback_window_hours * 3600
@@ -155,7 +160,7 @@ class MessageRouter:
                 sender_name, self._config.fallback_window_hours,
             )
         else:
-            # Start AFTER requester's last message (exclude the message itself)
+            # Start AFTER the boundary message (exclude the message itself)
             since_ts += 1
 
         raw_messages = self._store.get_messages_since(

@@ -1,15 +1,18 @@
 """Message router — receives standardized messages and dispatches to handlers.
 
-Routes messages to three modes:
+Routes messages to four response modes:
 1. Admin commands: @bot mention + admin wxid → AdminCommandHandler
 2. Summary requests: keyword trigger → summarizer.summarize()
 3. AI chat: @bot mention (non-summary) → summarizer.chat()
+4. Proactive chat: ambient participation via rate-based gating → summarizer.proactive_chat()
 """
 
 import logging
 import re
 import time
 from typing import Optional
+
+from .proactive.gate import ProactiveGate
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,7 @@ class MessageRouter:
         self._admin = admin_handler
         self._nicks = nickname_service
         self._config = config
+        self._proactive = ProactiveGate(config)
 
     @staticmethod
     def _strip_markdown(text: str) -> str:
@@ -78,55 +82,59 @@ class MessageRouter:
         if not stored:
             return None  # Duplicate — nothing more to do
 
-        # All interactions require @mention
+        # ── Route: @mention vs proactive ─────────────────────────
         is_at = msg["is_at_mentioned"]
-        if not is_at:
-            return None
 
-        logger.info(
-            "Trigger in %s by '%s': %s",
-            msg["chat_id"], msg["sender_name"], msg["content"][:80],
-        )
-
-        # ── Extract clean content (strip @bot prefix) ────────────
-        clean_content = msg["content"]
-        if self._config.bot_display_name:
-            at_pattern = f"@{self._config.bot_display_name}"
-            clean_content = clean_content.replace(at_pattern, "").strip()
-            # Also try unicode non-breaking space variant
-            clean_content = clean_content.replace(
-                f"@{self._config.bot_display_name} ", "",
-            ).strip()
-
-        # ── Dispatch ─────────────────────────────────────────────
-        reply: Optional[str] = None
-
-        if clean_content.strip() in ("帮助", "help", "命令"):
-            reply = self._admin.handle(clean_content, msg["sender_name"])
-
-        elif clean_content.strip() == "抽签":
-            from .fun import draw_lots
-            reply = draw_lots(msg["sender_name"])
-
-        # Admin commands — try first, fall through if not a command
-        if reply is None and (
-            self._config.admin_wxid
-            and msg["sender_id"] == self._config.admin_wxid
-        ):
-            reply = self._admin.handle(clean_content, msg["sender_name"])
-
-        if reply is None and self._detector.is_trigger(
-            content=clean_content,
-            is_at_mentioned=False,
-            sender_name=msg["sender_name"],
-        ):
-            self._store.log_trigger(
-                msg["chat_id"], msg["sender_id"], msg["message_id"],
+        if is_at:
+            # ── @mention path (existing logic) ───────────────────
+            logger.info(
+                "Trigger in %s by '%s': %s",
+                msg["chat_id"], msg["sender_name"], msg["content"][:80],
             )
-            reply = self._handle_summary(msg)
 
-        if reply is None and clean_content:
-            reply = self._handle_chat(msg, clean_content)
+            clean_content = msg["content"]
+            if self._config.bot_display_name:
+                at_pattern = f"@{self._config.bot_display_name}"
+                clean_content = clean_content.replace(at_pattern, "").strip()
+                clean_content = clean_content.replace(
+                    f"@{self._config.bot_display_name} ", "",
+                ).strip()
+
+            reply: Optional[str] = None
+
+            if clean_content.strip() in ("帮助", "help", "命令"):
+                reply = self._admin.handle(clean_content, msg["sender_name"])
+
+            elif clean_content.strip() == "抽签":
+                from .fun import draw_lots
+                reply = draw_lots(msg["sender_name"])
+
+            if reply is None and (
+                self._config.admin_wxid
+                and msg["sender_id"] == self._config.admin_wxid
+            ):
+                reply = self._admin.handle(clean_content, msg["sender_name"])
+
+            if reply is None and self._detector.is_trigger(
+                content=clean_content,
+                is_at_mentioned=False,
+                sender_name=msg["sender_name"],
+            ):
+                self._store.log_trigger(
+                    msg["chat_id"], msg["sender_id"], msg["message_id"],
+                )
+                reply = self._handle_summary(msg)
+
+            if reply is None and clean_content:
+                reply = self._handle_chat(msg, clean_content)
+
+        else:
+            # ── Proactive path (rate-based ambient participation) ─
+            should_speak, mode, reason = self._proactive.should_speak(msg)
+            if should_speak and mode is not None:
+                reply = self._handle_proactive_chat(msg, mode)
+            else:
+                return None
 
         # ── Strip markdown — WeChat can't render it ──────────────
         return self._strip_markdown(reply) if reply else None
@@ -273,3 +281,64 @@ class MessageRouter:
         except RuntimeError as e:
             logger.error("AI chat failed: %s", e)
             return f"@{display_name} 大脑短路了，稍等再试～"
+
+    # ── Proactive chat handler ────────────────────────────────────
+
+    def _handle_proactive_chat(self, msg: dict, mode) -> str | None:
+        """Generate a spontaneous reply based on recent chat context.
+
+        The mode (ProactiveMode) determines:
+          - context_count: how many recent messages to fetch
+          - max_chars: hard cap on reply length
+          - label/description/instruction: injected into AI prompt
+
+        The AI may return an empty string if it judges the conversation
+        inappropriate for interjection — no message is sent in that case.
+        """
+        now = int(time.time())
+
+        # Fetch recent messages — limit to mode's context window
+        window_start = now - self._config.proactive_rate_window_sec
+        context = self._store.get_messages_since(
+            msg["chat_id"], window_start, limit=mode.context_count,
+        )
+
+        if not context:
+            logger.debug("Proactive: no context available for %s", msg["chat_id"])
+            return None
+
+        # Resolve nicknames
+        for m in context:
+            custom = self._nicks.resolve_name(m["sender_id"])
+            if custom != m["sender_id"]:
+                m["sender_name"] = custom
+
+        logger.info(
+            "Proactive chat: mode=%s context=%d msgs chat=%s",
+            mode.name, len(context), msg.get("group_name", msg["chat_id"][:20]),
+        )
+
+        try:
+            ai_reply = self._summarizer.proactive_chat(
+                mode=mode,
+                context_messages=context,
+                bot_name=self._config.bot_display_name,
+                group_name=msg.get("group_name", msg.get("chat_id", "群聊")),
+            )
+        except RuntimeError as e:
+            logger.error("Proactive chat API failed: %s", e)
+            return None
+
+        if not ai_reply:
+            logger.info(
+                "Proactive: AI chose silence (mode=%s)", mode.name,
+            )
+            return None
+
+        ai_reply = self._nicks.resolve_wxids(ai_reply)
+        logger.info(
+            "Proactive reply: mode=%s len=%d → '%s'",
+            mode.name, len(ai_reply), ai_reply[:40],
+        )
+        # No @prefix — bot speaks as a natural group member
+        return ai_reply

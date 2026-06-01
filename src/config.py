@@ -55,6 +55,18 @@ class BotConfig:
     # Enable web search before AI chat replies (duckduckgo, free)
     enable_web_search: bool = True
 
+    # === Proactive Participation ===
+    # Master switch — enable autonomous chat participation without @mention
+    proactive_enabled: bool = False
+    # Rate thresholds for each mode (msgs/min).  When the message rate
+    # exceeds a threshold, the bot enters that mode.  Calibrate these
+    # by running:  python tools/analyze_chat_rhythm.py
+    proactive_rate_window_sec: int = 120  # rate calculation window
+    proactive_rate_quiet: float = 1.5     # SLEEP → QUIET  boundary
+    proactive_rate_casual: float = 4.0    # QUIET → CASUAL boundary
+    proactive_rate_lively: float = 6.5    # CASUAL → LIVELY boundary
+    proactive_rate_burst: float = 8.5     # LIVELY → BURST  boundary
+
     # === Tuning ===
     poll_interval_sec: float = 1.0
     dedup_window_sec: int = 60
@@ -116,6 +128,12 @@ def load_config() -> BotConfig:
         "chunk_size": int(os.getenv("CHUNK_SIZE", "400")),
         "fallback_window_hours": int(os.getenv("FALLBACK_WINDOW_HOURS", "8")),
         "enable_web_search": os.getenv("ENABLE_WEB_SEARCH", "true").strip().lower() == "true",
+        "proactive_enabled": os.getenv("PROACTIVE_ENABLED", "false").strip().lower() == "true",
+        "proactive_rate_window_sec": int(os.getenv("PROACTIVE_RATE_WINDOW_SEC", "120")),
+        "proactive_rate_quiet": float(os.getenv("PROACTIVE_RATE_QUIET", "1.5")),
+        "proactive_rate_casual": float(os.getenv("PROACTIVE_RATE_CASUAL", "4.0")),
+        "proactive_rate_lively": float(os.getenv("PROACTIVE_RATE_LIVELY", "6.5")),
+        "proactive_rate_burst": float(os.getenv("PROACTIVE_RATE_BURST", "8.5")),
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),
         "log_file": os.getenv("LOG_FILE", "data/bot.log").strip(),
     }

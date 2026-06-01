@@ -258,6 +258,40 @@ class WeFlowBackend(AbstractWeChatBackend):
         logger.info("Total nickname cache: %d entries", len(self._nicknames))
 
         # Resolve group talker IDs
+        auto_discover = (
+            len(self._groups) == 1
+            and self._groups[0].strip() in ("*", "all")
+        )
+
+        if auto_discover:
+            # Auto-discover all group chats
+            for s in sessions:
+                username = s.get("username", s.get("talker", ""))
+                display = s.get("displayName", s.get("nickname", ""))
+                # Group chats have usernames ending with @chatroom
+                if username.endswith("@chatroom") and display:
+                    self._talker_ids[display] = username
+                    logger.info("Auto-discovered: '%s' -> %s", display, username)
+            if not self._talker_ids:
+                logger.error(
+                    "Auto-discover found no group chats. "
+                    "Sessions: %s",
+                    [(s.get('displayName', '')[:30],
+                      s.get('username', '')[:40])
+                     for s in sessions[:10]],
+                )
+                self._groups = []  # prevent polling with "*"
+            else:
+                logger.info(
+                    "Auto-discovered %d group chats: %s",
+                    len(self._talker_ids),
+                    list(self._talker_ids.keys()),
+                )
+                # Update self._groups so polling iterates over all of them
+                self._groups = list(self._talker_ids.keys())
+            return
+
+        # Manual mode: match configured names against sessions
         for group_name in self._groups:
             found = None
             for s in sessions:

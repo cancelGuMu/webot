@@ -1,5 +1,7 @@
 # WeChat Group Bot —— 微信群聊 AI 助手
 
+孤舟99
+
 基于 AI 的微信群聊智能机器人。支持**错过的消息总结**、**@提问对话**、**Map-Reduce 长文本分段处理**、**主动参与群聊**及**长期记忆**。多 AI 后端（DeepSeek / Claude），通过 WeFlow 本地 HTTP API 或 UIAutomation 读取消息，Win32 `PostMessage` 发送回复，**无需协议逆向、无需 DLL 注入**。
 
 ## 功能一览

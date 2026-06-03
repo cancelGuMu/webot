@@ -12,10 +12,13 @@ Architecture:
 """
 
 import logging
+import hashlib
 import time
 import threading
 from pathlib import Path
 from typing import Optional
+
+from .keyboard import press_key, send_combo
 
 # ── UIA imports (try multiple paths) ──────────────────────────────
 try:
@@ -71,7 +74,7 @@ RETRY_BASE = 2.0
 # Max dedup set size
 MAX_DEDUP_SIZE = 5000
 # Minimum UIA tree nodes for healthy WeChat
-MIN_UIA_NODES = 10
+MIN_UIA_NODES = 50
 
 
 # ── Window discovery ──────────────────────────────────────────────
@@ -117,9 +120,10 @@ def _find_wechat_hwnd() -> Optional[int]:
         candidates.sort(key=lambda x: x[0], reverse=True)
         return candidates[0][1]
 
-    # Fallback: common class names
+    # Fallback: known class names across WeChat versions (Qt 4.x, CEF 5.x+)
     for cls in ("Qt51514QWindowIcon", "Qt51414QWindowIcon",
-                "Qt516QWindowIcon"):
+                "Qt516QWindowIcon", "Qt517QWindowIcon",
+                "Chrome_WidgetWin_0", "Chrome_WidgetWin_1"):
         hwnd = win32gui.FindWindow(cls, None)
         if hwnd:
             return hwnd
@@ -454,22 +458,29 @@ class UiaBackend(AbstractWeChatBackend):
 
         self._register_uia_client(root)
 
-        # Poll with backoff until tree populates
+        # Poll with backoff until tree populates.
+        # WeChat can take 1-10s to build the tree on first connect;
+        # use a longer interval later to avoid burning CPU.
         node_count = 0
-        for attempt in range(10):
-            time.sleep(0.5)
+        for attempt in range(15):
+            wait = 0.4 if attempt < 5 else 1.0
+            time.sleep(wait)
             node_count = _count_uia_nodes(root, limit=200)
             logger.debug(
-                f"Tree wake-up attempt {attempt + 1}/10: "
-                f"{node_count} nodes"
+                "Tree wake-up attempt %d/15: %d nodes",
+                attempt + 1, node_count,
             )
             if node_count >= MIN_UIA_NODES:
                 break
 
         if node_count < MIN_UIA_NODES:
             # Try one more thing: set screen reader flag + re-fetch
+            # Note: this flag is checked at app startup by most
+            # frameworks; it rarely helps a running process, but
+            # sometimes triggers a WM_SETTINGCHANGE broadcast that
+            # prompts Qt/CEF to rebuild the tree.
             self._force_screen_reader_flag()
-            time.sleep(1.0)
+            time.sleep(1.5)
             # Re-get root (handle may have changed)
             root = _uia.ControlFromHandle(hwnd)
             if root is None:
@@ -485,8 +496,8 @@ class UiaBackend(AbstractWeChatBackend):
         if node_count < MIN_UIA_NODES:
             raise RuntimeError(
                 f"UIA tree did not populate ({node_count} nodes).\n"
-                f"WeChat 4.1.x requires a UIA client subscription to "
-                f"expose the full widget tree. Tried for 5+ seconds.\n\n"
+                f"WeChat 4.x/5.x requires a UIA client subscription to "
+                f"expose the full widget tree. Tried for 10+ seconds.\n\n"
                 f"Last resort fixes:\n"
                 f"  1. Close WeChat completely\n"
                 f"  2. Open Windows Narrator (Win+Ctrl+Enter)\n"
@@ -500,17 +511,34 @@ class UiaBackend(AbstractWeChatBackend):
         self._uia_root = root
         self._connect_retries = 0
 
+        # ── Secondary check: verify common UI elements are present ─
+        # A healthy WeChat tree should expose a contact list sidebar
+        # (ListControl) or the message area.  If neither is found log a
+        # warning — the tree may be too shallow or partially populated.
+        _has_list = _find_descendant(
+            root, ctrl_type="ListControl", max_depth=4, timeout=1.0
+        )
+        _has_msg_area = _find_descendant(
+            root, name_contains="消息", max_depth=4, timeout=1.0
+        )
+        if not _has_list and not _has_msg_area:
+            logger.warning(
+                "UIA tree appears incomplete: no contact list "
+                "(ListControl) or message area element found. "
+                "Message polling and navigation may be unreliable."
+            )
+
     @staticmethod
     def _register_uia_client(root) -> None:
         """Register as a UIAutomation client using COM-level event subscription.
 
-        WeChat 4.1.x+ Qt framework checks whether a real UIA client
-        (screen reader, automation tool) has subscribed to events
-        before building the full accessibility tree.
+        WeChat 4.1.x+ Qt / 5.x CEF framework checks whether a real UIA client
+        (screen reader, automation tool) has subscribed to events before
+        building the full accessibility tree.
 
         We use comtypes to create a CUIAutomation → ElementFromHandle →
-        subscribe to StructureChanged event. This is the exact pattern
-        that triggers Qt's accessibility bridge.
+        subscribe to StructureChanged event. This triggers the framework's
+        accessibility bridge.
         """
         if not _COM_UIA_AVAILABLE:
             logger.debug("COM UIA not available, skipping client registration")
@@ -522,6 +550,9 @@ class UiaBackend(AbstractWeChatBackend):
                 _CUIAutomation,
                 interface=_IUIAutomation,
             )
+            if not uia_client:
+                logger.debug("COM UIA client creation returned None")
+                return
 
             # Get the element for our hwnd through COM
             hwnd = _safe_call(getattr, root, "NativeWindowHandle", default=0)
@@ -533,28 +564,19 @@ class UiaBackend(AbstractWeChatBackend):
 
             element = uia_client.ElementFromHandle(hwnd)
             if not element:
+                logger.debug("ElementFromHandle returned None for HWND=%s", hwnd)
                 return
 
-            # Define a minimal event handler
-            class _TreeWakeHandler(_cc.COMObject):
-                _com_interfaces_ = [
-                    _IUIAutomationElement,  # placeholder; real handler below
-                ]
-
-            # We use the pre-imported COM types
-
+            # Minimal event handler — the subscription itself is what matters
             class _EventHandler(_cc.COMObject):
                 _com_interfaces_ = [_IUIAutomationEventHandler]
 
                 def HandleAutomationEvent(self, sender, eventId):
                     pass  # No-op — we just need the subscription to exist
 
-                def HandleStructureChangedEvent(self, sender, changeType, runtimeId):
-                    pass
-
             handler = _EventHandler()
 
-            # Subscribe — this is the key call that wakes up Qt
+            # Subscribe — this is the key call that wakes up the UIA tree
             uia_client.AddAutomationEventHandler(
                 _UIA_StructureChangedEventId,
                 element,
@@ -562,11 +584,11 @@ class UiaBackend(AbstractWeChatBackend):
                 None,  # cacheRequest
                 handler,
             )
-            logger.debug(
-                "COM UIA client registered with StructureChanged handler"
+            logger.info(
+                "COM UIA client registered (event subscription active)"
             )
         except Exception as e:
-            logger.debug(f"COM UIA client registration failed: {e}")
+            logger.debug("COM UIA client registration failed: %s", e)
 
     @staticmethod
     def _force_screen_reader_flag() -> bool:
@@ -623,7 +645,13 @@ class UiaBackend(AbstractWeChatBackend):
     # ── Message polling ────────────────────────────────────────────
 
     def _poll_cycle(self, callback: MessageCallback) -> None:
-        """One poll cycle: scan configured groups for new messages."""
+        """One poll cycle: scan configured groups for new messages.
+
+        NOTE: This method runs synchronously in the main poll loop.
+        _poll_group dispatches to `callback` (router.handle), which may
+        trigger AI summarization. Since the loop is single-threaded, a
+        long-running callback delays the next poll cycle for *all* groups.
+        """
         if not self._ensure_connected():
             time.sleep(self._poll_sec)
             return
@@ -680,7 +708,14 @@ class UiaBackend(AbstractWeChatBackend):
             standardized = self._standardize_message(
                 msg, group_name, msg_id, is_at
             )
+            cb_start = time.monotonic()
             reply = callback(standardized)
+            cb_elapsed = time.monotonic() - cb_start
+            if cb_elapsed > 0.5:
+                logger.debug(
+                    "Callback took %.2fs (msg_id=%s, group='%s')",
+                    cb_elapsed, msg_id, group_name,
+                )
             if reply:
                 self.send_text(group_name, reply)
 
@@ -691,25 +726,31 @@ class UiaBackend(AbstractWeChatBackend):
 
         Primary: Ctrl+F → paste name → Enter (keyboard-only).
         Fallback: UIA find chat in sidebar → Click (mouse, for broken search).
+
+        After each navigation step, a fixed minimum sleep is followed by
+        adaptive UIA polling (up to ~1 s total per step) so the method
+        completes faster under light load while tolerating system lag.
         """
         for attempt in range(MAX_RETRIES):
             try:
                 # Strategy 1 (primary): Ctrl+F keyboard search
                 self._activate_window()
                 time.sleep(0.1)
-                self._send_combo(0x11, 0x46)  # Ctrl+F
-                time.sleep(0.3)
+                send_combo(0x11, 0x46)  # Ctrl+F
+                time.sleep(0.3)  # minimum settle
+                self._wait_for_search_box(timeout=0.7)  # adaptive polling
 
                 # Paste the group name into search
                 self._paste_text(chat_name)
-                time.sleep(0.5)
+                time.sleep(0.5)  # minimum settle
 
                 # Press Enter to select first result
-                self._press_key(0x0D)  # Enter
-                time.sleep(0.3)
+                press_key(0x0D)  # Enter
+                time.sleep(0.3)  # minimum settle
+                self._wait_for_chat_active(chat_name, timeout=0.7)  # adaptive polling
 
                 # Tab to ensure input area focus
-                self._press_key(0x09)  # Tab
+                press_key(0x09)  # Tab
                 time.sleep(0.15)
 
                 return True
@@ -738,6 +779,46 @@ class UiaBackend(AbstractWeChatBackend):
         logger.warning("Could not navigate to chat: %s", chat_name)
         return False
 
+    def _wait_for_search_box(self, timeout: float = 0.7) -> bool:
+        """Poll for the Ctrl+F search overlay EditControl to appear.
+
+        Called immediately after Ctrl+F. Returns True if the search box
+        is visible in the UIA tree; False (logged at debug) otherwise.
+        """
+        # Primary: EditControl whose name or AutomationId suggests it is
+        # the search/find box (as opposed to the chat compose input).
+        found = _find_descendant(
+            self._uia_root,
+            name_contains="搜索",
+            class_name="EditControl",
+            max_depth=5,
+            timeout=timeout,
+        )
+        if found:
+            return True
+        logger.debug("Search box not confirmed via UIA after Ctrl+F")
+        return False
+
+    def _wait_for_chat_active(self, chat_name: str, timeout: float = 0.7) -> bool:
+        """Poll to confirm the target chat panel is displayed after Enter.
+
+        Looks for any UIA element whose name contains *chat_name* (e.g.
+        the chat-title label in the header bar). Returns True if found;
+        False (logged at debug) otherwise.
+        """
+        found = _find_descendant(
+            self._uia_root,
+            name_contains=chat_name,
+            max_depth=5,
+            timeout=timeout,
+        )
+        if found:
+            return True
+        logger.debug(
+            "Chat panel not confirmed for '%s' after Enter (UIA)", chat_name
+        )
+        return False
+
     def _activate_window(self) -> None:
         """Bring WeChat window to foreground."""
         if self._hwnd is None:
@@ -747,26 +828,6 @@ class UiaBackend(AbstractWeChatBackend):
             win32gui.SetForegroundWindow(self._hwnd)
         except Exception:
             pass
-
-    @staticmethod
-    def _press_key(vk: int) -> None:
-        """Send a key press/release to the foreground window."""
-        import ctypes
-        ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
-        time.sleep(0.03)
-        ctypes.windll.user32.keybd_event(vk, 0, 2, 0)
-
-    @staticmethod
-    def _send_combo(mod_vk: int, key_vk: int) -> None:
-        """Send a modifier+key combo (e.g. Ctrl+F) to the foreground window."""
-        import ctypes
-        ctypes.windll.user32.keybd_event(mod_vk, 0, 0, 0)
-        time.sleep(0.03)
-        ctypes.windll.user32.keybd_event(key_vk, 0, 0, 0)
-        time.sleep(0.03)
-        ctypes.windll.user32.keybd_event(key_vk, 0, 2, 0)
-        time.sleep(0.03)
-        ctypes.windll.user32.keybd_event(mod_vk, 0, 2, 0)
 
     # ── Message reading ────────────────────────────────────────────
 
@@ -964,13 +1025,22 @@ class UiaBackend(AbstractWeChatBackend):
             timeout=0.5,
         )
         if self_elem:
-            return ""
+            try:
+                name = self_elem.Name
+                if name:
+                    return str(name)
+            except Exception:
+                pass
         return ""
 
     def _standardize_message(self, msg: _ChatMessage, chat_id: str,
                               msg_id: str, is_at: bool) -> dict:
         """Convert internal _ChatMessage to the standard message dict."""
-        # Try to extract sender_id from sender name
+        # NOTE: sender_id is a hash of the *display name* (e.g. "张三"),
+        # not the wxid (e.g. "wxid_abc123"). UIA only exposes display
+        # names, so nickname overrides keyed on wxid will NOT match.
+        # NicknameService in src/nickname.py is effectively bypassed
+        # for the UIA backend — manual nickname mappings have no effect.
         sender_id = hashlib.md5(
             (msg.sender or "unknown").encode()
         ).hexdigest()[:12]

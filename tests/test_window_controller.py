@@ -14,8 +14,8 @@ class WeChatWindowControllerTests(unittest.TestCase):
         with (
             patch.object(controller, "_validate_hwnd", return_value=True),
             patch.object(controller, "_foreground_matches", return_value=True),
-            patch.object(controller, "_press_key") as press_key,
-            patch.object(controller, "_send_combo") as send_combo,
+            patch("src.wechat.window_controller.press_key") as press_key,
+            patch("src.wechat.window_controller.send_combo") as send_combo,
             patch.object(controller, "_set_clipboard"),
             patch.object(controller, "_verify_chat_title", return_value=False),
             patch.object(controller, "_current_wechat_foreground_hwnd", return_value=None),
@@ -49,8 +49,8 @@ class WeChatWindowControllerTests(unittest.TestCase):
         with (
             patch.object(controller, "_validate_hwnd", return_value=True),
             patch.object(controller, "_foreground_matches", return_value=False),
-            patch.object(controller, "_press_key"),
-            patch.object(controller, "_send_combo"),
+            patch("src.wechat.window_controller.press_key"),
+            patch("src.wechat.window_controller.send_combo"),
             patch.object(controller, "_set_clipboard"),
             patch.object(controller, "_verify_chat_title", return_value=False),
             patch.object(
@@ -68,8 +68,8 @@ class WeChatWindowControllerTests(unittest.TestCase):
             patch.object(controller, "_validate_hwnd", return_value=True),
             patch.object(controller, "_foreground_matches", return_value=False),
             patch.object(controller, "_set_clipboard") as set_clipboard,
-            patch.object(controller, "_send_combo") as send_combo,
-            patch.object(controller, "_press_key") as press_key,
+            patch("src.wechat.window_controller.send_combo") as send_combo,
+            patch("src.wechat.window_controller.press_key") as press_key,
         ):
             self.assertFalse(controller.send_message(12345, "hello"))
             set_clipboard.assert_not_called()
@@ -84,8 +84,8 @@ class WeChatWindowControllerTests(unittest.TestCase):
             patch.object(controller, "_validate_hwnd", return_value=True),
             patch.object(controller, "_foreground_matches", return_value=True),
             patch.object(controller, "_set_clipboard"),
-            patch.object(controller, "_send_combo") as send_combo,
-            patch.object(controller, "_press_key") as press_key,
+            patch("src.wechat.window_controller.send_combo") as send_combo,
+            patch("src.wechat.window_controller.press_key") as press_key,
             patch.object(controller, "_current_wechat_foreground_hwnd", return_value=None),
         ):
             self.assertTrue(controller.send_message(12345, "hello"))
@@ -163,16 +163,24 @@ class WeChatWindowControllerTests(unittest.TestCase):
                 "target group", "hello", "WeChat window is blank/white", 100
             )
 
-    def test_send_text_fails_when_weflow_confirmation_is_missing(self):
+    def test_send_succeeds_optimistically_when_weflow_confirmation_times_out(self):
+        """When WeFlow confirmation times out, the send still returns True
+        (optimistic), but a warning is logged.  The bot must not block on
+        transient API issues — the message was likely sent via keyboard."""
         backend = WeFlowBackend(groups=["target group"])
         backend._talker_ids["target group"] = "room@chatroom"
         backend._window = MagicMock()
         backend._window.send_to_chat.return_value = True
         backend._client = MagicMock()
         backend._client.get_messages.return_value = []
-        backend._send_confirm_timeout = 0
 
-        self.assertFalse(backend.send_text("room@chatroom", "hello"))
+        with self.assertLogs("src.wechat.weflow_backend", level="WARNING") as log:
+            self.assertTrue(backend.send_text("room@chatroom", "hello"))
+
+        self.assertTrue(
+            any("Send unconfirmed" in msg for msg in log.output),
+            "Should log a warning when send is unconfirmed",
+        )
 
     def test_send_text_succeeds_when_weflow_confirms_sent_message(self):
         backend = WeFlowBackend(groups=["target group"])

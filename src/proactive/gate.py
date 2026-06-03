@@ -40,6 +40,9 @@ class ProactiveGate:
         self._tracker = RateTracker(config.proactive_rate_window_sec)
         # Per-group: last time we evaluated (to enforce eval_interval)
         self._last_eval: dict[str, float] = {}
+        # Per-group: consecutive AI silence count (for exponential backoff)
+        self._consecutive_silence: dict[str, int] = {}
+        self._call_count: int = 0
 
     def should_speak(self, msg: dict) -> tuple[bool, ProactiveMode | None, str]:
         """Record a message and decide whether to trigger AI evaluation.
@@ -54,6 +57,14 @@ class ProactiveGate:
         chat_id = msg.get("chat_id", "")
         if not chat_id:
             return False, None, "no chat_id"
+
+        # ── Periodic _last_eval cleanup ─────────────────────────────
+        self._call_count += 1
+        if self._call_count % 500 == 0 and len(self._last_eval) > 100:
+            cutoff = time.time() - 3600  # 1 hour
+            stale = [k for k, v in self._last_eval.items() if v < cutoff]
+            for k in stale:
+                del self._last_eval[k]
 
         # ── Always record for rate tracking ───────────────────────
         self._tracker.record(chat_id)
@@ -73,16 +84,28 @@ class ProactiveGate:
             )
             return False, None, f"rate {rate:.1f}/min → SLEEP"
 
-        # ── Gate 3: evaluation interval ───────────────────────────
+        # ── Gate 3: evaluation interval (with silence backoff) ───
         now = time.time()
         last = self._last_eval.get(chat_id, 0)
         elapsed = now - last
-        if elapsed < mode.eval_interval_sec:
+        # Exponential backoff: each consecutive silence doubles the
+        # effective interval, capped at 16x.  During prolonged crises
+        # this prevents burning API tokens every 2-8 minutes on calls
+        # that all return empty.
+        consecutive = self._consecutive_silence.get(chat_id, 0)
+        backoff = min(2 ** consecutive, 16)
+        effective_interval = mode.eval_interval_sec * backoff
+        if elapsed < effective_interval:
             logger.debug(
-                "Proactive: eval interval not met (%.0fs < %ds, mode=%s)",
-                elapsed, mode.eval_interval_sec, mode.name,
+                "Proactive: eval interval not met (%.0fs < %ds, mode=%s, "
+                "backoff=%dx, consecutive_silence=%d)",
+                elapsed, effective_interval, mode.name,
+                backoff, consecutive,
             )
-            return False, None, f"eval interval ({elapsed:.0f}s < {mode.eval_interval_sec}s)"
+            return False, None, (
+                f"eval interval ({elapsed:.0f}s < {effective_interval}s, "
+                f"backoff={backoff}x)"
+            )
 
         # ── Gate 4: reply probability ─────────────────────────────
         roll = random.random()
@@ -108,3 +131,32 @@ class ProactiveGate:
     def record_eval(self, chat_id: str) -> None:
         """Manually update last evaluation time (e.g., after AI returned blank)."""
         self._last_eval[chat_id] = time.time()
+
+    def record_silence(self, chat_id: str) -> None:
+        """Increment consecutive silence counter for exponential backoff.
+
+        Call this when the AI returns an empty string from proactive_chat().
+        Each consecutive silence doubles the effective evaluation interval,
+        capped at 16x, so the gate backs off during prolonged crises.
+        """
+        self._consecutive_silence[chat_id] = (
+            self._consecutive_silence.get(chat_id, 0) + 1
+        )
+        logger.debug(
+            "Proactive: silence recorded for chat=%s (consecutive=%d)",
+            chat_id[:20], self._consecutive_silence[chat_id],
+        )
+
+    def record_speech(self, chat_id: str) -> None:
+        """Reset consecutive silence counter when the AI successfully speaks."""
+        if self._consecutive_silence.get(chat_id, 0) > 0:
+            logger.debug(
+                "Proactive: speech recorded for chat=%s — resetting "
+                "silence counter from %d",
+                chat_id[:20], self._consecutive_silence[chat_id],
+            )
+            self._consecutive_silence[chat_id] = 0
+
+    def get_consecutive_silence(self, chat_id: str) -> int:
+        """Return the current consecutive silence count for a group."""
+        return self._consecutive_silence.get(chat_id, 0)

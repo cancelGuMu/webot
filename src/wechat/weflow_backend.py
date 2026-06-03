@@ -51,10 +51,12 @@ class WeFlowClient:
         if params is None:
             params = {}
         clean = {k: v for k, v in params.items() if v is not None}
+        if clean:
+            url += "?" + urlencode(clean)
+        headers = {"Accept": "application/json"}
         if self.token:
-            clean["access_token"] = self.token
-        url += "?" + urlencode(clean)
-        req = Request(url, headers={"Accept": "application/json"})
+            headers["Authorization"] = f"Bearer {self.token}"
+        req = Request(url, headers=headers)
         try:
             with urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
@@ -185,12 +187,20 @@ class WeFlowBackend(AbstractWeChatBackend):
                 consecutive_errors = 0
             except KeyboardInterrupt:
                 break
-            except Exception as e:
+            except URLError as e:
                 consecutive_errors += 1
                 wait = min(2 ** consecutive_errors, 30)
                 logger.warning(
-                    "Poll error #%d: %s. Retry in %ss...",
+                    "Poll network error #%d (URLError): %s. Retry in %ss...",
                     consecutive_errors, e, wait,
+                )
+                time.sleep(wait)
+            except Exception as e:
+                consecutive_errors += 1
+                wait = min(2 ** consecutive_errors, 30)
+                logger.error(
+                    "Poll unexpected error #%d (%s): %s. Retry in %ss...",
+                    consecutive_errors, type(e).__name__, e, wait,
                 )
                 time.sleep(wait)
 
@@ -218,6 +228,15 @@ class WeFlowBackend(AbstractWeChatBackend):
 
     # ── Group & nickname resolution ────────────────────────────────
 
+    # NOTE: Nickname resolution happens in two places:
+    #   1. Here (_resolve_groups) at backend startup — loads from WeFlow
+    #      sessions/contacts and nicknames.json as a local cache for
+    #      fast lookups during message polling.
+    #   2. NicknameService (src/nickname.py) during message routing —
+    #      the canonical source for manual overrides. NicknameService
+    #      takes precedence because router.py calls it after the backend
+    #      returns a standardized message; any manual override applied
+    #      via the '改名' admin command will override the backend cache.
     def _resolve_groups(self) -> None:
         sessions = self._client.get_sessions(limit=500)
 
@@ -332,6 +351,10 @@ class WeFlowBackend(AbstractWeChatBackend):
     # ── Message polling ────────────────────────────────────────────
 
     def _poll_cycle(self, callback: MessageCallback) -> None:
+        # NOTE: This method runs synchronously in the main poll loop.
+        # _poll_group dispatches to `callback` (router.handle), which may
+        # trigger AI summarization. Since the loop is single-threaded, a
+        # long-running callback delays the next poll cycle for *all* groups.
         for group_name in list(self._groups):
             if not self._running:
                 break
@@ -367,7 +390,14 @@ class WeFlowBackend(AbstractWeChatBackend):
 
             self._trim_dedup()
 
+            cb_start = time.monotonic()
             reply = callback(standardized)
+            cb_elapsed = time.monotonic() - cb_start
+            if cb_elapsed > 0.5:
+                logger.debug(
+                    "Callback took %.2fs (msg_id=%s, group='%s')",
+                    cb_elapsed, msg_id, group_name,
+                )
             if reply:
                 logger.info(
                     "Reply ready: group='%s' sender='%s' len=%d",
@@ -391,10 +421,45 @@ class WeFlowBackend(AbstractWeChatBackend):
     # ── Message standardization ────────────────────────────────────
 
     def _send_and_confirm(self, group_name: str, talker: str, content: str) -> bool:
-        """Send through the window controller. Skip WeFlow confirmation —
-        the message is sent as soon as Enter is pressed; polling WeFlow adds
-        0-6s latency with no user-visible benefit."""
-        return self._window.send_to_chat(group_name, content)
+        """Send through the window controller, then confirm via WeFlow API.
+
+        After pressing Enter to send, polls WeFlow for up to 3 seconds
+        (6 attempts at 0.5s intervals) to confirm the sent message appears
+        in the chat. If the window controller itself fails, returns False
+        immediately. If the message is not confirmed within timeout, logs a
+        warning but still returns True — we don't block the bot on transient
+        API issues, but operators can see the failure in logs.
+        """
+        if not self._window.send_to_chat(group_name, content):
+            return False
+
+        # Confirm via WeFlow — poll up to 3s for our message to appear
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            try:
+                recent = self._client.get_messages(talker=talker, limit=5)
+                for msg in recent:
+                    msg_content = str(msg.get("content", "")).strip()
+                    # Match against the raw content (no sender filter — we
+                    # want our own sent messages, which carry isSend=1).
+                    if msg_content == content:
+                        elapsed = 3.0 - (deadline - time.monotonic())
+                        logger.debug(
+                            "Send confirmed: message appeared in WeFlow "
+                            "after %.1fs", elapsed,
+                        )
+                        return True
+            except Exception:
+                pass  # transient API error, retry next interval
+            time.sleep(0.5)
+
+        logger.warning(
+            "Send unconfirmed after 3s: group='%s' content='%s' — "
+            "message may be lost. Check WeChat window state.",
+            group_name,
+            content[:80],
+        )
+        return True  # don't block the bot, but log the failure
 
     def _standardize(self, msg: dict, group_name: str,
                      talker: str) -> Optional[dict]:

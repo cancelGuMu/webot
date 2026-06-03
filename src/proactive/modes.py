@@ -61,41 +61,41 @@ _MODE_BEHAVIOR: list[dict] = [
         "name": "QUIET",
         "label": "冷清",
         "description": "偶尔有人冒泡，节奏很慢",
-        "instruction": "群里比较安静，偶尔才有人说话。除非有真的很想接的话题，否则别说话。保持克制。",
+        "instruction": "群里比较安静，偶尔才有人说话。看最近聊了什么，如果话题你能接上就自然地回一句。保持克制，不要说无关的话。如果群里出现重大打击、情绪崩溃、吵架、裁员离婚等严重话题，必须保持沉默。",
         "eval_interval_sec": 300,
         "reply_probability": 0.10,
-        "max_chars": 15,
-        "context_count": 15,
+        "max_chars": 30,
+        "context_count": 30,
     },
     {
         "name": "CASUAL",
         "label": "闲聊",
         "description": "正常聊天节奏，几个人在聊",
-        "instruction": "群里在正常聊天。可以自然地插话，但不要太频繁。说自己的看法，接梗吐槽都行。",
+        "instruction": "群里在正常聊天。仔细看最近大家在聊什么话题，确保你的回复是接着前面话题的。可以自然地插话、吐槽、接梗，但不要突然跳到无关话题。如果群里出现重大打击、情绪崩溃、吵架等严重话题，保持沉默，不要接话。",
         "eval_interval_sec": 120,
         "reply_probability": 0.25,
-        "max_chars": 20,
-        "context_count": 20,
+        "max_chars": 50,
+        "context_count": 50,
     },
     {
         "name": "LIVELY",
         "label": "热闹",
         "description": "多人同时在讨论，节奏较快",
-        "instruction": "群里聊得很嗨。可以频繁一些插短句，吐槽、接梗、起哄为主。保持极短。",
+        "instruction": "群里聊得很嗨。快速扫一眼最近的话题，接短句、吐槽、起哄都可以。但要确保你接的是正在聊的事，不要答非所问。注意：如果话题转向严重负面事件（事故、重病、情绪崩溃等），停止插话。",
         "eval_interval_sec": 60,
         "reply_probability": 0.50,
-        "max_chars": 15,
-        "context_count": 25,
+        "max_chars": 35,
+        "context_count": 60,
     },
     {
         "name": "BURST",
         "label": "炸了",
         "description": "刷屏级别，瓜来了或者大事件",
-        "instruction": "群聊爆炸了！极短的感叹、吐槽、表情反应为主。像真人一样快速简短地反应。",
+        "instruction": "群聊爆炸了！极短的感叹、吐槽、表情反应为主。快速扫上下文确保你没接错话题。但如果是负面大事件刷屏（事故、重病等），不要跟风发言。",
         "eval_interval_sec": 30,
         "reply_probability": 0.70,
-        "max_chars": 10,
-        "context_count": 30,
+        "max_chars": 20,
+        "context_count": 80,
     },
 ]
 
@@ -153,6 +153,15 @@ def get_modes(config: "BotConfig") -> list[ProactiveMode]:
     if _MODES is None:
         _MODES = build_modes(config)
     return _MODES
+
+
+def reset_modes() -> None:
+    """Reset the module-level mode cache so modes are rebuilt on next access.
+
+    Call this after config changes to force re-evaluation of rate thresholds.
+    """
+    global _MODES
+    _MODES = None
 
 
 def lookup_mode(rate: float, config: "BotConfig") -> ProactiveMode:

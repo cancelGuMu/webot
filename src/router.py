@@ -13,11 +13,15 @@ import time
 from typing import Optional
 
 from .proactive.gate import ProactiveGate
+from .proactive.sticky import StickyMentionTracker
 from .memory.consolidator import MemoryConsolidator
 
 logger = logging.getLogger(__name__)
 
-# Markdown patterns to strip before sending to WeChat
+# Markdown patterns to strip before sending to WeChat.
+# These regexes may miss edge cases like nested formatting or asterisks at
+# line boundaries.  AI output typically uses simple bold/italic/code/
+# strikethrough — these patterns handle 99% of cases.
 _MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
 _MD_ITALIC = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
 _MD_STRIKE = re.compile(r"~~(.+?)~~")
@@ -59,7 +63,12 @@ class MessageRouter:
         self._nicks = nickname_service
         self._config = config
         self._proactive = ProactiveGate(config)
+        self._sticky = StickyMentionTracker(
+            ttl_sec=config.sticky_mention_ttl_sec,
+        ) if config.sticky_mention_enabled else None
         self._memory = MemoryConsolidator(store, summarizer)
+        # Health monitoring: count unique messages processed (post-dedup)
+        self.messages_processed: int = 0
 
     @staticmethod
     def _strip_markdown(text: str) -> str:
@@ -68,7 +77,7 @@ class MessageRouter:
         text = _MD_ITALIC.sub(r"\1", text)
         text = _MD_STRIKE.sub(r"\1", text)
         text = _MD_CODE.sub(r"\1", text)
-        return text
+        return text.strip()
 
     def handle(self, msg: dict) -> Optional[str]:
         """Process an incoming group chat message.
@@ -83,12 +92,18 @@ class MessageRouter:
         stored = self._store.insert_message(msg)
         if not stored:
             return None  # Duplicate — nothing more to do
+        self.messages_processed += 1
 
         # Check memory consolidation trigger (fast no-op unless threshold hit)
         self._memory.check_and_consolidate(msg["chat_id"])
 
         # ── Route: @mention vs proactive ─────────────────────────
-        is_at = msg["is_at_mentioned"]
+        # Sticky mention: if the user previously sent an empty @mention,
+        # their next message is treated as if it were @mentioned (one-shot).
+        is_at = msg["is_at_mentioned"] or (
+            self._sticky is not None
+            and self._sticky.consume(msg["chat_id"], msg["sender_id"])
+        )
 
         if is_at:
             # ── @mention path (existing logic) ───────────────────
@@ -106,6 +121,17 @@ class MessageRouter:
                 ).strip()
 
             reply: Optional[str] = None
+
+            # ── Empty @mention → sticky listening mode ──────────────
+            # User sent @bot but nothing else.  Register a sticky so
+            # their next message (without @mention) still reaches the bot.
+            if not clean_content.strip() and self._sticky is not None:
+                self._sticky.register(msg["chat_id"], msg["sender_id"])
+                logger.info(
+                    "Empty @mention from '%s' in %s — sticky listening active for %ds",
+                    msg["sender_name"], msg["chat_id"][:20],
+                    self._config.sticky_mention_ttl_sec,
+                )
 
             if clean_content.strip() in ("帮助", "help", "命令"):
                 reply = self._admin.handle(clean_content, msg["sender_name"])
@@ -125,9 +151,6 @@ class MessageRouter:
                 is_at_mentioned=False,
                 sender_name=msg["sender_name"],
             ):
-                self._store.log_trigger(
-                    msg["chat_id"], msg["sender_id"], msg["message_id"],
-                )
                 reply = self._handle_summary(msg)
 
             if reply is None and clean_content:
@@ -227,9 +250,21 @@ class MessageRouter:
                 if custom != m["sender_id"]:
                     m["sender_name"] = custom
                 content = self._nicks.resolve_wxids(m.get("content", ""))
-                # Trim single messages over 300 chars to save tokens
-                if len(content) > 300:
-                    content = content[:297] + "..."
+                # Trim single messages over 1000 chars to save tokens.
+                #
+                # Python 3 string slicing operates on code points, not bytes,
+                # so content[:997] will never split a multi-byte UTF-8
+                # sequence.  However, surrogate escapes from the Windows
+                # clipboard can leak lone surrogates (U+D800–U+DFFF) into
+                # strings; slicing between a high/low surrogate pair would
+                # produce an invalid lone surrogate at the cut point.
+                # Pre-sanitise with surrogateescape→replace to squash any
+                # lone surrogates into U+FFFD before slicing.
+                if len(content) > 1000:
+                    content = content.encode(
+                        "utf-8", errors="surrogateescape",
+                    ).decode("utf-8", errors="replace")
+                    content = content[:997] + "..."
                 m["content"] = content
 
             result = self._summarizer.summarize(messages, sender_name)
@@ -238,7 +273,7 @@ class MessageRouter:
 
             logger.info("Summary sent to %s (%d chars)", chat_id, len(reply))
             return reply
-        except RuntimeError as e:
+        except Exception as e:
             logger.error("Summarization failed: %s", e)
             return (
                 f"@{sender_name} "
@@ -291,7 +326,7 @@ class MessageRouter:
             )
             ai_reply = self._nicks.resolve_wxids(ai_reply)
             return f"@{display_name} {ai_reply}"
-        except RuntimeError as e:
+        except Exception as e:
             logger.error("AI chat failed: %s", e)
             return f"@{display_name} 大脑短路了，稍等再试～"
 
@@ -339,16 +374,22 @@ class MessageRouter:
                 group_name=msg.get("group_name", msg.get("chat_id", "群聊")),
                 group_memory=self._get_group_memory(msg["chat_id"]),
             )
-        except RuntimeError as e:
+        except Exception as e:
             logger.error("Proactive chat API failed: %s", e)
             return None
 
         if not ai_reply:
-            logger.info(
-                "Proactive: AI chose silence (mode=%s)", mode.name,
+            self._proactive.record_silence(msg["chat_id"])
+            consecutive = self._proactive.get_consecutive_silence(msg["chat_id"])
+            log_level = logging.WARNING if consecutive >= 3 else logging.INFO
+            logger.log(
+                log_level,
+                "Proactive: AI chose silence (mode=%s consecutive=%d chat=%s)",
+                mode.name, consecutive, msg["chat_id"][:20],
             )
             return None
 
+        self._proactive.record_speech(msg["chat_id"])
         ai_reply = self._nicks.resolve_wxids(ai_reply)
         logger.info(
             "Proactive reply: mode=%s len=%d → '%s'",

@@ -11,6 +11,8 @@ Design principles:
 import ctypes
 import logging
 import time
+
+from .keyboard import press_key, send_combo
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -117,10 +119,13 @@ def _score_window(hwnd: int) -> WindowCandidate:
         c.score += 40
         reasons.append("title_wechat_en")
 
-    # Class name
+    # Class name — WeChat has used Qt, CEF, and other frameworks
     if c.class_name.startswith("Qt"):
         c.score += 30
         reasons.append("qt_class")
+    elif c.class_name.startswith("Chrome_WidgetWin"):
+        c.score += 25
+        reasons.append("cef_class")
 
     # Visibility
     if c.visible:
@@ -159,12 +164,19 @@ class WeChatWindowController:
                 ctrl.send_message(hwnd, "Hello")
     """
 
+    # ── Navigation timing constants ─────────────────────────────────
+    SEARCH_FOCUS_DELAY: float = 0.3        # after Ctrl+F
+    PASTE_DELAY: float = 0.08              # after Ctrl+A / after set clipboard
+    SEARCH_POPULATE_DELAY: float = 0.6     # after paste into search
+    SELECT_RESULT_DELAY: float = 0.3       # after Enter on search result
+    CLIPBOARD_DELAY: float = 0.05          # after set clipboard (pre-paste)
+    ENTER_SEND_DELAY: float = 0.2          # after Enter to send
+    PASTE_SEND_DELAY: float = 0.25         # after Ctrl+V paste in send
+
     def __init__(self):
         self._cached_hwnd: Optional[int] = None
         self._cached_at: float = 0.0
         self._cache_ttl: float = 30.0  # seconds
-        # Per-group Down-press cache → avoids re-discovering every time
-        self._down_cache: dict[str, int] = {}
 
     # ── HWND discovery ────────────────────────────────────────────
 
@@ -193,7 +205,7 @@ class WeChatWindowController:
             c = _score_window(hwnd)
             if c.process_name in WECHAT_PROCESS_NAMES:
                 wechat_candidates.append(c)
-            if c.title or c.class_name.startswith("Qt"):
+            if c.title or c.class_name:
                 all_candidates.append(c)
             return True
 
@@ -275,6 +287,18 @@ class WeChatWindowController:
     def activate(self, hwnd: int) -> bool:
         """Activate the WeChat window: restore if iconic, bring to foreground.
 
+        Windows foreground lock: SetForegroundWindow fails with
+        ERROR_ACCESS_DENIED (5) unless the calling thread has "foreground
+        authority" — granted when the thread generated the most recent
+        input event (keyboard/mouse).  Running from a terminal, we have
+        zero authority until we simulate input.
+
+        Strategy (layered):
+        1. keybd_event priming → acquire foreground authority via fake input
+        2. AllowSetForegroundWindow + SetForegroundWindow
+        3. AttachThreadInput bypass (cross-integrity)
+        4. Alt+Esc cycling (last resort)
+
         Returns True if the window is now the foreground window.
         """
         if not self._validate_hwnd(hwnd):
@@ -288,7 +312,7 @@ class WeChatWindowController:
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
                 time.sleep(0.3)
 
-            # Show and activate
+            # Show and bring to top of Z-order
             win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
             win32gui.SetWindowPos(
                 hwnd, win32con.HWND_TOP,
@@ -297,25 +321,49 @@ class WeChatWindowController:
             )
             win32gui.BringWindowToTop(hwnd)
 
-            # Allow foreground steal
+            # ── Layer 1: Prime foreground authority via keybd_event ──
+            # Windows grants SetForegroundWindow permission to the thread
+            # that last generated input.  Simulating a keystroke (even a
+            # no-op one) into the CURRENT foreground window (the terminal)
+            # gives us that authority.  We use a brief Alt tap — it's
+            # harmless regardless of what window receives it.
+            self._prime_foreground_authority()
             ctypes.windll.user32.AllowSetForegroundWindow(-1)
 
-            # Set foreground
+            # ── Layer 2: SetForegroundWindow ────────────────────────
             foreground_set = win32gui.SetForegroundWindow(hwnd)
             time.sleep(0.3)
-            if not self._foreground_matches(hwnd):
-                foreground_set = self._force_foreground(hwnd)
-                time.sleep(0.3)
-
-            # Verify. Do not treat arbitrary WeChat popups as success; those
-            # can be emoji/search panels that are not safe text targets.
             if self._foreground_matches(hwnd):
-                logger.debug(f"Window activated: HWND={hwnd} is foreground")
+                logger.debug("Window activated: HWND=%s is foreground", hwnd)
+                return True
+
+            # ── Layer 3: AttachThreadInput bypass ──────────────────
+            logger.debug(
+                "SetForegroundWindow returned %s, trying AttachThreadInput. %s",
+                foreground_set, self.get_foreground_info(),
+            )
+            self._prime_foreground_authority()
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)
+            foreground_set = self._force_foreground(hwnd)
+            time.sleep(0.3)
+            if self._foreground_matches(hwnd):
+                logger.info("Window activated via AttachThreadInput: HWND=%s", hwnd)
+                return True
+
+            # ── Layer 4: Alt+Esc cycling (last resort) ─────────────
+            logger.debug(
+                "AttachThreadInput did not help — trying Alt+Esc. %s",
+                self.get_foreground_info(),
+            )
+            self._alt_tab_to_window(hwnd)
+            time.sleep(0.5)
+            if self._foreground_matches(hwnd):
+                logger.info("Window activated via Alt+Esc: HWND=%s", hwnd)
                 return True
 
             logger.warning(
-                f"SetForegroundWindow returned {foreground_set}, "
-                f"but foreground is not target. {self.get_foreground_info()}"
+                "All activation methods failed for HWND=%s. %s",
+                hwnd, self.get_foreground_info(),
             )
             return False
 
@@ -323,15 +371,71 @@ class WeChatWindowController:
             logger.error(f"Activation failed for HWND={hwnd}: {e}")
             return False
 
+    @classmethod
+    def _alt_tab_to_window(cls, hwnd: int) -> None:
+        """Simulate Alt+Tab to switch to a specific window as a last resort.
+
+        This bypasses foreground lock restrictions that block
+        SetForegroundWindow across different integrity levels.
+        Uses Alt+Esc as a simpler alternative — it activates the next
+        window in the Z-order without the Alt+Tab UI.
+        """
+        try:
+            # Alt key down → Esc (activate next window) → Alt up
+            # We do this a few times since WeChat might not be immediately next
+            for _ in range(8):
+                ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt down
+                time.sleep(0.02)
+                ctypes.windll.user32.keybd_event(0x1B, 0, 0, 0)  # Esc
+                time.sleep(0.02)
+                ctypes.windll.user32.keybd_event(0x1B, 0, 2, 0)  # Esc up
+                ctypes.windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt up
+                time.sleep(0.05)
+                if cls._foreground_matches(hwnd):
+                    break
+        except Exception:
+            pass
+
+    @staticmethod
+    def _prime_foreground_authority() -> None:
+        """Acquire foreground authority by simulating a harmless keystroke.
+
+        Windows grants SetForegroundWindow permission exclusively to the
+        thread that generated the most recent input event (keyboard or
+        mouse).  When running headless from a terminal, the Python process
+        has zero authority — every SetForegroundWindow call returns
+        ERROR_ACCESS_DENIED (5) regardless of AllowSetForegroundWindow.
+
+        Simulating a brief Alt key press/release into whichever window
+        currently has focus (the terminal, in our case) gives this thread
+        the "last input" status.  Alt is harmless: it doesn't type text,
+        submit forms, or trigger shortcuts on its own.
+        """
+        try:
+            # Alt down → Alt up (fast, harmless, grants authority)
+            ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt down
+            time.sleep(0.01)
+            ctypes.windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt up
+            time.sleep(0.02)
+        except Exception:
+            pass
+
     @staticmethod
     def _force_foreground(hwnd: int) -> bool:
-        """Use AttachThreadInput to bypass common Windows foreground restrictions."""
+        """Use AttachThreadInput to bypass common Windows foreground restrictions.
+
+        Returns True if the window became foreground after our best effort.
+        """
         attached_current = False
         attached_foreground = False
         try:
             user32 = ctypes.windll.user32
-            current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
             target_thread = user32.GetWindowThreadProcessId(hwnd, None)
+            if not target_thread:
+                logger.debug("Force foreground: no target thread for HWND=%s", hwnd)
+                return False
+
+            current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
             foreground = user32.GetForegroundWindow()
             foreground_thread = (
                 user32.GetWindowThreadProcessId(foreground, None)
@@ -351,14 +455,26 @@ class WeChatWindowController:
             win32gui.BringWindowToTop(hwnd)
             user32.SetActiveWindow(hwnd)
             user32.SetFocus(hwnd)
-            return bool(win32gui.SetForegroundWindow(hwnd))
+
+            # Allow foreground steal (Windows ≥2000: only works once per process
+            # unless we also attached threads above)
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)
+
+            success = bool(win32gui.SetForegroundWindow(hwnd))
+
+            # If SetForegroundWindow failed but we got thread attachments,
+            # try one more time after a brief sleep
+            if not success and (attached_current or attached_foreground):
+                time.sleep(0.15)
+                success = bool(win32gui.SetForegroundWindow(hwnd))
+
+            return success
         except Exception as e:
-            logger.debug(f"Force foreground failed for HWND={hwnd}: {e}")
+            logger.debug("Force foreground failed for HWND=%s: %s", hwnd, e)
             return False
         finally:
             try:
                 user32 = ctypes.windll.user32
-                current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
                 target_thread = user32.GetWindowThreadProcessId(hwnd, None)
                 foreground = user32.GetForegroundWindow()
                 foreground_thread = (
@@ -368,7 +484,10 @@ class WeChatWindowController:
                 if attached_foreground and foreground_thread:
                     user32.AttachThreadInput(foreground_thread, target_thread, False)
                 if attached_current:
-                    user32.AttachThreadInput(current_thread, target_thread, False)
+                    user32.AttachThreadInput(
+                        ctypes.windll.kernel32.GetCurrentThreadId(),
+                        target_thread, False,
+                    )
             except Exception:
                 pass
 
@@ -425,71 +544,34 @@ class WeChatWindowController:
         )
 
         # Phase 1: Ctrl+F to focus search box
-        self._send_combo(0x11, 0x46)  # Ctrl+F
-        time.sleep(0.3)
+        send_combo(0x11, 0x46)  # Ctrl+F
+        time.sleep(self.SEARCH_FOCUS_DELAY)
         hwnd = self._adopt_foreground_hwnd(hwnd, "after Ctrl+F")
+        if not self._validate_hwnd(hwnd):
+            logger.error("navigate_to_chat: HWND became invalid after Ctrl+F")
+            return False
 
         # Phase 2: Select any existing search text and replace with group name
-        self._send_combo(0x11, 0x41)  # Ctrl+A
-        time.sleep(0.08)
+        send_combo(0x11, 0x41)  # Ctrl+A
+        time.sleep(self.PASTE_DELAY)
         self._set_clipboard(group_name)
-        time.sleep(0.05)
-        self._send_combo(0x11, 0x56)  # Ctrl+V
-        time.sleep(0.6)  # wait for search results to populate
+        time.sleep(self.CLIPBOARD_DELAY)
+        send_combo(0x11, 0x56)  # Ctrl+V
+        time.sleep(self.SEARCH_POPULATE_DELAY)  # wait for search results to populate
         hwnd = self._adopt_foreground_hwnd(hwnd, "after search paste")
+        if not self._validate_hwnd(hwnd):
+            logger.error("navigate_to_chat: HWND became invalid after search paste")
+            return False
 
-        # Phase 3: Adaptive result selection with Down-press cache.
-        # Each group remembers how many Down presses it took to land on
-        # the right search result.  The cached value is tried first
-        # (using the search already open from Phase 2), avoiding the
-        # Alt+F4→re-search retry loop on subsequent calls.
-        cached_down = self._down_cache.get(group_name)
-        attempts: list[int] = []
-        if cached_down is not None:
-            attempts.append(cached_down)
-        attempts.extend(n for n in range(6) if n not in attempts)
+        # Phase 3: Press Enter to select the first search result
+        press_key(0x0D)  # Enter
+        time.sleep(self.SELECT_RESULT_DELAY)
+        hwnd = self._adopt_foreground_hwnd(hwnd, "after search Enter")
+        if not self._validate_hwnd(hwnd):
+            logger.error("navigate_to_chat: HWND became invalid after search Enter")
+            return False
 
-        navigated = False
-        for attempt_idx, down_presses in enumerate(attempts):
-            if attempt_idx > 0:
-                # Retry: close current panel → re-open clean search
-                self._send_combo(0x12, 0x73)  # Alt+F4
-                time.sleep(0.3)
-                self._send_combo(0x11, 0x46)  # Ctrl+F
-                time.sleep(0.2)
-                self._send_combo(0x11, 0x41)  # Ctrl+A
-                time.sleep(0.05)
-                self._set_clipboard(group_name)
-                time.sleep(0.05)
-                self._send_combo(0x11, 0x56)  # Ctrl+V
-                time.sleep(0.4)
-                hwnd = self._adopt_foreground_hwnd(hwnd, "after re-paste")
-
-            # Apply Down presses before Enter.  Required even on the
-            # first attempt when using a cached value >0 (the search
-            # from Phase 2 is already open — just navigate and Enter).
-            for _ in range(down_presses):
-                self._press_key(0x28)  # Down arrow
-                time.sleep(0.06)
-
-            self._press_key(0x0D)  # Enter
-            time.sleep(0.3)
-            hwnd = self._adopt_foreground_hwnd(
-                hwnd, f"after search Enter (down={down_presses})",
-            )
-
-            if self._verify_chat_title(hwnd, group_name):
-                if down_presses != cached_down:
-                    self._down_cache[group_name] = down_presses
-                    logger.info(
-                        "Navigation cache %s: '%s' down=%d",
-                        "seeded" if cached_down is None else "updated",
-                        group_name, down_presses,
-                    )
-                navigated = True
-                break
-
-        if not navigated:
+        if not self._verify_chat_title(hwnd, group_name):
             # UIA may be unavailable (2-node skeleton). Accept as long as
             # foreground stayed with us through every step.
             if self._foreground_matches(hwnd):
@@ -497,13 +579,12 @@ class WeChatWindowController:
                     "Navigation to '%s' completed via keyboard; "
                     "UIA title verification unavailable.", group_name,
                 )
-                return hwnd
-
-            logger.error(
-                "Navigation to '%s' lost foreground after %d attempts. %s",
-                group_name, 6, self.get_foreground_info(),
-            )
-            return False
+            else:
+                logger.error(
+                    "Navigation to '%s' lost foreground. %s",
+                    group_name, self.get_foreground_info(),
+                )
+                return False
 
         return hwnd
 
@@ -550,47 +631,71 @@ class WeChatWindowController:
             return False
 
         if not self._validate_hwnd(hwnd):
-            active = self._current_wechat_foreground_hwnd()
-            if active:
-                hwnd = self._adopt_foreground_hwnd(hwnd, "before send")
-            else:
-                logger.error(f"send_message: invalid HWND={hwnd}")
-                return False
+            logger.error(f"send_message: invalid HWND={hwnd}")
+            return False
 
         if not self._foreground_matches(hwnd):
-            logger.error(
-                "send_message: WeChat is not the active foreground window. "
-                f"{self.get_foreground_info()}"
+            logger.warning(
+                "send_message: WeChat not foreground before send. "
+                "Attempting re-activation. %s",
+                self.get_foreground_info(),
             )
-            return False
+            if not self.activate(hwnd):
+                logger.error(
+                    "send_message: re-activation failed. %s",
+                    self.get_foreground_info(),
+                )
+                return False
+            # Re-validate HWND after activation (WeChat may have recreated it)
+            active = self._current_wechat_foreground_hwnd()
+            if active:
+                hwnd = self._adopt_foreground_hwnd(hwnd, "after send re-activation")
 
         logger.info("Sending message: %d chars to HWND=%s (keyboard-only)", len(text), hwnd)
 
         # Set clipboard and paste
         self._set_clipboard(text)
-        time.sleep(0.08)
+        time.sleep(self.PASTE_DELAY)
 
         if not self._foreground_matches(hwnd):
-            logger.error(
-                "send_message: foreground changed before paste; refusing. "
-                f"{self.get_foreground_info()}"
+            logger.warning(
+                "send_message: foreground changed before paste; "
+                "re-activating. %s",
+                self.get_foreground_info(),
             )
-            return False
+            if not self.activate(hwnd):
+                logger.error(
+                    "send_message: re-activation before paste failed. %s",
+                    self.get_foreground_info(),
+                )
+                return False
+            active = self._current_wechat_foreground_hwnd()
+            if active:
+                hwnd = self._adopt_foreground_hwnd(hwnd, "after paste re-activation")
 
-        self._send_combo(0x11, 0x56)  # Ctrl+V
-        time.sleep(0.25)
+        send_combo(0x11, 0x56)  # Ctrl+V
+        time.sleep(self.PASTE_SEND_DELAY)
 
         hwnd = self._adopt_foreground_hwnd(hwnd, "after paste")
         if not self._foreground_matches(hwnd):
-            logger.error(
-                "send_message: foreground changed before Enter; refusing. "
-                f"{self.get_foreground_info()}"
+            logger.warning(
+                "send_message: foreground changed before Enter; "
+                "re-activating. %s",
+                self.get_foreground_info(),
             )
-            return False
+            if not self.activate(hwnd):
+                logger.error(
+                    "send_message: re-activation before Enter failed. %s",
+                    self.get_foreground_info(),
+                )
+                return False
+            active = self._current_wechat_foreground_hwnd()
+            if active:
+                hwnd = self._adopt_foreground_hwnd(hwnd, "after enter re-activation")
 
         # Press Enter to send
-        self._press_key(0x0D)  # Enter
-        time.sleep(0.2)
+        press_key(0x0D)  # Enter
+        time.sleep(self.ENTER_SEND_DELAY)
 
         logger.info("Message send action completed: %d chars", len(text))
         return True
@@ -667,39 +772,6 @@ class WeChatWindowController:
 
     # ── Internals ─────────────────────────────────────────────────
 
-    @staticmethod
-    def _post_key(hwnd: int, vk: int, down: bool = True) -> None:
-        WM = 0x0100 if down else 0x0101
-        ctypes.windll.user32.PostMessageW(hwnd, WM, vk, 0)
-
-    @staticmethod
-    def _send_combo_to_window(hwnd: int, mod_vk: int, key_vk: int) -> None:
-        """Send Ctrl+X combo via PostMessage to the window."""
-        WeChatWindowController._post_key(hwnd, mod_vk)
-        time.sleep(0.03)
-        WeChatWindowController._post_key(hwnd, key_vk)
-        time.sleep(0.03)
-        WeChatWindowController._post_key(hwnd, key_vk, down=False)
-        time.sleep(0.03)
-        WeChatWindowController._post_key(hwnd, mod_vk, down=False)
-
-    @staticmethod
-    def _press_key(vk: int) -> None:
-        """Send one key press to the current foreground window."""
-        ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
-        time.sleep(0.03)
-        ctypes.windll.user32.keybd_event(vk, 0, 2, 0)
-
-    @staticmethod
-    def _send_combo(mod_vk: int, key_vk: int) -> None:
-        """Send a modifier combo to the current foreground window."""
-        ctypes.windll.user32.keybd_event(mod_vk, 0, 0, 0)
-        time.sleep(0.03)
-        ctypes.windll.user32.keybd_event(key_vk, 0, 0, 0)
-        time.sleep(0.03)
-        ctypes.windll.user32.keybd_event(key_vk, 0, 2, 0)
-        time.sleep(0.03)
-        ctypes.windll.user32.keybd_event(mod_vk, 0, 2, 0)
 
     @staticmethod
     def _foreground_root(hwnd: int) -> int:
@@ -720,7 +792,12 @@ class WeChatWindowController:
             return False
 
     def _current_wechat_foreground_hwnd(self) -> Optional[int]:
-        """Return the current usable foreground WeChat main-window HWND."""
+        """Return the current usable foreground WeChat main-window HWND.
+
+        Validates via process name (wechat.exe/weixin.exe), not class name —
+        WeChat has used Qt (Qt51514QWindowIcon), CEF (Chrome_WidgetWin_*), and
+        other frameworks across versions.
+        """
         try:
             fg = win32gui.GetForegroundWindow()
             if not fg:
@@ -734,7 +811,6 @@ class WeChatWindowController:
                 height = c.rect[3] - c.rect[1]
                 if (
                     c.visible
-                    and c.class_name.startswith("Qt")
                     and width >= MIN_WINDOW_WIDTH
                     and height >= MIN_WINDOW_HEIGHT
                 ):

@@ -25,10 +25,24 @@ class RateTracker:
         self._window = window_sec
         # chat_id → list of Unix timestamps (float)
         self._buckets: dict[str, list[float]] = defaultdict(list)
+        self._call_count: int = 0
 
     def record(self, chat_id: str) -> None:
         """Record a message arrival for the given chat."""
         self._buckets[chat_id].append(time.time())
+
+    def cleanup(self) -> None:
+        """Remove entries for chats with no messages in the current window."""
+        now = time.time()
+        cutoff = now - self._window
+        empty: list[str] = []
+        for chat_id, timestamps in self._buckets.items():
+            while timestamps and timestamps[0] < cutoff:
+                timestamps.pop(0)
+            if not timestamps:
+                empty.append(chat_id)
+        for chat_id in empty:
+            del self._buckets[chat_id]
 
     def rate(self, chat_id: str) -> float:
         """Return the current message rate in msgs/minute.
@@ -36,6 +50,10 @@ class RateTracker:
         Automatically prunes expired timestamps before computing.
         Returns 0.0 if the group has no recorded messages.
         """
+        self._call_count += 1
+        if self._call_count % 100 == 0:
+            self.cleanup()
+
         if chat_id not in self._buckets:
             return 0.0
 

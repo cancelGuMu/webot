@@ -13,6 +13,7 @@ class MessageStore:
 
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
+        self._trigger_count = 0
 
     # ── Write operations ──────────────────────────────────────────
 
@@ -60,7 +61,11 @@ class MessageStore:
 
     def log_trigger(self, chat_id: str, requester_id: str,
                     trigger_msg_id: str) -> None:
-        """Record a trigger event for deduplication."""
+        """Record a trigger event for deduplication.
+
+        Periodically cleans old entries (every 100th trigger) and
+        reclaims disk space (every 1000th trigger).
+        """
         with self.conn:
             self.conn.execute(
                 """INSERT INTO trigger_log
@@ -68,6 +73,34 @@ class MessageStore:
                    VALUES (?, ?, ?)""",
                 (chat_id, requester_id, trigger_msg_id),
             )
+        self._trigger_count += 1
+        if self._trigger_count % 100 == 0:
+            self.cleanup_old_triggers()
+        if self._trigger_count % 1000 == 0:
+            self._vacuum()
+
+    def cleanup_old_triggers(self) -> int:
+        """Delete trigger_log entries older than 7 days.
+
+        Returns:
+            Number of rows deleted.
+        """
+        cutoff = int(time.time()) - 7 * 86400
+        with self.conn:
+            cursor = self.conn.execute(
+                "DELETE FROM trigger_log WHERE processed_at < ?",
+                (cutoff,),
+            )
+            deleted = cursor.rowcount
+        if deleted:
+            logger.info("Cleaned up %d old trigger_log entries.", deleted)
+        return deleted
+
+    def _vacuum(self) -> None:
+        """Reclaim disk space from deleted trigger_log rows."""
+        logger.info("Running VACUUM to reclaim disk space.")
+        with self.conn:
+            self.conn.execute("PRAGMA optimize")
 
     # ── Query operations ───────────────────────────────────────────
 

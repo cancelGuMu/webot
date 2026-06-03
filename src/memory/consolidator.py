@@ -8,24 +8,25 @@ Core logic:
 Uses the DeepSeek Flash API for low-cost, low-latency consolidation.
 """
 
+import concurrent.futures
 import logging
 import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..db.store import MessageStore
-    from ..summarize.deepseek_backend import DeepSeekSummarizer
+    from ..summarize.base import AbstractSummarizer
 
 logger = logging.getLogger(__name__)
 
 # ── Tuning constants ─────────────────────────────────────────────────
 
 # Trigger consolidation after this many NEW messages
-CONSOLIDATE_MSG_THRESHOLD = 30
+CONSOLIDATE_MSG_THRESHOLD = 20
 # Or after this many seconds since last consolidation (with new messages)
-CONSOLIDATE_TIME_THRESHOLD_SEC = 2 * 3600  # 2 hours
+CONSOLIDATE_TIME_THRESHOLD_SEC = 1 * 3600  # 1 hour
 # Maximum new messages to send per consolidation (limits prompt size)
-MAX_NEW_MSGS_PER_CONSOLIDATION = 200
+MAX_NEW_MSGS_PER_CONSOLIDATION = 400
 
 
 class MemoryConsolidator:
@@ -39,7 +40,7 @@ class MemoryConsolidator:
     """
 
     def __init__(self, store: "MessageStore",
-                 summarizer: "DeepSeekSummarizer"):
+                 summarizer: "AbstractSummarizer"):
         self._store = store
         self._summarizer = summarizer
 
@@ -96,11 +97,22 @@ class MemoryConsolidator:
             chat_id[:30], len(new_messages), len(existing_memory),
         )
 
-        # Call AI consolidation
-        updated = self._summarizer.consolidate_memory(
-            existing_memory=existing_memory,
-            new_messages=new_messages,
-        )
+        # Call AI consolidation with a 30s timeout so a hung API
+        # doesn't block the message-processing loop indefinitely.
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    self._summarizer.consolidate_memory,
+                    existing_memory=existing_memory,
+                    new_messages=new_messages,
+                )
+                updated = future.result(timeout=30)
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                "Memory consolidation timed out after 30s for %s — skipping this cycle",
+                chat_id[:30],
+            )
+            return False
 
         if not updated or updated == existing_memory:
             logger.info(

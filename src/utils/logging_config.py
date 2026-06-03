@@ -5,12 +5,12 @@ import sys
 from pathlib import Path
 
 
-def setup_logging(level: str = "INFO", log_file: str = "") -> None:
+def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
     """Configure root logger and quieten noisy third-party loggers.
 
     Args:
         level: Log level string (DEBUG, INFO, WARNING, ERROR).
-        log_file: Optional path to a log file. If empty, logs to console only.
+        log_file: Optional path to a log file. If None, logs to console only.
     """
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"

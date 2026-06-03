@@ -47,6 +47,12 @@ skill/**/*.safetensors
 # Runtime training artifacts
 TRAIN_DONE.flag
 
+# Runtime status
+data/bot_status.json
+
+# Claude Code
+.claude/
+
 # Private persona data
 skill/gumu-persona/data/
 skill/gumu-persona/self.md

@@ -13,6 +13,7 @@ from .prompts import (
     SYSTEM_PROMPT,
     CHUNK_SYSTEM_PROMPT,
     MERGE_SYSTEM_PROMPT,
+    MEMORY_CONSOLE_PROMPT,
     build_summary_prompt,
     build_chunk_summary_prompt,
     build_merge_prompt,
@@ -76,7 +77,7 @@ class ClaudeSummarizer(AbstractSummarizer):
         def call():
             response = self.client.messages.parse(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=8192,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
                 output_format=SummaryResult,
@@ -86,29 +87,6 @@ class ClaudeSummarizer(AbstractSummarizer):
         return self._retry_with_backoff(call, "direct summarization")
 
     # ── Map-Reduce ────────────────────────────────────────────────
-
-    def _summarize_map_reduce(self, chunks: list[list[dict]],
-                               requester_name: str) -> SummaryResult:
-        """Map: summarize each chunk. Reduce: merge into structured result."""
-        total = len(chunks)
-
-        chunk_summaries: list[str] = []
-        for i, chunk in enumerate(chunks, 1):
-            logger.info(
-                f"Map phase: chunk {i}/{total} ({len(chunk)} messages)"
-            )
-            summary = self._summarize_chunk(chunk, i, total, requester_name)
-            chunk_summaries.append(summary)
-
-        if not chunk_summaries:
-            return SummaryResult(
-                summary_text="无法生成总结。",
-                topics=[],
-                participants=[],
-            )
-
-        logger.info(f"Reduce phase: merging {len(chunk_summaries)} summaries")
-        return self._merge_chunk_summaries(chunk_summaries, requester_name)
 
     def _summarize_chunk(self, chunk: list[dict], chunk_num: int,
                           total: int, requester_name: str) -> str:
@@ -136,7 +114,7 @@ class ClaudeSummarizer(AbstractSummarizer):
         def call():
             response = self.client.messages.parse(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=8192,
                 system=MERGE_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
                 output_format=SummaryResult,
@@ -144,3 +122,65 @@ class ClaudeSummarizer(AbstractSummarizer):
             return response.parsed_output
 
         return self._retry_with_backoff(call, "merge chunk summaries")
+
+    # ── Memory consolidation (Claude backend) ───────────────────────
+
+    def consolidate_memory(self, existing_memory: str,
+                           new_messages: list[dict]) -> str:
+        """Update group memory by incorporating new messages.
+
+        Uses Claude Haiku for low cost and latency.  Returns the updated
+        first-person diary-style memory text (≤2000 chars).
+
+        Args:
+            existing_memory: Current memory text (empty string if first time).
+            new_messages: List of new message dicts to incorporate.
+
+        Returns:
+            Updated memory text, or existing_memory unchanged on failure.
+        """
+        if not new_messages:
+            return existing_memory
+
+        # Format new messages for the prompt
+        msg_lines = []
+        for m in new_messages[-200:]:  # cap at 200 messages per consolidation
+            sender = m.get("sender_name", "?")
+            content = m.get("content", "")
+            if content:
+                msg_lines.append(f"{sender}: {content}")
+
+        if not msg_lines:
+            return existing_memory
+
+        existing_display = (
+            existing_memory if existing_memory
+            else "（暂无，这是第一次整理记忆）"
+        )
+
+        system_prompt = MEMORY_CONSOLE_PROMPT.format(
+            existing_memory=existing_display,
+            new_messages="\n".join(msg_lines),
+        )
+
+        def call():
+            response = self.client.messages.create(
+                model=self.MODEL_HAIKU,
+                max_tokens=2048,
+                system=system_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": "请输出更新后的完整记忆日记。",
+                }],
+            )
+            text = response.content[0].text or ""
+            # Enforce 2000-char soft cap
+            if len(text) > 2000:
+                text = text[:2000]
+            return text.strip()
+
+        try:
+            return self._retry_with_backoff(call, "memory consolidation")
+        except RuntimeError as e:
+            logger.warning("Memory consolidation failed: %s", e)
+            return existing_memory  # don't lose existing memory on failure

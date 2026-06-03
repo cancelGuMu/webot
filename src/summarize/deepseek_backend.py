@@ -18,6 +18,7 @@ from .prompts import (
     SYSTEM_PROMPT,
     CHUNK_SYSTEM_PROMPT,
     MERGE_SYSTEM_PROMPT,
+    MEMORY_CONSOLE_PROMPT,
     build_summary_prompt,
     build_chunk_summary_prompt,
     build_merge_prompt,
@@ -141,7 +142,7 @@ class DeepSeekSummarizer(AbstractSummarizer):
     # 1M context window → 900K safe budget
     token_budget = 900_000
 
-    retry_exceptions = (RateLimitError, APIConnectionError)
+    retry_exceptions = (RateLimitError, APIConnectionError, APIStatusError)
 
     def __init__(self, api_key: str,
                  model: str = MODEL_PRO,
@@ -179,7 +180,7 @@ class DeepSeekSummarizer(AbstractSummarizer):
         def call():
             response = self.client.chat.completions.create(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=8192,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
@@ -193,29 +194,6 @@ class DeepSeekSummarizer(AbstractSummarizer):
         return self._retry_with_backoff(call, "direct summarization")
 
     # ── Map-Reduce ────────────────────────────────────────────────
-
-    def _summarize_map_reduce(self, chunks: list[list[dict]],
-                               requester_name: str) -> SummaryResult:
-        """Map: summarize each chunk. Reduce: merge into structured result."""
-        total = len(chunks)
-
-        chunk_summaries: list[str] = []
-        for i, chunk in enumerate(chunks, 1):
-            logger.info(
-                f"Map phase: chunk {i}/{total} ({len(chunk)} messages)"
-            )
-            summary = self._summarize_chunk(chunk, i, total, requester_name)
-            chunk_summaries.append(summary)
-
-        if not chunk_summaries:
-            return SummaryResult(
-                summary_text="无法生成总结。",
-                topics=[],
-                participants=[],
-            )
-
-        logger.info(f"Reduce phase: merging {len(chunk_summaries)} summaries")
-        return self._merge_chunk_summaries(chunk_summaries, requester_name)
 
     def _summarize_chunk(self, chunk: list[dict], chunk_num: int,
                           total: int, requester_name: str) -> str:
@@ -238,36 +216,6 @@ class DeepSeekSummarizer(AbstractSummarizer):
         return self._retry_with_backoff(call, f"chunk {chunk_num}/{total}")
 
     # ── Memory consolidation ───────────────────────────────────────
-
-    MEMORY_CONSOLE_PROMPT = """\
-你是这个微信群里的 AI 聊天助手。你正在整理你在这个群里的"记忆日记"。
-
-## 你已有的记忆（你对这个群和群友的印象）：
-{existing_memory}
-
-## 最近群里发生的新对话（包括你自己说的话）：
-{new_messages}
-
-请用第一人称（"我"）更新你的记忆日记，写成像日记一样的自然段落。
-
-## 要记住的内容：
-- 群友的特点、习惯、口头禅、性格
-- 群友之间的关系（谁和谁是朋友/同事/互怼）
-- 你（AI）和他们互动的情况——你说了什么、对方什么反应
-- 群里的固定梗、常用表达、共同经历的事件
-- 群聊的整体氛围和潜规则
-- 你自己在这个群里的"人设"——你通常怎么说话的、大家对你什么态度
-
-## 写作风格：
-- 第一人称，像日记。不是旁观者总结，是你的亲身经历。
-- 有态度、有感受。可以说"我觉得"、"我注意到"、"挺好玩的"
-- 提炼共性，不要列每一条消息。找到规律和模式。
-- 越聊天越丰富的记忆越长，但要精简——只记重要的、有代表性的。
-- 如果已有的记忆已经很丰富，只更新新增的部分，不用重写全部。
-
-## 长度：2000字以内。超过就精简最不重要的内容。
-
-输出更新后的完整记忆日记（直接输出文本，不需要 JSON 包装）。"""
 
     def consolidate_memory(self, existing_memory: str,
                            new_messages: list[dict]) -> str:
@@ -299,7 +247,7 @@ class DeepSeekSummarizer(AbstractSummarizer):
 
         existing_display = existing_memory if existing_memory else "（暂无，这是第一次整理记忆）"
 
-        system_prompt = self.MEMORY_CONSOLE_PROMPT.format(
+        system_prompt = MEMORY_CONSOLE_PROMPT.format(
             existing_memory=existing_display,
             new_messages="\n".join(msg_lines),
         )
@@ -335,7 +283,7 @@ class DeepSeekSummarizer(AbstractSummarizer):
         def call():
             response = self.client.chat.completions.create(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=8192,
                 messages=[
                     {"role": "system", "content": MERGE_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},

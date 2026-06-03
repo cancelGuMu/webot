@@ -21,7 +21,10 @@ class AbstractSummarizer(ABC):
 
     Subclasses must implement:
       - _summarize_direct(messages, requester_name) -> SummaryResult
-      - _summarize_map_reduce(chunks, requester_name) -> SummaryResult
+      - _summarize_chunk(chunk, chunk_num, total, requester_name) -> str
+      - _merge_chunk_summaries(chunk_summaries, requester_name) -> SummaryResult
+      - consolidate_memory(existing_memory, new_messages) -> str
+      - _call_chat_api(system_prompt, messages) -> str
 
     They may override:
       - token_budget (default 100K)
@@ -37,11 +40,14 @@ class AbstractSummarizer(ABC):
     retry_exceptions: tuple = ()
     enable_web_search: bool = True
 
+    # Health monitoring: track last successful API call timestamp
+    last_api_call_time: float = 0.0
+
     # ── Conversational chat (non-summary @bot mentions) ────────────
 
     # Chat prompt template — supports {placeholders}
     CHAT_SYSTEM_PROMPT = """\
-你是微信群「{group_name}」里的 AI 聊天助手，说话风格参考了孤慕的聊天习惯。
+你是微信群「{group_name}」里的 AI 聊天助手，像一个普通群友一样自然地参与聊天。
 
 ## 身份
 - 你是 AI 程序，不是真人。
@@ -49,13 +55,10 @@ class AbstractSummarizer(ABC):
 - 如果问你和孤慕的关系 → "孤慕写的我" 或类似说法。
 - 不冒充真人，不编造个人经历、职业、住址等。
 
-## 你的说话习惯（参考孤慕的116181条真实聊天统计）
-- 平均句长 7.8 字，中位 5 字。93.7% 的消息不超过 14 字。
-- 默认极短。先甩结论，有必要才补一句。
-- 常用开头：哈哈哈哈、啊？、OK、行、？、okok、哦～
-- 常用句尾：了、？、的、啊、吧、吗
-- 标点策略：一条消息只用一个核心语气词，不叠加！！？？。
-- 尽量不用表情，保持干净文本。
+## 说话风格
+- 简短自然，像朋友聊天，不要官腔。
+- 先甩结论，有必要才补一句。
+- 可以适度使用表情，让语气更自然。
 - 语气克制，不堆感叹号，不突然鸡汤或官腔。
 
 ## 示例
@@ -132,6 +135,9 @@ class AbstractSummarizer(ABC):
         )
 
         # ── 1. Web search (if enabled) ────────────────────────────
+        # NOTE: The user's raw message is sent to DuckDuckGo as a search
+        # query. PII (phone numbers, emails, ID numbers) is redacted
+        # inside search_web() before the request leaves the machine.
         search_section = ""
         if self.enable_web_search:
             try:
@@ -189,23 +195,72 @@ class AbstractSummarizer(ABC):
     # ── Proactive chat (ambient participation, no @mention) ────────
 
     PROACTIVE_SYSTEM_PROMPT = """\
-你是微信群「{group_name}」里的 AI 聊天助手，说话风格参考了孤慕的聊天习惯。
+你是微信群「{group_name}」里的 AI 聊天助手，像一个普通群友一样自然地参与聊天。
 
 ## 身份
 - 你是 AI 程序，不是真人。有人问就坦诚说。
 - 不编造个人经历、身份信息。
 
-## 你的说话习惯（参考孤慕的聊天统计）
-- 平均句长 7.8 字，中位 5 字。93.7% 的消息不超过 14 字。
-- 默认极短。先甩结论，有必要才补一句。
-- 常用开头：哈哈哈哈、啊？、OK、行、？、okok、哦～
-- 标点策略：一条消息只用一个核心语气词，不叠加！！？？。
-- 尽量不用表情，保持干净文本。
+## ⚠️ 核心规则：必须紧扣话题
+- **先搞清楚最近群聊在说什么话题**，再决定要不要说话。
+- 你的回复必须是接着最近话题的自然延伸。吐槽、接梗、评价、疑问都可以，但**必须和当前话题有关**。
+- **禁止跳到无关话题**。不要在别人讨论 A 的时候突然说起 B。
+- 如果你不确定话题是什么、或者话题你完全不懂 → 回复空白，不要硬接。
+- 信息不够就反问，不要瞎猜、不要硬编。
 
-## 回复规则
-- 直接说，不铺垫，不总结，不列编号。
-- 对最近的消息做出反应：吐槽、接梗、评价、八卦、好奇都可以。
-- 信息不够就反问，不要硬编。
+## 🛑 沉默规则：以下情况绝不说话
+
+就算你看懂了话题、也知道怎么接，以下情况也**必须保持沉默**，
+不是话题难不难的问题，是你不该插嘴：
+
+### 重大打击（死亡、重病、事故）
+- 亲人去世、癌症确诊、出车祸进医院 → 沉默
+  ❌ 群友"我爸昨晚走了" → 不说话（不要说"节哀"）
+  ❌ 群友"检查结果出来了 恶性的" → 不说话
+  ✅ 群友"感冒了好难受 躺了一天" → 日常吐槽，可以接
+
+### 情绪崩溃 / 心理危机
+- 绝望、自伤倾向、严重抑郁的表述 → 沉默
+  ❌ 群友"活着真没意思" → 不说话（不要劝，不要安慰）
+  ✅ 群友"今天好累啊 什么都不想干" → 日常抱怨，可以接
+
+### 群里在吵架
+- 群友之间互相攻击、激烈冲突 → 沉默（别站队、别劝架）
+  ❌ 群友"你他妈就是个骗子 滚" → 不说话
+  ✅ 群友争论"Python好还是Rust好" → 技术讨论，可以接
+
+### 个人重大变故
+- 被裁员、离婚、被骗钱 → 沉默
+  ❌ 群友"今天被裁了" → 不说话（不要开玩笑，不要安慰）
+  ❌ 群友"签完字了 离了" → 不说话
+  ✅ 群友"今天加班到9点 烦死了" → 日常吐槽，可以接
+
+### 敏感 / 违法内容
+- 色情、赌博、毒品、暴力威胁、诈骗链接 → 沉默
+  ❌ 群友"加这个群领红包" + 可疑链接 → 不说话
+  ❌ 群友"输了3万 明天还要还" → 不说话
+  ✅ 群友"周末打麻将输了50块" → 日常娱乐，可以接
+
+### 隐私泄露
+- 身份证号、手机号、住址被不小心发到群里 → 沉默
+  ❌ 群友发出身份证照片 → 不说话
+  ✅ 群友"我住在朝阳区" → 正常聊天，可以接
+
+### 单向通知 / 排队刷屏
+- 群主发公告、一群人重复同一句话 → 沉默（别跟队形）
+  ❌ 10个人连续说"节哀" → 不说话
+  ❌ 群主"群规更新如下..." → 不说话
+  ✅ 群友讨论群规该怎么改 → 正常讨论，可以接
+
+### ✅ 以下正常聊天，请继续说话
+- 日常闲聊、吐槽、八卦、分享生活 → 正常接话
+- 技术讨论、兴趣爱好、游戏、美食、旅游 → 正常接话
+- 轻度抱怨、玩梗、互损、开玩笑 → 可以接（语气放轻）
+
+## 说话风格
+- 简短自然，像朋友聊天，不要官腔。
+- 先甩结论，有必要才补一句。
+- 可以适度使用表情，让语气更自然。
 - 对方认真说事时少抖机灵，语气放轻。
 
 ## 当前群聊状态
@@ -214,7 +269,7 @@ class AbstractSummarizer(ABC):
 
 ## 重要
 - 字数限制：最多 {max_chars} 个字。超过就截断。
-- 如果当前不适合插话（比如聊得太认真、话题完全不懂、群里没人聊天），就回复一个空行，不要勉强。
+- 如果当前不适合插话，就回复一个空行，不要勉强。
 
 ## 禁止用词
 根据上下文、综上所述、首先其次最后、需要注意的是、值得一提的是、可谓是、不得不说、从某种角度来说、建议您、希望对你有所帮助
@@ -402,54 +457,19 @@ class AbstractSummarizer(ABC):
         logger.info("Final merge: %d batch summaries", len(batch_summaries))
         return self._merge_chunk_summaries(batch_summaries, requester_name)
 
-    @staticmethod
-    def _ensure_numbered(text: str) -> str:
-        """Post-process summary text to ensure every event line is numbered.
-
-        If the AI already produced numbered lines (e.g. "1. xxx"), they are
-        normalized to sequential numbering. If lines lack numbers, they get
-        numbered automatically. This guarantees clean, readable output
-        regardless of what the model returns.
-        """
-        import re as _re
-
-        lines = text.strip().split("\n")
-        # Filter out empty lines and section headers (lines ending with ：or :)
-        content_lines = [
-            ln for ln in lines
-            if ln.strip() and not ln.strip().endswith(("：", ":"))
-        ]
-
-        if not content_lines:
-            return text.strip()
-
-        # Check if already numbered — lines starting with digit(s) followed by . or 、or )
-        already_numbered = all(
-            _re.match(r"^\d+[\.、\)]\s", ln.strip())
-            for ln in content_lines
-        )
-
-        if already_numbered:
-            # Renumber to ensure sequential order
-            numbered = []
-            for i, ln in enumerate(content_lines, 1):
-                numbered.append(_re.sub(r"^\d+[\.、\)]\s", f"{i}. ", ln.strip()))
-            return "\n".join(numbered)
-        else:
-            # Add numbering to unnumbered lines
-            numbered = []
-            for i, ln in enumerate(content_lines, 1):
-                numbered.append(f"{i}. {ln.strip()}")
-            return "\n".join(numbered)
-
     def format_summary_for_reply(self, result: SummaryResult,
                                   requester_name: str) -> str:
-        """Format a SummaryResult into a concise WeChat reply."""
+        """Format a SummaryResult into a WeChat reply.
+
+        Trusts the AI's output formatting — no forced renumbering.
+        The new detailed system prompt already instructs the model
+        to produce well-structured summaries with numbered topics.
+        """
         parts = [f"@{requester_name} 你错过的：", ""]
 
-        # Use the summary_text, post-processed to guarantee numbering
+        # Use the summary_text directly — AI is instructed to format it well
         if result.summary_text:
-            parts.append(self._ensure_numbered(result.summary_text))
+            parts.append(result.summary_text.strip())
 
         # Fallback: if AI gave topics list instead
         if result.topics and not result.summary_text:
@@ -466,12 +486,33 @@ class AbstractSummarizer(ABC):
         """Summarize all messages in a single call."""
         ...
 
-    @abstractmethod
     def _summarize_map_reduce(self, chunks: list[list[dict]],
                                requester_name: str) -> SummaryResult:
         """Summarize by splitting into chunks, extracting per chunk,
-        then merging."""
-        ...
+        then merging.
+
+        Calls self._summarize_chunk() and self._merge_chunk_summaries(),
+        both of which are abstract and backend-specific.
+        """
+        total = len(chunks)
+
+        chunk_summaries: list[str] = []
+        for i, chunk in enumerate(chunks, 1):
+            logger.info(
+                "Map phase: chunk %d/%d (%d messages)", i, total, len(chunk)
+            )
+            summary = self._summarize_chunk(chunk, i, total, requester_name)
+            chunk_summaries.append(summary)
+
+        if not chunk_summaries:
+            return SummaryResult(
+                summary_text="无法生成总结。",
+                topics=[],
+                participants=[],
+            )
+
+        logger.info("Reduce phase: merging %d chunk summaries", len(chunk_summaries))
+        return self._merge_chunk_summaries(chunk_summaries, requester_name)
 
     @abstractmethod
     def _summarize_chunk(self, chunk: list[dict], chunk_num: int,
@@ -486,6 +527,24 @@ class AbstractSummarizer(ABC):
     def _merge_chunk_summaries(self, chunk_summaries: list[str],
                                 requester_name: str) -> SummaryResult:
         """Merge chunk summaries into a final SummaryResult."""
+        ...
+
+    @abstractmethod
+    def consolidate_memory(self, existing_memory: str,
+                           new_messages: list[dict]) -> str:
+        """Update group memory by incorporating new messages.
+
+        Must be implemented by every backend so that memory consolidation
+        works regardless of which AI provider is configured.
+
+        Args:
+            existing_memory: Current memory text (empty string if first time).
+            new_messages: List of new message dicts to incorporate.
+
+        Returns:
+            Updated first-person diary-style memory text, or existing_memory
+            unchanged on failure.
+        """
         ...
 
     # ── Shared helpers ────────────────────────────────────────────
@@ -528,13 +587,15 @@ class AbstractSummarizer(ABC):
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                return call_fn()
+                result = call_fn()
+                self.last_api_call_time = time.time()
+                return result
             except self.retry_exceptions as e:
                 wait = 2 ** attempt
                 logger.warning(
-                    f"Transient error on '{label}' "
-                    f"(attempt {attempt}/{self.max_retries}). "
-                    f"Waiting {wait}s... ({e})"
+                    "Transient error on '%s' (attempt %d/%d). "
+                    "Waiting %ds... (%s)",
+                    label, attempt, self.max_retries, wait, e,
                 )
                 time.sleep(wait)
                 last_error = e

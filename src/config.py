@@ -25,7 +25,7 @@ class BotConfig:
 
     # === DeepSeek ===
     deepseek_api_key: str = ""
-    deepseek_model: str = "deepseek-v4-flash"
+    deepseek_model: str = "deepseek-v4-pro"
 
     # === WeChat Backend ===
     # "weflow" (4.1.x+, recommended) / "uia" / "wx4py"
@@ -67,6 +67,13 @@ class BotConfig:
     proactive_rate_lively: float = 6.5    # CASUAL → LIVELY boundary
     proactive_rate_burst: float = 8.5     # LIVELY → BURST  boundary
 
+    # === Sticky Mention ===
+    # When a user sends @bot with no message text, enter sticky listening
+    # mode.  The user's next message in the same group is treated as if it
+    # were @mentioned (one-shot).  Set enabled=false to disable entirely.
+    sticky_mention_enabled: bool = True
+    sticky_mention_ttl_sec: int = 60  # max wait for follow-up message
+
     # === Tuning ===
     poll_interval_sec: float = 1.0
     dedup_window_sec: int = 60
@@ -77,6 +84,97 @@ class BotConfig:
     # === Logging ===
     log_level: str = "INFO"
     log_file: str = "data/bot.log"
+
+
+def _validate_config(kwargs: dict) -> None:
+    """Validate numeric config values.  Prints clear errors and exits on bad values."""
+    errors: list[str] = []
+
+    # poll_interval_sec
+    poll_interval_sec = kwargs.get("poll_interval_sec", 1.0)
+    if poll_interval_sec < 0.1:
+        errors.append(
+            f"POLL_INTERVAL_SEC must be >= 0.1, got {poll_interval_sec}"
+        )
+
+    # chunk_size
+    chunk_size = kwargs.get("chunk_size", 400)
+    if not (10 <= chunk_size <= 1000):
+        errors.append(
+            f"CHUNK_SIZE must be between 10 and 1000, got {chunk_size}"
+        )
+
+    # max_messages_for_summary
+    max_messages_for_summary = kwargs.get("max_messages_for_summary", 5000)
+    if max_messages_for_summary < 10:
+        errors.append(
+            f"MAX_MESSAGES_FOR_SUMMARY must be >= 10, got {max_messages_for_summary}"
+        )
+
+    # fallback_window_hours
+    fallback_window_hours = kwargs.get("fallback_window_hours", 8)
+    if fallback_window_hours < 1:
+        errors.append(
+            f"FALLBACK_WINDOW_HOURS must be >= 1, got {fallback_window_hours}"
+        )
+
+    # dedup_window_sec
+    dedup_window_sec = kwargs.get("dedup_window_sec", 60)
+    if dedup_window_sec < 10:
+        errors.append(
+            f"DEDUP_WINDOW_SEC must be >= 10, got {dedup_window_sec}"
+        )
+
+    # sticky_mention_ttl_sec
+    sticky_mention_ttl_sec = kwargs.get("sticky_mention_ttl_sec", 60)
+    if not (10 <= sticky_mention_ttl_sec <= 300):
+        errors.append(
+            f"STICKY_MENTION_TTL_SEC must be between 10 and 300, "
+            f"got {sticky_mention_ttl_sec}"
+        )
+
+    # proactive_rate_window_sec
+    proactive_rate_window_sec = kwargs.get("proactive_rate_window_sec", 120)
+    if proactive_rate_window_sec < 30:
+        errors.append(
+            f"PROACTIVE_RATE_WINDOW_SEC must be >= 30, got {proactive_rate_window_sec}"
+        )
+
+    # proactive_rate thresholds: all > 0 and in strict ascending order
+    quiet = kwargs.get("proactive_rate_quiet", 1.5)
+    casual = kwargs.get("proactive_rate_casual", 4.0)
+    lively = kwargs.get("proactive_rate_lively", 6.5)
+    burst = kwargs.get("proactive_rate_burst", 8.5)
+
+    rate_names = ("quiet", "casual", "lively", "burst")
+    rate_values = (quiet, casual, lively, burst)
+
+    if any(v <= 0 for v in rate_values):
+        errors.append(
+            "All PROACTIVE_RATE_* values must be > 0, got: "
+            + ", ".join(f"{n}={v}" for n, v in zip(rate_names, rate_values))
+        )
+
+    if not (quiet < casual < lively < burst):
+        errors.append(
+            "PROACTIVE_RATE_* values must be in strict ascending order "
+            "(quiet < casual < lively < burst), got: "
+            + ", ".join(f"{n}={v}" for n, v in zip(rate_names, rate_values))
+        )
+
+    # max_retries (if present in config)
+    max_retries = kwargs.get("max_retries")
+    if max_retries is not None:
+        if not (1 <= max_retries <= 10):
+            errors.append(
+                f"MAX_RETRIES must be between 1 and 10, got {max_retries}"
+            )
+
+    if errors:
+        print("ERROR: Invalid configuration values:")
+        for err in errors:
+            print(f"  - {err}")
+        raise SystemExit(1)
 
 
 def load_config() -> BotConfig:
@@ -114,7 +212,7 @@ def load_config() -> BotConfig:
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", "").strip(),
         "summarize_model": os.getenv("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001").strip(),
         "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
-        "deepseek_model": os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro").strip(),
+        # deepseek_model handled conditionally below (dataclass default)
         "wechat_backend": os.getenv("WECHAT_BACKEND", "weflow").strip(),
         "wechat_groups": os.getenv("WECHAT_GROUPS", "").strip(),
         "weflow_url": os.getenv("WEFLOW_URL", "http://127.0.0.1:5031").strip(),
@@ -129,16 +227,28 @@ def load_config() -> BotConfig:
         "fallback_window_hours": int(os.getenv("FALLBACK_WINDOW_HOURS", "8")),
         "enable_web_search": os.getenv("ENABLE_WEB_SEARCH", "true").strip().lower() == "true",
         "proactive_enabled": os.getenv("PROACTIVE_ENABLED", "false").strip().lower() == "true",
-        "proactive_rate_window_sec": int(os.getenv("PROACTIVE_RATE_WINDOW_SEC", "120")),
+        # proactive_rate_window_sec handled conditionally below (dataclass default)
         "proactive_rate_quiet": float(os.getenv("PROACTIVE_RATE_QUIET", "1.5")),
         "proactive_rate_casual": float(os.getenv("PROACTIVE_RATE_CASUAL", "4.0")),
         "proactive_rate_lively": float(os.getenv("PROACTIVE_RATE_LIVELY", "6.5")),
         "proactive_rate_burst": float(os.getenv("PROACTIVE_RATE_BURST", "8.5")),
+        "sticky_mention_enabled": os.getenv("STICKY_MENTION_ENABLED", "true").strip().lower() == "true",
+        "sticky_mention_ttl_sec": int(os.getenv("STICKY_MENTION_TTL_SEC", "60")),
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),
         "log_file": os.getenv("LOG_FILE", "data/bot.log").strip(),
     }
 
+    deepseek_model = os.getenv("DEEPSEEK_MODEL")
+    if deepseek_model is not None:
+        kwargs["deepseek_model"] = deepseek_model.strip()
+
+    proactive_rate_window_sec = os.getenv("PROACTIVE_RATE_WINDOW_SEC")
+    if proactive_rate_window_sec is not None:
+        kwargs["proactive_rate_window_sec"] = int(proactive_rate_window_sec)
+
     if trigger_keywords is not None:
         kwargs["trigger_keywords"] = trigger_keywords
+
+    _validate_config(kwargs)
 
     return BotConfig(**kwargs)

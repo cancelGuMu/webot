@@ -1,12 +1,13 @@
 # Environment
 .env
 
-# Data — runtime files only (nicknames.json is tracked config)
+# Data — runtime files only
 data/messages.db
 data/messages.db-shm
 data/messages.db-wal
 data/bot.log
 data/send_failures.log
+data/nicknames.json
 data/*.log
 data/nickname_reconcile_report.json
 data/ocr_result.txt

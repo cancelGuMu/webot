@@ -79,6 +79,17 @@ export default function Dashboard({ status }) {
 
   return (
     <div className="space-y-10 max-w-6xl">
+      {/* Error banner */}
+      {status.error && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-2 px-4 py-3 bg-[#FDEBEC] border border-[#F5C6C8] rounded-lg text-sm text-[#9F2F2D]"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1L15 14H1L8 1Z" fill="currentColor"/><path d="M8 6V9" stroke="white" strokeWidth="1.5"/><circle cx="8" cy="11.5" r="0.75" fill="white"/></svg>
+          <span>机器人启动失败: {status.error}。查看 data/crash.log 了解详情。</span>
+        </motion.div>
+      )}
       <div className="grid grid-cols-3 gap-5">
         <MetricCard icon={ChatCircle} accent="green" label="已处理消息" value={status.messages_processed.toLocaleString()} sub={status.running ? '机器人运行中' : '机器人已停止'} />
         <MetricCard icon={Clock} accent="blue" label="运行时长" value={uptimeStr} sub={status.running ? '自上次启动' : '—'} />

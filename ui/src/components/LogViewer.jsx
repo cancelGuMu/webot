@@ -11,19 +11,7 @@ const LEVEL_STYLES = {
 const LEVEL_LABELS = { ALL: '全部', INFO: 'INFO', WARNING: '警告', ERROR: '错误', DEBUG: 'DEBUG' }
 const FILTER_OPTIONS = ['ALL', 'INFO', 'WARNING', 'ERROR', 'DEBUG']
 
-const MOCK_LOGS = [
-  { ts: '12:01:03', level: 'INFO', msg: 'WcdbBackend 正在启动 (groups=*, poll=1.0s)' },
-  { ts: '12:01:03', level: 'INFO', msg: 'WCDB 引擎初始化完成 (DRM 补丁已应用)' },
-  { ts: '12:01:04', level: 'INFO', msg: '数据库已打开: session.db' },
-  { ts: '12:01:04', level: 'INFO', msg: '自动发现 7 个群聊' },
-  { ts: '12:01:05', level: 'INFO', msg: '机器人已启动，按 Ctrl+C 停止' },
-  { ts: '12:01:35', level: 'INFO', msg: '回复已发送: 群="技术交流" (47 字)' },
-  { ts: '12:02:10', level: 'DEBUG', msg: '回调耗时 0.35s (msg_id=a3f2, 群="技术交流")' },
-  { ts: '12:02:45', level: 'WARNING', msg: '发送确认超时(3s): 群="摸鱼群"' },
-  { ts: '12:03:00', level: 'INFO', msg: '心跳: uptime=2m, msgs=15, db=正常' },
-  { ts: '12:04:22', level: 'ERROR', msg: 'AI 对话失败: 网络连接错误' },
-  { ts: '12:04:23', level: 'INFO', msg: '回复已发送: 群="技术交流" (32 字)' },
-]
+const MOCK_LOGS = []
 
 export default function LogViewer() {
   const [filter, setFilter] = useState('ALL')
@@ -71,7 +59,8 @@ export default function LogViewer() {
         {filtered.length === 0 ? (
           <div className="p-12 text-center text-[#B8B8B6]">
             <p className="text-base">暂无日志</p>
-            <p className="text-xs mt-2">启动机器人后日志会显示在这里</p>
+            <p className="text-xs mt-2">启动机器人后，运行日志将实时显示在这里。</p>
+            <p className="text-xs mt-1">日志文件位置: data/bot.log</p>
           </div>
         ) : (
           filtered.map((log, i) => (

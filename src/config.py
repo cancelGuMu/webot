@@ -1,14 +1,33 @@
 """Configuration loading from .env file."""
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env from the project root directory
+# Load .env from the project root directory.
+# In a PyInstaller EXE, __file__ resolves inside the temp extraction dir.
+# We search multiple locations so the EXE finds .env placed next to it.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
+
+_env_path = None
+_locations = [
+    PROJECT_ROOT / ".env",                     # development / legacy
+    Path.cwd() / ".env",                       # EXE placed next to .env
+]
+if getattr(sys, "frozen", False):
+    # PyInstaller: also check the directory containing the EXE
+    _exe_dir = Path(sys.executable).resolve().parent
+    _locations.insert(0, _exe_dir / ".env")
+
+for _loc in _locations:
+    if _loc.exists():
+        _env_path = _loc
+        break
+
+load_dotenv(_env_path) if _env_path else load_dotenv()
 
 
 @dataclass

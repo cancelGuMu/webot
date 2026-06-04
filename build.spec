@@ -13,10 +13,14 @@ PROJECT_ROOT = SPECPATH
 a = Analysis(
     ['desktop.py'],
     pathex=[str(PROJECT_ROOT)],
-    binaries=[],
+    binaries=[
+        ('C:/Users/GuMu/AppData/Local/Programs/Python/Python313/Lib/site-packages/webview/lib/runtimes/win-x64/native/WebView2Loader.dll', './runtimes/win-x64/native'),
+        ('C:/Users/GuMu/AppData/Local/Programs/Python/Python313/Lib/site-packages/webview/lib/WebBrowserInterop.x64.dll', './lib'),
+    ],
     datas=[
         ('ui/dist', 'ui/dist'),
         ('.env.example', '.'),
+        ('data', 'data'),
     ],
     hiddenimports=[
         'src', 'src.bot', 'src.config', 'src.main',
@@ -35,6 +39,7 @@ a = Analysis(
         'src.nickname', 'src.admin', 'src.fun',
         'src.utils', 'src.utils.logging_config', 'src.utils.web_search',
         'dotenv', 'anthropic', 'openai', 'pydantic',
+        'webview', 'webview.platforms', 'webview.platforms.edgechromium',
         'PIL', 'PIL.Image', 'PIL.ImageDraw',
     ],
     hookspath=[],

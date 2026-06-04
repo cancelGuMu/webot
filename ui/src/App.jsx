@@ -40,6 +40,8 @@ export default function App() {
     ai_backend: 'deepseek',
     db_ok: false,
     last_api_call_sec_ago: -1,
+    timestamp: '',
+    error: '',
   }
 
   return (
@@ -114,16 +116,14 @@ export default function App() {
             <span className="text-xs text-[#787774] font-mono">
               已处理 {status.messages_processed.toLocaleString()} 条消息
             </span>
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              className={`px-5 py-1.5 rounded-md text-xs font-semibold transition-all ${
+            <div className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
                 status.running
-                  ? 'bg-[#FDEBEC] text-[#9F2F2D] border border-[#F5C6C8] hover:bg-[#FBE0E1]'
-                  : 'bg-[#EDF3EC] text-[#346538] border border-[#C5DAC2] hover:bg-[#E0EBDF]'
-              }`}
-            >
-              {status.running ? '停止运行' : '启动机器人'}
-            </motion.button>
+                  ? 'bg-[#EDF3EC] text-[#346538] border border-[#C5DAC2]'
+                  : 'bg-[#F7F6F3] text-[#B8B8B6] border border-[#EAEAEA]'
+              }`}>
+              <div className={`w-2 h-2 rounded-full ${status.running ? 'bg-[#346538]' : 'bg-[#B8B8B6]'}`} />
+              {status.running ? '运行中' : '未启动'}
+            </div>
           </div>
         </div>
 

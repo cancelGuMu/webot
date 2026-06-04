@@ -76,6 +76,7 @@ class HealthMonitor:
 
         # Push to Web UI
         self._on_tick(
+            uptime_sec=uptime_sec,
             messages_processed=msgs,
             db_ok=db_status == "OK",
             last_api_call_sec_ago=int(time.time() - self._summarizer.last_api_call_time)
@@ -194,17 +195,17 @@ class Bot:
             config=config,
         )
 
-        # ── 4. Web UI server ────────────────────────────────────
+        # ── 4. Web UI status ────────────────────────────────────
+        # (web server already started by desktop.py)
         try:
-            from .web.server import start_web_server, update_status
-            start_web_server()
+            from .web.server import update_status
             update_status(
                 wechat_backend=config.wechat_backend,
                 ai_backend=config.ai_backend,
             )
             self._update_status = update_status
         except Exception as e:
-            logger.debug("Web UI server: %s", e)
+            logger.debug("Web UI status: %s", e)
             self._update_status = lambda **kw: None
 
         # ── 5. WeChat backend ───────────────────────────────────
@@ -229,8 +230,12 @@ class Bot:
             if self._health:
                 self._health.stop()
 
-        signal.signal(signal.SIGINT, shutdown)
-        signal.signal(signal.SIGTERM, shutdown)
+        try:
+            signal.signal(signal.SIGINT, shutdown)
+            signal.signal(signal.SIGTERM, shutdown)
+        except ValueError:
+            # Running in a thread — signals not available
+            pass
 
         # ── 7. Start listening (blocks) ─────────────────────────
         #

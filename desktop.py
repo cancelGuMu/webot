@@ -1,125 +1,129 @@
 """
 Desktop application entry point.
 
-Provides a native Windows window with the React dashboard embedded.
-Also serves the web UI on localhost for browser/remote access.
+Uses Edge WebView2 (built into Windows 10/11) for a native window.
+Falls back to browser if WebView2 is unavailable.
 
 Usage:
-    python desktop.py           # GUI mode (native window)
-    python desktop.py --web     # Web-only mode (no window, server only)
-    python desktop.py --tray    # Start minimized to system tray
+    python desktop.py
+    WeChatBot.exe  (packaged version)
 """
 import os
 import sys
 import threading
 import time
 import webbrowser
+import traceback
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
+def _write_crash_log(exc_info: str) -> None:
+    """Write crash details to a file for windowed-mode debugging."""
+    try:
+        crash_dir = PROJECT_ROOT / "data"
+        crash_dir.mkdir(parents=True, exist_ok=True)
+        crash_path = crash_dir / "crash.log"
+        with open(crash_path, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"Crash at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(exc_info)
+            f.write(f"\n{'='*60}\n\n")
+    except Exception:
+        pass  # last resort — can't even write crash log
+
+
 def start_bot():
-    """Start the WeChat bot in a background thread."""
+    """Start bot in background thread (signal-safe)."""
     sys.path.insert(0, str(PROJECT_ROOT))
-    from src.config import load_config
-    from src.bot import Bot
 
-    config = load_config()
-
-    # Start web UI server first
     from src.web.server import start_web_server, update_status
-    start_web_server()
-    update_status(
-        wechat_backend=config.wechat_backend,
-        ai_backend=config.ai_backend,
-    )
+    web_thread = start_web_server()
 
-    # Start bot
-    bot = Bot(config)
-    bot.run()
+    try:
+        from src.config import load_config
+        config = load_config()
+        update_status(
+            wechat_backend=config.wechat_backend,
+            ai_backend=config.ai_backend,
+        )
+        from src.bot import Bot
+        bot = Bot(config)
+        bot.run()
+    except SystemExit:
+        update_status(running=False)
+        while True:
+            time.sleep(1)
+    except Exception as e:
+        update_status(running=False, error=str(e))
+        exc_info = traceback.format_exc()
+        _write_crash_log(exc_info)
+        # In windowed mode, stdout/stderr are invisible — write to file
+        # and push error to web UI
+        while True:
+            time.sleep(1)
 
 
-def run_gui():
-    """Launch native desktop window with embedded React UI."""
-    import webview
-
-    def on_loaded():
-        """Called when the webview finishes loading."""
-        pass
-
+def main():
     # Start bot in background
     bot_thread = threading.Thread(target=start_bot, daemon=True, name="bot-main")
     bot_thread.start()
 
-    # Wait for server to be ready
-    time.sleep(2)
+    # Wait for web server
+    ready = False
+    for _ in range(30):
+        try:
+            from urllib.request import urlopen
+            urlopen("http://127.0.0.1:8765", timeout=1)
+            ready = True
+            break
+        except Exception:
+            time.sleep(0.5)
 
-    # Create native window
-    window = webview.create_window(
-        title="WeChat Bot — Dashboard",
-        url="http://127.0.0.1:8765",
-        width=1200,
-        height=800,
-        min_size=(900, 600),
-        text_select=True,
-        confirm_close=True,
-    )
+    if not ready:
+        _write_crash_log("Web server startup timeout (30 attempts)")
+        # Try to show a minimal message
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "Web 服务器启动超时，请检查端口 8765 是否被占用。\n\n"
+                "详情见 data/crash.log",
+                "WeChat Bot — 启动失败",
+                0x10,  # MB_ICONERROR
+            )
+        except Exception:
+            pass
+        return
 
-    webview.start(on_loaded, window, gui="edgechromium")
-
-
-def run_web_only():
-    """Web-only mode: serve UI, open browser."""
-    start_bot()
-
-
-def run_tray():
-    """Start minimized to system tray."""
-    import webview
-    import pystray
-    from PIL import Image, ImageDraw
-
-    # Create a simple tray icon (green circle)
-    def create_icon():
-        img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        draw.ellipse((4, 4, 28, 28), fill=(52, 211, 153))
-        draw.ellipse((10, 10, 22, 22), fill=(16, 185, 129))
-        return img
-
-    def on_open(_icon, _item):
+    # Try native WebView2, fall back to browser
+    try:
+        import webview
+        window = webview.create_window(
+            title="WeChat Bot — Dashboard",
+            url="http://127.0.0.1:8765",
+            width=1200,
+            height=800,
+            min_size=(900, 600),
+        )
+        webview.start(gui="edgechromium")
+    except Exception as e:
+        logger_available = False
+        try:
+            from src.web.server import logger
+            logger.warning("WebView2 不可用，正在使用浏览器: %s", e)
+            logger_available = True
+        except Exception:
+            pass
+        if not logger_available:
+            _write_crash_log(f"WebView2 unavailable: {e}\nFalling back to browser.")
         webbrowser.open("http://127.0.0.1:8765")
-
-    def on_quit(_icon, _item):
-        _icon.stop()
-        os._exit(0)
-
-    # Start bot
-    bot_thread = threading.Thread(target=start_bot, daemon=True, name="bot-main")
-    bot_thread.start()
-    time.sleep(2)
-
-    # System tray
-    icon = pystray.Icon(
-        "wechat_bot",
-        create_icon(),
-        "WeChat Bot",
-        menu=pystray.Menu(
-            pystray.MenuItem("Open Dashboard", on_open, default=True),
-            pystray.MenuItem("Quit", on_quit),
-        ),
-    )
-    icon.run()
-
-
-def main():
-    if "--web" in sys.argv:
-        run_web_only()
-    elif "--tray" in sys.argv:
-        run_tray()
-    else:
-        run_gui()
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

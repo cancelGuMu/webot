@@ -2,7 +2,7 @@
 
 > 微信群聊 AI 助手 —— 原生 WCDB 直读，零外部依赖，开箱即用。
 
-<p align="center">
+<p align="center" data-author="孤舟99">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue?style=flat-square&logo=windows" />
   <img src="https://img.shields.io/badge/python-3.10+-green?style=flat-square&logo=python" />
   <img src="https://img.shields.io/badge/AI-Claude%20%7C%20DeepSeek-purple?style=flat-square" />
@@ -191,7 +191,7 @@ DEDUP_WINDOW_SEC=60
 | 群聊总结 | 发送 `总结一下` / `前面说了什么` / `聊天总结` |
 | AI 问答 | `@机器人 <你的问题>` |
 | 空 @ 粘性 | 发送 `@机器人`（不带文字），然后在 60 秒内发送你的问题 |
-| Web 仪表盘 | 启动后自动打开 `http://127.0.0.1:8765` |
+| Web 仪表盘 | 启动后自动打开 `http://127.0.0.1:7327` |
 
 ### 管理命令
 
@@ -280,8 +280,6 @@ WeChatBot 只读取微信的本地加密数据库文件，不注入微信进程�
 </details>
 
 ---
-
-<!-- 孤舟99 -->
 
 ## License
 

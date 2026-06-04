@@ -24,7 +24,7 @@ export default function App() {
   const [botStatus, setBotStatus] = useState(null)
 
   useEffect(() => {
-    const socket = new WebSocket('ws://127.0.0.1:8765')
+    const socket = new WebSocket('ws://127.0.0.1:7327')
     socket.onmessage = (e) => {
       try { setBotStatus(JSON.parse(e.data)) } catch {}
     }

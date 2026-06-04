@@ -75,7 +75,7 @@ def main():
     for _ in range(30):
         try:
             from urllib.request import urlopen
-            urlopen("http://127.0.0.1:8765", timeout=1)
+            urlopen("http://127.0.0.1:7327", timeout=1)
             ready = True
             break
         except Exception:
@@ -88,7 +88,7 @@ def main():
             import ctypes
             ctypes.windll.user32.MessageBoxW(
                 0,
-                "Web 服务器启动超时，请检查端口 8765 是否被占用。\n\n"
+                "Web 服务器启动超时，请检查端口 7327 是否被占用。\n\n"
                 "详情见 data/crash.log",
                 "WeChat Bot — 启动失败",
                 0x10,  # MB_ICONERROR
@@ -102,7 +102,7 @@ def main():
         import webview
         window = webview.create_window(
             title="WeChat Bot — Dashboard",
-            url="http://127.0.0.1:8765",
+            url="http://127.0.0.1:7327",
             width=1200,
             height=800,
             min_size=(900, 600),
@@ -118,7 +118,7 @@ def main():
             pass
         if not logger_available:
             _write_crash_log(f"WebView2 unavailable: {e}\nFalling back to browser.")
-        webbrowser.open("http://127.0.0.1:8765")
+        webbrowser.open("http://127.0.0.1:7327")
         try:
             while True:
                 time.sleep(1)

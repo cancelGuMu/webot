@@ -130,8 +130,46 @@ class WcdbBackend(AbstractWeChatBackend):
     # ── Group resolution ────────────────────────────────────────────
 
     def _resolve_groups(self) -> None:
-        """Map configured group names to talker IDs from WCDB sessions."""
+        """Map configured group names to talker IDs from WCDB sessions.
+
+        WCDB session records only contain usernames (e.g. 20968749111@chatroom).
+        Display names must be resolved via the DLL's get_display_names() or
+        the local nickname cache (WeChat contacts / manual overrides).
+        """
         sessions = self._client.get_sessions()
+
+        # Build a map of all @chatroom entries: username -> best display name
+        all_chatrooms: dict[str, str] = {}
+        for s in sessions:
+            username = str(s.get("username", "") or "")
+            if not username.endswith("@chatroom"):
+                continue
+
+            # Try session-level display name fields (rarely populated)
+            display = str(
+                s.get("displayName") or s.get("displayname")
+                or s.get("nickname") or s.get("display_name")
+                or ""
+            ).strip()
+            if not display:
+                # Fall back to DLL lookup (resolves via contacts DB + nicknames)
+                display = self._client.resolve_nickname(username)
+            if not display or display == username:
+                # Last resort: try last_sender_display_name from session,
+                # or use the numeric prefix of username as label
+                display = str(s.get("last_sender_display_name", "") or "").strip()
+                if not display or display == username:
+                    display = username  # fallback
+
+            all_chatrooms[username] = display
+
+        if not all_chatrooms:
+            logger.error(
+                "No @chatroom sessions found in WCDB (total sessions: %d). "
+                "Make sure WeChat is logged in and session.db is accessible.",
+                len(sessions),
+            )
+            return
 
         auto_discover = (
             not self._groups
@@ -139,11 +177,8 @@ class WcdbBackend(AbstractWeChatBackend):
         )
 
         if auto_discover:
-            for s in sessions:
-                username = s.get("username", "")
-                display = s.get("displayName", s.get("nickname", ""))
-                if username.endswith("@chatroom") and display:
-                    self._talker_ids[display] = username
+            for username, display in all_chatrooms.items():
+                self._talker_ids[display] = username
             logger.info(
                 "Auto-discovered %d group chats: %s",
                 len(self._talker_ids), list(self._talker_ids.keys()),
@@ -151,20 +186,26 @@ class WcdbBackend(AbstractWeChatBackend):
             self._groups = list(self._talker_ids.keys())
             return
 
-        # Manual mode
+        # Manual mode: match configured names against resolved display names
         for group_name in self._groups:
             found = None
-            for s in sessions:
-                display = s.get("displayName", s.get("nickname", ""))
-                username = s.get("username", "")
-                if group_name in display or display in group_name:
+            for username, display in all_chatrooms.items():
+                if group_name.lower() in display.lower() or display.lower() in group_name.lower():
                     found = username
                     break
             if found:
                 self._talker_ids[group_name] = found
-                logger.info("Resolved '%s' -> %s", group_name, found)
+                logger.info("Resolved '%s' -> %s (display='%s')", group_name, found, all_chatrooms.get(found, ""))
             else:
-                logger.warning("Could not resolve group '%s'", group_name)
+                # Direct lookup: maybe group_name IS a username like 20968749111@chatroom
+                if group_name in all_chatrooms:
+                    self._talker_ids[group_name] = group_name
+                    logger.info("Resolved '%s' as direct username", group_name)
+                else:
+                    logger.warning(
+                        "Could not resolve group '%s'. Available: %s",
+                        group_name, list(all_chatrooms.keys()),
+                    )
 
     def _talker_to_name(self, talker_id: str) -> str:
         for name, tid in self._talker_ids.items():

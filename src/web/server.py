@@ -347,7 +347,7 @@ def _run_server(host, port):
     server.serve_forever()
 
 
-def start_web_server(host="127.0.0.1", port=8765):
+def start_web_server(host="127.0.0.1", port=7327):
     """Start the web UI in a daemon thread (idempotent)."""
     global _server_started
     if _server_started:

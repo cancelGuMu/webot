@@ -61,10 +61,11 @@ def _apply_drm_patch(dll_handle, dll_path):
 
 
 def _read_gbk_string(ptr):
-    """Read null-terminated GBK string from a raw pointer.
+    """Read null-terminated string from a raw pointer.
 
-    WeChat stores data as GBK internally. ctypes.c_char_p would corrupt
-    this with the system code page.
+    WeChat stores data primarily as GBK on Chinese Windows, but some
+    fields may use UTF-8 or contain mixed encodings. We try GBK first,
+    then UTF-8, and fall back to latin-1 (always succeeds).
     """
     if not ptr or ptr.value == 0:
         return ""
@@ -76,7 +77,19 @@ def _read_gbk_string(ptr):
             break
         raw.append(b)
         addr += 1
-    return raw.decode("gbk", errors="replace")
+    data = bytes(raw)
+    # Try GBK first (WeChat's default on Chinese Windows)
+    try:
+        return data.decode("gbk")
+    except (UnicodeDecodeError, LookupError):
+        pass
+    # Try UTF-8
+    try:
+        return data.decode("utf-8")
+    except (UnicodeDecodeError, LookupError):
+        pass
+    # Fall back: replace invalid bytes
+    return data.decode("gbk", errors="replace")
 
 
 # ── Public API ────────────────────────────────────────────────────────

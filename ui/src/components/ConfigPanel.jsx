@@ -254,7 +254,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     setSaved(false)
     setSaveError('')
     try {
-      const res = await fetch('http://127.0.0.1:8765/api/config', {
+      const res = await fetch('http://127.0.0.1:7327/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

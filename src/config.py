@@ -25,16 +25,12 @@ class BotConfig:
 
     # === DeepSeek ===
     deepseek_api_key: str = ""
-    deepseek_model: str = "deepseek-v4-pro"
+    deepseek_model: str = "deepseek-v4-flash"
 
     # === WeChat Backend ===
-    # "weflow" (4.1.x+, recommended) / "uia" / "wx4py"
-    wechat_backend: str = "weflow"
-    # Comma-separated group names to monitor
+    wechat_backend: str = "wcdb"
+    # Comma-separated group names to monitor. "*" = auto-discover all groups.
     wechat_groups: str = ""
-    # WeFlow API base URL (only for weflow backend)
-    weflow_url: str = "http://127.0.0.1:5031"
-    weflow_token: str = ""
 
     # === Bot Identity ===
     bot_display_name: str = "群聊小助手"
@@ -66,6 +62,12 @@ class BotConfig:
     proactive_rate_casual: float = 4.0    # QUIET → CASUAL boundary
     proactive_rate_lively: float = 6.5    # CASUAL → LIVELY boundary
     proactive_rate_burst: float = 8.5     # LIVELY → BURST  boundary
+
+    # === Vulgar Content Guard ===
+    # When enabled, the bot detects vulgar/low-brow memes in incoming
+    # messages and issues a firm verbal warning (no profanity) instead
+    # of engaging.  Also filters the AI's own output as a safety net.
+    vulgar_guard_enabled: bool = True
 
     # === Sticky Mention ===
     # When a user sends @bot with no message text, enter sticky listening
@@ -213,10 +215,8 @@ def load_config() -> BotConfig:
         "summarize_model": os.getenv("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001").strip(),
         "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
         # deepseek_model handled conditionally below (dataclass default)
-        "wechat_backend": os.getenv("WECHAT_BACKEND", "weflow").strip(),
+        "wechat_backend": os.getenv("WECHAT_BACKEND", "wcdb").strip(),
         "wechat_groups": os.getenv("WECHAT_GROUPS", "").strip(),
-        "weflow_url": os.getenv("WEFLOW_URL", "http://127.0.0.1:5031").strip(),
-        "weflow_token": os.getenv("WEFLOW_TOKEN", "").strip(),
         "bot_display_name": os.getenv("BOT_DISPLAY_NAME", "群聊小助手").strip(),
         "admin_wxid": os.getenv("ADMIN_WXID", "").strip(),
         "db_path": os.getenv("DB_PATH", "data/messages.db").strip(),
@@ -232,6 +232,7 @@ def load_config() -> BotConfig:
         "proactive_rate_casual": float(os.getenv("PROACTIVE_RATE_CASUAL", "4.0")),
         "proactive_rate_lively": float(os.getenv("PROACTIVE_RATE_LIVELY", "6.5")),
         "proactive_rate_burst": float(os.getenv("PROACTIVE_RATE_BURST", "8.5")),
+        "vulgar_guard_enabled": os.getenv("VULGAR_GUARD_ENABLED", "true").strip().lower() == "true",
         "sticky_mention_enabled": os.getenv("STICKY_MENTION_ENABLED", "true").strip().lower() == "true",
         "sticky_mention_ttl_sec": int(os.getenv("STICKY_MENTION_TTL_SEC", "60")),
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),

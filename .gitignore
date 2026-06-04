@@ -14,6 +14,10 @@ data/ocr_result.txt
 data/test_results.json
 data/uia_dump.txt
 
+# Node.js (npm artifacts from WeFlow-main exploration)
+node_modules/
+package-lock.json
+
 # Logs
 *.log
 wx4py.log
@@ -54,6 +58,13 @@ data/bot_status.json
 # Claude Code
 .claude/
 
+# WeFlow source (cloned for reference, not part of this project)
+WeFlow-main/
+
+# WeChat runtime binaries (from WeFlow install, not tracked in git)
+src/wechat/bin/
+
 # Private persona data
 skill/gumu-persona/data/
 skill/gumu-persona/self.md
+image/

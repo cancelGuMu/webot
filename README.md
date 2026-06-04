@@ -281,6 +281,8 @@ WeChatBot 只读取微信的本地加密数据库文件，不注入微信进程�
 
 ---
 
+<!-- 孤舟99 -->
+
 ## License
 
 MIT © [cancelGuMu](https://github.com/cancelGuMu)

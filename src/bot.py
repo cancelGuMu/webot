@@ -30,12 +30,14 @@ class HealthMonitor:
     Runs in a daemon thread so it never blocks shutdown.
     """
 
-    def __init__(self, summarizer, router, conn, backend, config: BotConfig):
+    def __init__(self, summarizer, router, conn, backend, config: BotConfig,
+                 on_tick=None):
         self._summarizer = summarizer
         self._router = router
         self._conn = conn
         self._backend = backend
         self._config = config
+        self._on_tick = on_tick or (lambda **kw: None)
         self._start_time = time.time()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -72,6 +74,14 @@ class HealthMonitor:
         wechat_status = self._check_wechat_hwnd()
         last_api_str = self._last_api_ago()
 
+        # Push to Web UI
+        self._on_tick(
+            messages_processed=msgs,
+            db_ok=db_status == "OK",
+            last_api_call_sec_ago=int(time.time() - self._summarizer.last_api_call_time)
+                if self._summarizer.last_api_call_time > 0 else -1,
+        )
+
         logger.info(
             "HEARTBEAT: uptime=%dm, msgs=%d, db=%s, wechat=%s, last_api=%s",
             uptime_min, msgs, db_status, wechat_status, last_api_str,
@@ -88,33 +98,14 @@ class HealthMonitor:
             return f"ERR:{e}"
 
     def _check_wechat_hwnd(self) -> str:
-        """Check WeChat window HWND (if applicable for the active backend)."""
-        backend_type = self._config.wechat_backend
-
+        """Check WeChat window HWND."""
         try:
-            if backend_type == "weflow":
-                wc = self._backend._window
-                hwnd = wc._cached_hwnd
-                if hwnd is not None:
-                    if wc._validate_hwnd(hwnd):
-                        return f"HWND_{hwnd}"
-                return "no_hwnd"
-
-            elif backend_type == "uia":
-                hwnd = getattr(self._backend, "_hwnd", None)
-                if hwnd is not None:
-                    try:
-                        import win32gui
-                        if win32gui.IsWindow(hwnd):
-                            return f"HWND_{hwnd}"
-                    except ImportError:
-                        return "HWND_?"  # win32gui not available
-                return "no_hwnd"
-
-            elif backend_type == "wx4py":
-                return "n/a"
-
-            return f"unknown:{backend_type}"
+            wc = self._backend._window
+            hwnd = wc._cached_hwnd
+            if hwnd is not None:
+                if wc._validate_hwnd(hwnd):
+                    return f"HWND_{hwnd}"
+            return "no_hwnd"
         except Exception as e:
             return f"ERR:{e}"
 
@@ -203,17 +194,31 @@ class Bot:
             config=config,
         )
 
-        # ── 4. WeChat backend ───────────────────────────────────
+        # ── 4. Web UI server ────────────────────────────────────
+        try:
+            from .web.server import start_web_server, update_status
+            start_web_server()
+            update_status(
+                wechat_backend=config.wechat_backend,
+                ai_backend=config.ai_backend,
+            )
+            self._update_status = update_status
+        except Exception as e:
+            logger.debug("Web UI server: %s", e)
+            self._update_status = lambda **kw: None
+
+        # ── 5. WeChat backend ───────────────────────────────────
         backend = self._create_wechat_backend()
         self._backend = backend
 
-        # ── 5. Health monitor ───────────────────────────────────
+        # ── 6. Health monitor ───────────────────────────────────
         self._health = HealthMonitor(
             summarizer=summarizer,
             router=router,
             conn=self._conn,
             backend=backend,
             config=config,
+            on_tick=self._update_status,
         )
         self._health.start()
 
@@ -294,34 +299,16 @@ class Bot:
             g.strip() for g in config.wechat_groups.split(",") if g.strip()
         ]
 
-        if config.wechat_backend == "weflow":
-            from .wechat.weflow_backend import WeFlowBackend
-            return WeFlowBackend(
+        if config.wechat_backend == "wcdb":
+            from .wechat.wcdb_backend import WcdbBackend
+            return WcdbBackend(
                 bot_display_name=config.bot_display_name,
                 groups=groups,
                 poll_sec=config.poll_interval_sec,
-                weflow_url=config.weflow_url,
-                access_token=config.weflow_token,
-            )
-
-        elif config.wechat_backend == "uia":
-            from .wechat.uia_backend import UiaBackend
-            return UiaBackend(
-                bot_display_name=config.bot_display_name,
-                groups=groups,
-                poll_sec=config.poll_interval_sec,
-            )
-
-        elif config.wechat_backend == "wx4py":
-            from .wechat.wx4py_backend import Wx4pyBackend
-            return Wx4pyBackend(
-                bot_display_name=config.bot_display_name,
-                groups=groups,
-                poll_interval_sec=config.poll_interval_sec,
             )
 
         else:
             raise ValueError(
                 f"Unknown WECHAT_BACKEND: '{config.wechat_backend}'. "
-                f"Supported: weflow, uia, wx4py."
+                f"Supported: wcdb."
             )

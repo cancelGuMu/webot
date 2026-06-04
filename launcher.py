@@ -1,7 +1,7 @@
 """One-click launcher for WeChat Summarizer Bot.
 
 Checks environment, installs dependencies, guides first-time setup,
-then launches the bot.
+then launches the bot.  No external processes needed.
 
 Usage:
     python launcher.py
@@ -12,10 +12,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-REQUIREMENTS = PROJECT_ROOT / "requirements.txt"
 ENV_FILE = PROJECT_ROOT / ".env"
+load_dotenv(ENV_FILE)
+
+REQUIREMENTS = PROJECT_ROOT / "requirements.txt"
 ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
 
 
@@ -43,7 +46,6 @@ def _validate_env(env_path: Path) -> None:
     content = env_path.read_text(encoding="utf-8")
     lines = content.splitlines()
 
-    # Parse AI_BACKEND
     backend = "claude"
     api_key_found = False
 
@@ -67,16 +69,44 @@ def _validate_env(env_path: Path) -> None:
 
     if not api_key_found:
         print()
-        print("=" * 44)
+        print("=" * 48)
         if backend == "deepseek":
-            print("  未检测到有效的 DEEPSEEK_API_KEY！")
+            print("  未检测到 DeepSeek API Key！")
+            print()
+            print("  请在 https://platform.deepseek.com/api_keys")
+            print("  注册并创建你的 API Key（新用户有免费额度）")
         else:
-            print("  未检测到有效的 ANTHROPIC_API_KEY！")
-        print("=" * 44)
-        print(f"\n  请在 .env 中填入有效的 API Key。")
-        print(f"  文件位置: {env_path}\n")
-        input("\n按 Enter 退出...")
-        sys.exit(1)
+            print("  未检测到 Anthropic API Key！")
+        print("=" * 48)
+        print()
+        print("  【方式一】现在输入你的 API Key，自动写入 .env：")
+        print()
+        try:
+            api_key = input("  粘贴 API Key: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            api_key = ""
+        if api_key and len(api_key) > 10:
+            new_lines = []
+            target_key = "DEEPSEEK_API_KEY" if backend == "deepseek" else "ANTHROPIC_API_KEY"
+            for line in content.splitlines():
+                if line.strip().startswith(target_key):
+                    new_lines.append(f"{target_key}={api_key}")
+                else:
+                    new_lines.append(line)
+            env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            print(f"\n  [OK] API Key 已写入 .env")
+            load_dotenv(env_path, override=True)
+        else:
+            print()
+            print("  【方式二】手动编辑 .env 文件，填入 API Key")
+            print(f"  文件位置: {env_path}")
+            try:
+                os.startfile(str(env_path))
+            except Exception:
+                pass
+            print()
+            input("  编辑完成后，按 Enter 继续（或 Ctrl+C 退出）...")
+            print()
 
 
 def main():
@@ -90,7 +120,6 @@ def main():
     if py_ver < (3, 10):
         print(f"[错误] Python 版本过低: {py_ver.major}.{py_ver.minor}")
         print("        需要 Python 3.10 或更高版本")
-        print("        下载: https://www.python.org/downloads/")
         input("\n按 Enter 退出...")
         sys.exit(1)
     print(f"[OK] Python {py_ver.major}.{py_ver.minor}.{py_ver.micro}")
@@ -98,10 +127,8 @@ def main():
     # ── 2. Check / create .env ────────────────────────────────────
     if not ENV_FILE.exists():
         print("\n[警告] 未找到 .env 配置文件，正在从模板创建...")
-
         content = ENV_EXAMPLE.read_text(encoding="utf-8") if ENV_EXAMPLE.exists() else ""
         ENV_FILE.write_text(content, encoding="utf-8")
-
         print()
         print("=" * 44)
         print("  请先编辑 .env 文件，填入你的 API Key！")
@@ -116,30 +143,22 @@ def main():
         print("    以及对应后端的 API_KEY")
         print()
         print("  编辑完成后，再次双击 start.bat 即可启动。")
-
-        # Try to open .env in notepad
         try:
             os.startfile(str(ENV_FILE))
         except Exception:
             pass
-
         input("\n按 Enter 退出...")
         sys.exit(0)
 
-    # Validate .env has a valid AI_BACKEND and corresponding API key
     _validate_env(ENV_FILE)
     print("[OK] .env 配置文件已找到")
 
     # ── 3. Check / install dependencies ───────────────────────────
     print("[检查] 正在检查依赖...")
+    wechat_backend = _get_env_value(ENV_FILE, "WECHAT_BACKEND") or "wcdb"
 
-    # Determine which WeChat backend is configured
-    wechat_backend = _get_env_value(ENV_FILE, "WECHAT_BACKEND") or "weflow"
-
-    # Only wx4py needs a special package beyond requirements.txt
-    needs_wx4py = wechat_backend == "wx4py"
     deps_ok = True
-    if needs_wx4py:
+    if wechat_backend == "wx4py":
         try:
             import wx4py  # noqa: F401
         except ImportError:
@@ -147,28 +166,13 @@ def main():
 
     if not deps_ok:
         print("[信息] 首次运行，正在安装依赖包...")
-        print()
-
-        # First install regular PyPI packages
         result = run([sys.executable, "-m", "pip", "install", "-r", str(REQUIREMENTS)])
         if result.returncode != 0:
-            print()
             print("[错误] 依赖安装失败，请检查网络连接")
-            print(f"        或手动运行: pip install -r requirements.txt")
             input("\n按 Enter 退出...")
             sys.exit(1)
-
-        # Install wx4py if needed
-        if needs_wx4py:
-            print("[信息] 正在安装 wx4py...")
-            result = run([sys.executable, "-m", "pip", "install", "wx4py"])
-            if result.returncode != 0:
-                print()
-                print("[错误] wx4py 安装失败")
-                print("        pip install wx4py")
-                input("\n按 Enter 退出...")
-                sys.exit(1)
-
+        if wechat_backend == "wx4py":
+            run([sys.executable, "-m", "pip", "install", "wx4py"])
         print()
 
     print("[OK] 依赖已就绪")
@@ -186,23 +190,26 @@ def main():
     print("  按 Ctrl+C 可随时停止机器人")
     print("=" * 44)
     print()
+
+    # ── 5. Launch the bot ─────────────────────────────────────────
+    if wechat_backend == "wcdb":
+        print("[信息] 后端: wcdb (原生数据库直读，零外部进程)")
+    else:
+        print(f"[信息] 后端: {wechat_backend}")
+    print()
     print("正在启动，请稍候...")
     print()
 
-    # ── 5. Launch the bot ─────────────────────────────────────────
     try:
         result = run([sys.executable, "-m", "src.main"])
         print()
         if result.returncode != 0:
-            print("[错误] 机器人异常退出 (退出码: {})".format(result.returncode))
+            print(f"[错误] 机器人异常退出 (退出码: {result.returncode})")
             print()
             print("常见问题:")
             print("  1. 微信没有打开或没有登录")
             print("  2. API Key 未配置或无效")
-            print("     DeepSeek → DEEPSEEK_API_KEY")
-            print("     Claude   → ANTHROPIC_API_KEY")
-            print("  3. WECHAT_BACKEND 配置错误或依赖未安装")
-            print("  4. 网络问题导致 API 调用失败")
+            print("  3. 网络问题导致 API 调用失败")
         else:
             print("机器人已正常停止。")
     except KeyboardInterrupt:

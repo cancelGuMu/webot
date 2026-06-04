@@ -32,9 +32,6 @@ def _print_config_summary(config: BotConfig) -> None:
         print(f"  DeepSeek Model:          {config.deepseek_model}")
     print(f"  WeChat Backend:          {config.wechat_backend}")
     print(f"  WeChat Groups:           {config.wechat_groups or '(all)'}")
-    if config.wechat_backend == "weflow":
-        print(f"  WeFlow URL:              {config.weflow_url}")
-        print(f"  WeFlow Token:            {_mask(config.weflow_token)}")
     print(f"  Bot Display Name:        {config.bot_display_name}")
     print(f"  Admin wxid:              {config.admin_wxid or '(not set)'}")
     print(f"  Trigger Keywords:        {config.trigger_keywords}")

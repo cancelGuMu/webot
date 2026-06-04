@@ -1,0 +1,332 @@
+"""
+WCDB Native Backend — zero external dependencies.
+
+Reads WeChat messages directly from the encrypted WCDB database via
+patched wcdb_api.dll (ctypes).  Uses WeChatWindowController for sending.
+
+NO WeFlow.exe, NO Node.js, NO HTTP bridge — everything in-process.
+"""
+import hashlib
+import json
+import logging
+import os
+import re
+import time
+from pathlib import Path
+from typing import Optional
+
+from .base import AbstractWeChatBackend, MessageCallback
+from .wcdb_client import WcdbNativeClient
+from .window_controller import WeChatWindowController
+from .helpers import DedupSet
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_POLL_SEC = 1.0
+MAX_DEDUP_SIZE = 5000
+
+
+class WcdbBackend(AbstractWeChatBackend):
+    """Native WCDB backend — database read + window send.
+
+    Reads messages directly from WeChat's session.db via wcdb_api.dll
+    with one-byte DRM patch. Sends via WeChatWindowController.
+
+    Usage:
+        backend = WcdbBackend(
+            bot_display_name="机器人",
+            groups=["摸鱼群"],
+            poll_sec=1.0,
+        )
+        backend.start(my_callback)
+    """
+
+    def __init__(self,
+                 bot_display_name: str = "",
+                 groups: list[str] | None = None,
+                 poll_sec: float = DEFAULT_POLL_SEC):
+        self._bot_name = bot_display_name
+        self._groups = groups or []
+        self._poll_sec = poll_sec
+        self._running = False
+        self._client: Optional[WcdbNativeClient] = None
+        self._window = WeChatWindowController()
+        self._talker_ids: dict[str, str] = {}
+        self._known_ids = DedupSet(max_size=MAX_DEDUP_SIZE)
+
+    # ── Public API ─────────────────────────────────────────────────
+
+    def start(self, callback: MessageCallback) -> None:
+        if not self._groups:
+            logger.error("No groups configured. Set WECHAT_GROUPS in .env")
+            return
+
+        logger.info(
+            "WcdbBackend starting (groups=%s, poll=%ss, bot='%s')",
+            self._groups, self._poll_sec, self._bot_name,
+        )
+
+        # Init and open database
+        try:
+            self._client = WcdbNativeClient()
+            self._client.init()
+            self._client.open()
+            logger.info("WCDB database opened successfully")
+        except Exception as e:
+            logger.error("Failed to initialize WCDB: %s", e)
+            return
+
+        # Resolve group talker IDs
+        self._resolve_groups()
+
+        if not self._talker_ids:
+            logger.error("No groups resolved. Check WECHAT_GROUPS.")
+            return
+
+        # Pre-find WeChat window
+        hwnd = self._window.find_hwnd()
+        if hwnd:
+            logger.info("WeChat window pre-detected: HWND=%s", hwnd)
+        else:
+            logger.warning("WeChat window not found — will retry on first send")
+
+        self._running = True
+        consecutive_errors = 0
+
+        # Main poll loop
+        while self._running:
+            try:
+                self._poll_cycle(callback)
+                consecutive_errors = 0
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                consecutive_errors += 1
+                wait = min(2 ** min(consecutive_errors, 5), 30)
+                logger.warning(
+                    "Poll error #%d (%s): %s. Retry in %ss...",
+                    consecutive_errors, type(e).__name__, e, wait,
+                )
+                time.sleep(wait)
+
+        if self._client:
+            self._client.close()
+        logger.info("WcdbBackend stopped.")
+
+    def send_text(self, chat_id: str, content: str) -> bool:
+        if not content:
+            return False
+
+        group_name = self._talker_to_name(chat_id)
+        if not group_name:
+            logger.error("Cannot resolve chat_id=%s to group name", chat_id)
+            return False
+
+        return self._send_and_confirm(group_name, chat_id, content)
+
+    def stop(self) -> None:
+        self._running = False
+
+    # ── Group resolution ────────────────────────────────────────────
+
+    def _resolve_groups(self) -> None:
+        """Map configured group names to talker IDs from WCDB sessions."""
+        sessions = self._client.get_sessions()
+
+        auto_discover = (
+            not self._groups
+            or (len(self._groups) == 1 and self._groups[0].strip() in ("*", "all", ""))
+        )
+
+        if auto_discover:
+            for s in sessions:
+                username = s.get("username", "")
+                display = s.get("displayName", s.get("nickname", ""))
+                if username.endswith("@chatroom") and display:
+                    self._talker_ids[display] = username
+            logger.info(
+                "Auto-discovered %d group chats: %s",
+                len(self._talker_ids), list(self._talker_ids.keys()),
+            )
+            self._groups = list(self._talker_ids.keys())
+            return
+
+        # Manual mode
+        for group_name in self._groups:
+            found = None
+            for s in sessions:
+                display = s.get("displayName", s.get("nickname", ""))
+                username = s.get("username", "")
+                if group_name in display or display in group_name:
+                    found = username
+                    break
+            if found:
+                self._talker_ids[group_name] = found
+                logger.info("Resolved '%s' -> %s", group_name, found)
+            else:
+                logger.warning("Could not resolve group '%s'", group_name)
+
+    def _talker_to_name(self, talker_id: str) -> str:
+        for name, tid in self._talker_ids.items():
+            if tid == talker_id:
+                return name
+        return ""
+
+    # ── Message polling ──────────────────────────────────────────────
+
+    def _poll_cycle(self, callback: MessageCallback) -> None:
+        for group_name in list(self._groups):
+            if not self._running:
+                break
+            talker = self._talker_ids.get(group_name)
+            if not talker:
+                continue
+            self._poll_group(group_name, talker, callback)
+        time.sleep(self._poll_sec)
+
+    def _poll_group(self, group_name: str, talker: str,
+                    callback: MessageCallback) -> None:
+        """Fetch messages for one group and dispatch new ones."""
+        messages = self._client.get_messages(talker=talker, limit=50)
+        if not messages:
+            return
+
+        for msg in reversed(messages):
+            if not self._running:
+                break
+
+            standardized = self._standardize(msg, group_name, talker)
+            if standardized is None:
+                continue
+
+            msg_id = standardized["message_id"]
+            if msg_id in self._known_ids:
+                continue
+            self._known_ids.add(msg_id)
+
+            if self._bot_name and self._bot_name in standardized["sender_name"]:
+                continue
+
+            self._trim_dedup()
+
+            cb_start = time.monotonic()
+            reply = callback(standardized)
+            cb_elapsed = time.monotonic() - cb_start
+            if cb_elapsed > 0.5:
+                logger.debug(
+                    "Callback took %.2fs (msg_id=%s, group='%s')",
+                    cb_elapsed, msg_id, group_name,
+                )
+
+            if reply:
+                logger.info(
+                    "Reply ready: group='%s' sender='%s' len=%d",
+                    group_name, standardized["sender_name"], len(reply),
+                )
+                success = self._send_and_confirm(group_name, talker, reply)
+                if success:
+                    logger.info(
+                        "Reply sent: group='%s' (%d chars)",
+                        group_name, len(reply),
+                    )
+                else:
+                    logger.error(
+                        "Reply FAILED: group='%s' — check WeChat window",
+                        group_name,
+                    )
+
+    # ── Message standardization ──────────────────────────────────────
+
+    def _standardize(self, msg: dict, group_name: str,
+                     talker: str) -> Optional[dict]:
+        """Convert WCDB raw message to standard format."""
+        # WCDB message fields: sender_username, message_content, local_type, create_time
+        sender = str(msg.get("sender_username", msg.get("senderUsername", msg.get("sender", ""))))
+        content = str(msg.get("message_content", msg.get("content", ""))).strip()
+        if not content:
+            return None
+
+        # Skip system messages
+        sys_keywords = (
+            "修改群名", "加入了群聊", "退出了群聊",
+            "撤回了一条消息", "被移除", "开启了朋友验证",
+            "邀请", "移出了群聊",
+        )
+        if any(kw in content for kw in sys_keywords):
+            return None
+
+        # Parse timestamp
+        ts = msg.get("create_time", msg.get("createTime", msg.get("timestamp", 0)))
+        try:
+            ts = int(ts)
+        except (TypeError, ValueError):
+            ts = int(time.time())
+
+        # Resolve sender display name
+        sender_name = self._client.resolve_nickname(sender)
+
+        # Resolve @mentions in content
+        resolved_content = content
+        if "@" in content:
+            def _replace_at(match):
+                at_wxid = match.group(0)[1:]
+                name = self._client.resolve_nickname(at_wxid)
+                return f"@{name}" if name != at_wxid else match.group(0)
+            resolved_content = re.sub(r'@wxid_[a-zA-Z0-9]+', _replace_at, content)
+
+        # Detect @mention of bot
+        is_at = self._bot_name and (
+            f"@{self._bot_name}" in resolved_content
+            or f"@{self._bot_name}" in content
+        )
+
+        # Generate stable message ID
+        raw_id = (
+            str(msg.get("server_id", ""))
+            or str(msg.get("local_id", ""))
+            or f"{sender}|{content}|{ts}"
+        )
+        msg_id = hashlib.md5(str(raw_id).encode()).hexdigest()
+
+        return {
+            "message_id": msg_id,
+            "chat_id": talker,
+            "group_name": group_name,
+            "sender_id": str(sender),
+            "sender_name": str(sender_name),
+            "content": resolved_content,
+            "msg_type": int(msg.get("localType", msg.get("msg_type", 1))),
+            "timestamp": ts,
+            "is_at_mentioned": is_at,
+            "is_group": True,
+        }
+
+    def _trim_dedup(self) -> None:
+        """DedupSet handles this internally."""
+        pass
+
+    # ── Message sending ──────────────────────────────────────────────
+
+    def _send_and_confirm(self, group_name: str, talker: str,
+                          content: str) -> bool:
+        """Send via WeChatWindowController, confirm via WCDB."""
+        if not self._window.send_to_chat(group_name, content):
+            return False
+
+        # Confirm: poll WCDB for up to 3s to verify message appeared
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            try:
+                recent = self._client.get_messages(talker=talker, limit=5)
+                for msg in recent:
+                    if str(msg.get("content", "")).strip() == content:
+                        return True
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+        logger.warning(
+            "Send unconfirmed after 3s: group='%s' content='%s'",
+            group_name, content[:80],
+        )
+        return True  # Don't block the bot

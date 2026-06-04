@@ -15,8 +15,14 @@ from typing import Optional
 from .proactive.gate import ProactiveGate
 from .proactive.sticky import StickyMentionTracker
 from .memory.consolidator import MemoryConsolidator
+from .guard import VulgarDetector
 
 logger = logging.getLogger(__name__)
+
+# ── Tuning constants ──────────────────────────────────────────────
+CHAT_CONTEXT_WINDOW_SEC = 600      # fetch last N seconds of chat as context for @mentions
+MAX_CONTENT_LENGTH = 997           # max chars per message sent to AI (997 + "..." = 1000)
+MAX_CONTENT_LINES = 20             # max context lines fed to AI chat prompt
 
 # Markdown patterns to strip before sending to WeChat.
 # These regexes may miss edge cases like nested formatting or asterisks at
@@ -67,6 +73,7 @@ class MessageRouter:
             ttl_sec=config.sticky_mention_ttl_sec,
         ) if config.sticky_mention_enabled else None
         self._memory = MemoryConsolidator(store, summarizer)
+        self._guard = VulgarDetector() if config.vulgar_guard_enabled else None
         # Health monitoring: count unique messages processed (post-dedup)
         self.messages_processed: int = 0
 
@@ -84,8 +91,14 @@ class MessageRouter:
 
         Returns reply text if a reply should be sent, or None.
         """
-        # Skip messages from the bot itself (prevent infinite loops)
-        if msg["sender_name"] == self._config.bot_display_name:
+        # Skip messages from the bot itself (prevent infinite loops).
+        # Use a forgiving match — WeChat display names can vary slightly
+        # (extra spaces, punctuation, emoji suffixes) from what's in .env.
+        bot_name = self._config.bot_display_name.strip()
+        if bot_name and (
+            msg["sender_name"].strip() == bot_name
+            or bot_name in msg["sender_name"]
+        ):
             return None
 
         # Always persist the message
@@ -96,6 +109,32 @@ class MessageRouter:
 
         # Check memory consolidation trigger (fast no-op unless threshold hit)
         self._memory.check_and_consolidate(msg["chat_id"])
+
+        # ── Vulgar content guard (pre-generation) ─────────────────
+        # Scan incoming message for low-brow memes / vulgar content.
+        # If detected, issue a firm warning directly — don't engage,
+        # don't call AI.
+        if self._guard is not None:
+            is_vulgar, category = self._guard.scan(msg.get("content", ""))
+            if is_vulgar:
+                logger.info(
+                    "Vulgar guard triggered [%s] by '%s' in %s: %s",
+                    category, msg["sender_name"],
+                    msg.get("group_name", msg["chat_id"][:20]),
+                    msg["content"][:60],
+                )
+                warning = self._guard.warning()
+                # Figure out whether to @-prefix the warning
+                is_at = msg["is_at_mentioned"] or (
+                    self._sticky is not None
+                    and self._sticky.consume(msg["chat_id"], msg["sender_id"])
+                )
+                if is_at:
+                    display_name = self._nicks.resolve_name(msg["sender_id"])
+                    if display_name == msg["sender_id"]:
+                        display_name = msg["sender_name"]
+                    return f"@{display_name} {warning}"
+                return warning
 
         # ── Route: @mention vs proactive ─────────────────────────
         # Sticky mention: if the user previously sent an empty @mention,
@@ -164,8 +203,43 @@ class MessageRouter:
             else:
                 return None
 
+        # ── Post-generation guard: scan AI output for vulgar content ─
+        if reply and self._guard is not None:
+            guard_warning = self._guard_scan_reply(reply)
+            if guard_warning:
+                # Replace the AI's reply with the guard warning.
+                # Figure out the @-prefix context from the original reply.
+                if reply.startswith("@"):
+                    # @mention path — preserve the @display_name prefix
+                    at_end = reply.find(" ")
+                    if at_end > 0:
+                        reply = f"{reply[:at_end]} {guard_warning}"
+                    else:
+                        reply = guard_warning
+                else:
+                    reply = guard_warning
+
         # ── Strip markdown — WeChat can't render it ──────────────
         return self._strip_markdown(reply) if reply else None
+
+    # ── Vulgar guard helpers ──────────────────────────────────────
+
+    def _guard_scan_reply(self, reply: str) -> str | None:
+        """Post-generation safety net: scan AI output for vulgar content.
+
+        Returns a warning string if the AI generated something inappropriate,
+        or None if the reply is clean.
+        """
+        if self._guard is None or not reply:
+            return None
+        is_vulgar, category = self._guard.scan(reply)
+        if is_vulgar:
+            logger.warning(
+                "Vulgar guard: AI generated inappropriate content [%s]: %s",
+                category, reply[:80],
+            )
+            return self._guard.warning()
+        return None
 
     # ── Memory helper ────────────────────────────────────────────
 
@@ -264,7 +338,7 @@ class MessageRouter:
                     content = content.encode(
                         "utf-8", errors="surrogateescape",
                     ).decode("utf-8", errors="replace")
-                    content = content[:997] + "..."
+                    content = content[:MAX_CONTENT_LENGTH] + "..."
                 m["content"] = content
 
             result = self._summarizer.summarize(messages, sender_name)
@@ -290,6 +364,18 @@ class MessageRouter:
         if display_name == msg["sender_id"]:
             display_name = msg["sender_name"]
 
+        # ── Guard: scan the user's message for vulgar content ──────
+        # (belt-and-suspenders — handle() already does a pre-generation
+        #  check, but the clean_content may differ after @-prefix stripping)
+        if self._guard is not None:
+            is_vulgar, category = self._guard.scan(clean_content)
+            if is_vulgar:
+                logger.info(
+                    "Vulgar guard [%s] in chat message from '%s': %s",
+                    category, display_name, clean_content[:60],
+                )
+                return f"@{display_name} {self._guard.warning()}"
+
         logger.info(
             "AI chat: '%s' asks '%s'",
             display_name, clean_content[:60],
@@ -301,7 +387,7 @@ class MessageRouter:
         # "之前") is too brittle: natural language has countless ways to
         # reference prior chat without those specific words ("挑一件事评价一下",
         # "怎么看", "那件事", etc.).
-        since = int(time.time()) - 600  # last 10 minutes
+        since = int(time.time()) - CHAT_CONTEXT_WINDOW_SEC
         context = self._store.get_messages_since(
             msg["chat_id"], since, limit=20,
         )
@@ -325,6 +411,13 @@ class MessageRouter:
                 group_memory=self._get_group_memory(msg["chat_id"]),
             )
             ai_reply = self._nicks.resolve_wxids(ai_reply)
+            # Guard against empty AI reply — sending a bare @mention is confusing
+            if not ai_reply or not ai_reply.strip():
+                logger.warning(
+                    "AI chat returned empty for '%s' in %s",
+                    display_name, msg.get("group_name", msg["chat_id"][:20]),
+                )
+                return None
             return f"@{display_name} {ai_reply}"
         except Exception as e:
             logger.error("AI chat failed: %s", e)
@@ -360,6 +453,19 @@ class MessageRouter:
             custom = self._nicks.resolve_name(m["sender_id"])
             if custom != m["sender_id"]:
                 m["sender_name"] = custom
+
+        # ── Guard: scan context for vulgar content ────────────────
+        # If the recent conversation contains low-brow memes, issue a
+        # warning instead of participating.
+        if self._guard is not None:
+            is_vulgar, category = self._guard.scan_messages(context)
+            if is_vulgar:
+                logger.info(
+                    "Vulgar guard [%s] in proactive context for %s",
+                    category, msg.get("group_name", msg["chat_id"][:20]),
+                )
+                self._proactive.record_speech(msg["chat_id"])
+                return self._guard.warning()
 
         logger.info(
             "Proactive chat: mode=%s context=%d msgs chat=%s",

@@ -1,9 +1,16 @@
 @echo off
+title WeChat Bot - One-Click Launcher
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 :: Try to set UTF-8 codepage (suppress errors if it fails)
 chcp 65001 > nul 2>&1
+
+echo ============================================
+echo   WeChat Bot - One-Click Launcher
+echo   (WeFlow will auto-start in background)
+echo ============================================
+echo.
 
 :: Find Python - try multiple command names
 set PYTHON=
@@ -23,5 +30,6 @@ if "%PYTHON%"=="" (
 )
 
 :: Launch the Python launcher
-%PYTHON% launcher.py
+%PYTHON% launcher.py %*
 pause
+exit /b 0

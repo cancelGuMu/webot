@@ -9,7 +9,6 @@ from abc import ABC, abstractmethod
 from typing import Callable, TypeVar
 
 from .models import SummaryResult
-from ..utils.web_search import search_web
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,6 @@ class AbstractSummarizer(ABC):
     merge_batch_size: int = 5
     max_retries: int = 3
     retry_exceptions: tuple = ()
-    enable_web_search: bool = True
 
     # Health monitoring: track last successful API call timestamp
     last_api_call_time: float = 0.0
@@ -98,7 +96,7 @@ class AbstractSummarizer(ABC):
 ## 你在这个群里的记忆
 {group_memory}
 
-{search_section}## 当前
+## 当前
 群：{group_name}  时间：{current_time}
 @你的人：{sender_name}
 
@@ -146,23 +144,7 @@ class AbstractSummarizer(ABC):
             else "（你刚进这个群，还没有形成对这个群的印象）"
         )
 
-        # ── 1. Web search (if enabled) ────────────────────────────
-        # NOTE: The user's raw message is sent to DuckDuckGo as a search
-        # query. PII (phone numbers, emails, ID numbers) is redacted
-        # inside search_web() before the request leaves the machine.
-        search_section = ""
-        if self.enable_web_search:
-            try:
-                search_results = search_web(message, max_results=3)
-                if search_results:
-                    search_section = (
-                        "\n网络参考信息（帮助理解词汇/事件，如果无关请忽略）：\n"
-                        f"{search_results}\n"
-                    )
-            except Exception:
-                pass  # never let search failure block chat
-
-        # ── 2. Build context section ───────────────────────────────
+        # ── 1. Build context section ───────────────────────────────
         context_section = ""
         if context_messages and len(context_messages) > 0:
             context_lines = []
@@ -178,9 +160,8 @@ class AbstractSummarizer(ABC):
                     + "\n\n"
                 )
 
-        # ── 3. Build full system prompt ────────────────────────────
+        # ── 2. Build full system prompt ────────────────────────────
         # Escape any user-supplied strings that could contain { or }
-        search_section = _esc(search_section)
         context_section = _esc(context_section)
         memory_display = _esc(memory_display)
 
@@ -189,18 +170,17 @@ class AbstractSummarizer(ABC):
             group_name=group_name,
             sender_name=requester_name or "群友",
             current_time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            search_section=search_section,
             context_section=context_section,
             current_message=message,
             group_memory=memory_display,
         )
 
-        # ── 4. Build user message (just the trigger) ──────────────
+        # ── 3. Build user message (just the trigger) ──────────────
         user_prompt = (
             f"{requester_name or '群友'} @了你，请回复：{message}"
         )
 
-        # ── 5. Call AI API (backend-specific) ─────────────────────
+        # ── 4. Call AI API (backend-specific) ─────────────────────
         return self._retry_with_backoff(
             lambda: self._call_chat_api(
                 system_prompt,

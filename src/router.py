@@ -383,18 +383,6 @@ class MessageRouter:
         if display_name == msg["sender_id"]:
             display_name = msg["sender_name"]
 
-        # ── Guard: scan the user's message for vulgar content ──────
-        # (belt-and-suspenders — handle() already does a pre-generation
-        #  check, but the clean_content may differ after @-prefix stripping)
-        if self._guard is not None:
-            is_vulgar, category = self._guard.scan(clean_content)
-            if is_vulgar:
-                logger.info(
-                    "Vulgar guard [%s] in chat message from '%s': %s",
-                    category, display_name, clean_content[:60],
-                )
-                return f"@{display_name} {self._guard.warning()}"
-
         logger.info(
             "AI chat: '%s' asks '%s'",
             display_name, clean_content[:60],

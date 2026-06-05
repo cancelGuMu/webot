@@ -46,7 +46,6 @@ def create_summarizer(config) -> AbstractSummarizer:
             api_key=config.deepseek_api_key,
             model=config.deepseek_model,
             chunk_size=config.chunk_size,
-            enable_web_search=config.enable_web_search,
         )
 
     elif backend == "claude":
@@ -55,7 +54,6 @@ def create_summarizer(config) -> AbstractSummarizer:
             api_key=config.anthropic_api_key,
             model=config.summarize_model,
             chunk_size=config.chunk_size,
-            enable_web_search=config.enable_web_search,
         )
 
     else:

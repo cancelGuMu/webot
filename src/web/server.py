@@ -132,7 +132,6 @@ def _write_onboarding_to_env(env_path):
         "BOT_DISPLAY_NAME": _onboarding_data.get("bot_display_name", "群聊小助手"),
         "PROACTIVE_ENABLED": str(_onboarding_data.get("proactive_enabled", False)).lower(),
         "VULGAR_GUARD_ENABLED": str(_onboarding_data.get("vulgar_guard_enabled", True)).lower(),
-        "ENABLE_WEB_SEARCH": str(_onboarding_data.get("enable_web_search", True)).lower(),
         "STICKY_MENTION_ENABLED": str(_onboarding_data.get("sticky_mention_enabled", True)).lower(),
         "WCDB_KEY": _onboarding_data.get("key", ""),
         "ONBOARDING_DONE": "true",
@@ -454,7 +453,7 @@ _onboarding_data = {
     "ai_backend": "deepseek", "deepseek_api_key": "", "deepseek_model": "deepseek-v4-flash",
     "anthropic_api_key": "", "summarize_model": "claude-haiku-4-5-20251001",
     "proactive_enabled": False, "vulgar_guard_enabled": True,
-    "enable_web_search": True, "sticky_mention_enabled": True,
+    "sticky_mention_enabled": True,
 }
 _onboarding_lock = threading.Lock()
 
@@ -738,7 +737,6 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "wechat_groups": raw.get("WECHAT_GROUPS", "*"),
                     "proactive_enabled": raw.get("PROACTIVE_ENABLED", "false").lower() == "true",
                     "vulgar_guard_enabled": raw.get("VULGAR_GUARD_ENABLED", "true").lower() == "true",
-                    "enable_web_search": raw.get("ENABLE_WEB_SEARCH", "true").lower() == "true",
                     "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
                     "log_level": raw.get("LOG_LEVEL", "INFO"),
                 },
@@ -766,7 +764,6 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         "WECHAT_GROUPS": config.get("wechat_groups") or "*",
                         "PROACTIVE_ENABLED": str(config.get("proactive_enabled", False)).lower(),
                         "VULGAR_GUARD_ENABLED": str(config.get("vulgar_guard_enabled", True)).lower(),
-                        "ENABLE_WEB_SEARCH": str(config.get("enable_web_search", True)).lower(),
                         "STICKY_MENTION_ENABLED": str(config.get("sticky_mention_enabled", True)).lower(),
                         "LOG_LEVEL": config.get("log_level"),
                     }
@@ -904,7 +901,6 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     _onboarding_data["step4_done"] = True
                     _onboarding_data["proactive_enabled"] = data.get("proactive_enabled", False)
                     _onboarding_data["vulgar_guard_enabled"] = data.get("vulgar_guard_enabled", True)
-                    _onboarding_data["enable_web_search"] = data.get("enable_web_search", True)
                     _onboarding_data["sticky_mention_enabled"] = data.get("sticky_mention_enabled", True)
 
                 # Write all accumulated data to .env

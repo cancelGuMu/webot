@@ -46,13 +46,11 @@ class ClaudeSummarizer(AbstractSummarizer):
     def __init__(self, api_key: str,
                  model: str = MODEL_HAIKU,
                  chunk_size: int = 400,
-                 max_retries: int = 3,
-                 enable_web_search: bool = True):
+                 max_retries: int = 3):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
         self.chunk_size = chunk_size
         self.max_retries = max_retries
-        self.enable_web_search = enable_web_search
 
     # ── Conversational chat API call (called by base class) ─────
 

@@ -87,13 +87,6 @@ function FeaturesSection({ form, update }) {
       </div>
       <div className="flex items-center justify-between py-4 border-b border-[#F0F0EE]">
         <div className="flex-1 mr-8">
-          <p className="text-[15px] text-[#1F1F1F] font-medium">联网搜索</p>
-          <p className="text-sm text-[#B8B8B6] mt-1.5">AI 回复时可搜索网络获取最新信息</p>
-        </div>
-        <Toggle enabled={form.enable_web_search} onChange={v => update('enable_web_search', v)} />
-      </div>
-      <div className="flex items-center justify-between py-4 border-b border-[#F0F0EE]">
-        <div className="flex-1 mr-8">
           <p className="text-[15px] text-[#1F1F1F] font-medium">粘性提及</p>
           <p className="text-sm text-[#B8B8B6] mt-1.5">@机器人后无需等待回复即可继续说，机器人会追踪后续消息</p>
         </div>
@@ -125,7 +118,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     anthropic_api_key: '', summarize_model: 'claude-haiku-4-5-20251001',
     bot_display_name: '', wechat_backend: 'wcdb', wechat_groups: '*',
     proactive_enabled: false, vulgar_guard_enabled: true,
-    enable_web_search: true, sticky_mention_enabled: true,
+    sticky_mention_enabled: true,
     log_level: 'INFO',
   })
 
@@ -170,7 +163,6 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           wechat_groups: form.wechat_groups,
           proactive_enabled: form.proactive_enabled,
           vulgar_guard_enabled: form.vulgar_guard_enabled,
-          enable_web_search: form.enable_web_search,
           sticky_mention_enabled: form.sticky_mention_enabled,
           log_level: form.log_level,
         }),

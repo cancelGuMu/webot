@@ -331,7 +331,6 @@ export function Step4Features({ data, updateData, onComplete }) {
         body: JSON.stringify({
           proactive_enabled: data.proactive_enabled ?? false,
           vulgar_guard_enabled: data.vulgar_guard_enabled ?? true,
-          enable_web_search: data.enable_web_search ?? true,
           sticky_mention_enabled: data.sticky_mention_enabled ?? true,
         }),
       })
@@ -368,8 +367,6 @@ export function Step4Features({ data, updateData, onComplete }) {
             onChange={v => updateData({ proactive_enabled: v })} />
           <ToggleRow label="低俗内容过滤" desc="检测并警告群内的不当内容，过滤 AI 输出" enabled={data.vulgar_guard_enabled ?? true}
             onChange={v => updateData({ vulgar_guard_enabled: v })} />
-          <ToggleRow label="联网搜索" desc="AI 回复时可搜索网络获取最新信息" enabled={data.enable_web_search ?? true}
-            onChange={v => updateData({ enable_web_search: v })} />
           <ToggleRow label="粘性提及" desc="@机器人后无需等待，机器人会追踪后续消息" enabled={data.sticky_mention_enabled ?? true}
             onChange={v => updateData({ sticky_mention_enabled: v })} />
         </div>

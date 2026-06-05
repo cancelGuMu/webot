@@ -474,24 +474,10 @@ class WcdbBackend(AbstractWeChatBackend):
 
     def _send_and_confirm(self, group_name: str, talker: str,
                           content: str) -> bool:
-        """Send via WeChatWindowController, confirm via WCDB."""
-        if not self._window.send_to_chat(group_name, content):
-            return False
+        """Send via WeChatWindowController (fire-and-forget).
 
-        # Confirm: poll WCDB for up to 3s to verify message appeared
-        deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline:
-            try:
-                recent = self._client.get_messages(talker=talker, limit=5)
-                for msg in recent:
-                    if str(msg.get("content", "")).strip() == content:
-                        return True
-            except Exception:
-                pass
-            time.sleep(0.5)
-
-        logger.warning(
-            "Send unconfirmed after 3s: group='%s' content='%s'",
-            group_name, content[:80],
-        )
-        return True  # Don't block the bot
+        Returns True if the keyboard send action completed successfully.
+        No confirmation polling — the window controller already retries
+        on failure, and polling WCDB adds 3s of latency for marginal gain.
+        """
+        return self._window.send_to_chat(group_name, content)

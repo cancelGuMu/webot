@@ -165,14 +165,14 @@ class WeChatWindowController:
     """
 
     # ── Navigation timing constants ─────────────────────────────────
-    SEARCH_FOCUS_DELAY: float = 0.3        # after Ctrl+F
-    PASTE_DELAY: float = 0.08              # after Ctrl+A / after set clipboard
-    SEARCH_POPULATE_DELAY: float = 0.6     # after paste into search
-    SELECT_RESULT_DELAY: float = 0.3       # after Enter on search result
-    CLIPBOARD_DELAY: float = 0.05          # after set clipboard (pre-paste)
-    ENTER_SEND_DELAY: float = 0.2          # after Enter to send
-    PASTE_SEND_DELAY: float = 0.25         # after Ctrl+V paste in send
-    TAB_SWITCH_DELAY: float = 0.5          # after switching tabs (e.g. Chat→Contacts)
+    SEARCH_FOCUS_DELAY: float = 0.15       # after Ctrl+F
+    PASTE_DELAY: float = 0.05              # after Ctrl+A / after set clipboard
+    SEARCH_POPULATE_DELAY: float = 0.3     # after paste into search
+    SELECT_RESULT_DELAY: float = 0.15      # after Enter on search result
+    CLIPBOARD_DELAY: float = 0.03          # after set clipboard (pre-paste)
+    ENTER_SEND_DELAY: float = 0.1          # after Enter to send
+    PASTE_SEND_DELAY: float = 0.15         # after Ctrl+V paste in send
+    TAB_SWITCH_DELAY: float = 0.25         # after switching tabs (e.g. Chat→Contacts)
 
     def __init__(self):
         self._cached_hwnd: Optional[int] = None
@@ -517,19 +517,16 @@ class WeChatWindowController:
         search context: the search box in Contacts searches specifically
         for contacts and group chats, bypassing the 搜一搜 redirect.
 
-        Strategy (layered, stop at first success):
-        1. Ctrl+2 — common WeChat shortcut for Contacts tab
-        2. Ctrl+N  — alternative shortcut in some WeChat versions
-        3. UIA     — find and invoke the Contacts button via UI Automation
+        Uses Ctrl+2 (verified shortcut for WeChat PC Contacts tab).
+        Falls back to UIA click if the keyboard shortcut doesn't work.
 
-        Returns True if the tab switch succeeded, False if all methods failed
-        (caller should fall back to the original direct-search behavior).
+        Returns True if the tab switch succeeded, False if all methods failed.
         """
         if not self._foreground_matches(hwnd):
             logger.debug("_goto_contacts_tab: HWND not foreground, skipping")
             return False
 
-        # ── Method 1: Ctrl+2 (most common in WeChat PC) ─────────────
+        # ── Method 1: Ctrl+2 (verified in WeChat PC) ─────────────────
         logger.debug("_goto_contacts_tab: trying Ctrl+2")
         send_combo(0x11, 0x32)  # Ctrl+2
         time.sleep(self.TAB_SWITCH_DELAY)
@@ -538,16 +535,7 @@ class WeChatWindowController:
             logger.info("Contacts tab: Ctrl+2 navigation succeeded")
             return True
 
-        # ── Method 2: Ctrl+N (alternative shortcut) ─────────────────
-        logger.debug("_goto_contacts_tab: trying Ctrl+N")
-        send_combo(0x11, 0x4E)  # Ctrl+N
-        time.sleep(self.TAB_SWITCH_DELAY)
-        hwnd = self._adopt_foreground_hwnd(hwnd, "after Ctrl+N")
-        if self._foreground_matches(hwnd):
-            logger.info("Contacts tab: Ctrl+N navigation succeeded")
-            return True
-
-        # ── Method 3: try UIA to find Contacts button ───────────────
+        # ── Method 2: try UIA to find Contacts button ───────────────
         try:
             import uiautomation as uia
             root = uia.ControlFromHandle(hwnd)

@@ -41,7 +41,6 @@ def _print_config_summary(config: BotConfig) -> None:
     print(f"  Max Msgs per Summary:    {config.max_messages_for_summary}")
     print(f"  Chunk Size:              {config.chunk_size}")
     print(f"  Fallback Window (hrs):   {config.fallback_window_hours}")
-    print(f"  Web Search Enabled:      {config.enable_web_search}")
     print(f"  Proactive Enabled:       {config.proactive_enabled}")
     if config.proactive_enabled:
         print(f"    Rate Window (sec):     {config.proactive_rate_window_sec}")

@@ -121,10 +121,6 @@ class BotConfig:
     # === Database ===
     db_path: str = "data/messages.db"
 
-    # === Features ===
-    # Enable web search before AI chat replies (duckduckgo, free)
-    enable_web_search: bool = True
-
     # === Proactive Participation ===
     # Master switch — enable autonomous chat participation without @mention
     proactive_enabled: bool = False
@@ -295,7 +291,6 @@ def load_config() -> BotConfig:
         "max_messages_for_summary": int(os.getenv("MAX_MESSAGES_FOR_SUMMARY", "5000")),
         "chunk_size": int(os.getenv("CHUNK_SIZE", "400")),
         "fallback_window_hours": int(os.getenv("FALLBACK_WINDOW_HOURS", "8")),
-        "enable_web_search": os.getenv("ENABLE_WEB_SEARCH", "true").strip().lower() == "true",
         "proactive_enabled": os.getenv("PROACTIVE_ENABLED", "false").strip().lower() == "true",
         # proactive_rate_window_sec handled conditionally below (dataclass default)
         "proactive_rate_quiet": float(os.getenv("PROACTIVE_RATE_QUIET", "1.5")),

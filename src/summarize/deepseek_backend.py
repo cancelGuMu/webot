@@ -148,13 +148,11 @@ class DeepSeekSummarizer(AbstractSummarizer):
                  model: str = MODEL_PRO,
                  base_url: str = DEEPSEEK_BASE_URL,
                  chunk_size: int = 400,
-                 max_retries: int = 3,
-                 enable_web_search: bool = True):
+                 max_retries: int = 3):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         self.chunk_size = chunk_size
         self.max_retries = max_retries
-        self.enable_web_search = enable_web_search
 
     # ── Conversational chat API call (called by base class) ─────
 

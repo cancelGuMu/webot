@@ -233,7 +233,7 @@ class Bot:
             self._update_status = lambda **kw: None
 
         # ── 5. WeChat backend ───────────────────────────────────
-        backend = self._create_wechat_backend()
+        backend = self._create_wechat_backend(store)
         self._backend = backend
         self.backend = backend   # public ref for lifecycle control
 
@@ -320,7 +320,7 @@ class Bot:
         logger.info("DB path: %s", config.db_path)
         logger.info("=" * 50)
 
-    def _create_wechat_backend(self):
+    def _create_wechat_backend(self, store=None):
         """Create the appropriate WeChat backend based on config.
 
         Returns an AbstractWeChatBackend instance.
@@ -336,6 +336,7 @@ class Bot:
                 bot_display_name=config.bot_display_name,
                 groups=groups,
                 poll_sec=config.poll_interval_sec,
+                store=store,
             )
 
         else:

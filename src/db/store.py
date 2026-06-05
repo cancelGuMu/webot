@@ -112,6 +112,21 @@ class MessageStore:
 
     # ── Query operations ───────────────────────────────────────────
 
+    def get_sender_display_name(self, sender_id: str) -> Optional[str]:
+        """Return a previously seen display name for a wxid, or None.
+
+        Used as a fallback when WCDB can't resolve the wxid.  Queries the
+        messages table for any past message where sender_name differs from
+        sender_id (i.e. was successfully resolved at some point).
+        """
+        row = self.conn.execute(
+            """SELECT sender_name FROM messages
+               WHERE sender_id = ? AND sender_name != sender_id
+               ORDER BY id DESC LIMIT 1""",
+            (sender_id,),
+        ).fetchone()
+        return row["sender_name"] if row else None
+
     def get_user_last_timestamp(self, chat_id: str,
                                 sender_id: str) -> Optional[int]:
         """Get the Unix timestamp of a user's most recent message in a chat.

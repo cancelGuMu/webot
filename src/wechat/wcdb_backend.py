@@ -47,10 +47,12 @@ class WcdbBackend(AbstractWeChatBackend):
     def __init__(self,
                  bot_display_name: str = "",
                  groups: list[str] | None = None,
-                 poll_sec: float = DEFAULT_POLL_SEC):
+                 poll_sec: float = DEFAULT_POLL_SEC,
+                 store=None):
         self._bot_name = bot_display_name
         self._groups = groups or []
         self._poll_sec = poll_sec
+        self._store = store  # MessageStore fallback for name resolution
         self._running = False
         self._client: Optional[WcdbNativeClient] = None
         self._window = WeChatWindowController()
@@ -429,6 +431,13 @@ class WcdbBackend(AbstractWeChatBackend):
 
         # Resolve sender display name
         sender_name = self._client.resolve_nickname(sender)
+
+        # Fallback: if WCDB DLL can't resolve (user not in contacts),
+        # try the messages table for a previously seen display name
+        if sender_name == sender and self._store is not None:
+            prev = self._store.get_sender_display_name(sender)
+            if prev:
+                sender_name = prev
 
         # Resolve @mentions in content
         resolved_content = content

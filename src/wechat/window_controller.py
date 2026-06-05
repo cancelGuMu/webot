@@ -172,6 +172,7 @@ class WeChatWindowController:
     CLIPBOARD_DELAY: float = 0.05          # after set clipboard (pre-paste)
     ENTER_SEND_DELAY: float = 0.2          # after Enter to send
     PASTE_SEND_DELAY: float = 0.25         # after Ctrl+V paste in send
+    TAB_SWITCH_DELAY: float = 0.5          # after switching tabs (e.g. Chat→Contacts)
 
     def __init__(self):
         self._cached_hwnd: Optional[int] = None
@@ -507,11 +508,87 @@ class WeChatWindowController:
 
     # ── Chat navigation ───────────────────────────────────────────
 
+    def _goto_contacts_tab(self, hwnd: int) -> bool:
+        """Navigate to the Contacts (通讯录) tab before searching.
+
+        In WeChat's main chat list view, Ctrl+F opens a global search that
+        routes to the "搜一搜" (Search) page instead of entering the group
+        chat directly.  Navigating to the Contacts tab first changes the
+        search context: the search box in Contacts searches specifically
+        for contacts and group chats, bypassing the 搜一搜 redirect.
+
+        Strategy (layered, stop at first success):
+        1. Ctrl+2 — common WeChat shortcut for Contacts tab
+        2. Ctrl+N  — alternative shortcut in some WeChat versions
+        3. UIA     — find and invoke the Contacts button via UI Automation
+
+        Returns True if the tab switch succeeded, False if all methods failed
+        (caller should fall back to the original direct-search behavior).
+        """
+        if not self._foreground_matches(hwnd):
+            logger.debug("_goto_contacts_tab: HWND not foreground, skipping")
+            return False
+
+        # ── Method 1: Ctrl+2 (most common in WeChat PC) ─────────────
+        logger.debug("_goto_contacts_tab: trying Ctrl+2")
+        send_combo(0x11, 0x32)  # Ctrl+2
+        time.sleep(self.TAB_SWITCH_DELAY)
+        hwnd = self._adopt_foreground_hwnd(hwnd, "after Ctrl+2")
+        if self._foreground_matches(hwnd):
+            logger.info("Contacts tab: Ctrl+2 navigation succeeded")
+            return True
+
+        # ── Method 2: Ctrl+N (alternative shortcut) ─────────────────
+        logger.debug("_goto_contacts_tab: trying Ctrl+N")
+        send_combo(0x11, 0x4E)  # Ctrl+N
+        time.sleep(self.TAB_SWITCH_DELAY)
+        hwnd = self._adopt_foreground_hwnd(hwnd, "after Ctrl+N")
+        if self._foreground_matches(hwnd):
+            logger.info("Contacts tab: Ctrl+N navigation succeeded")
+            return True
+
+        # ── Method 3: try UIA to find Contacts button ───────────────
+        try:
+            import uiautomation as uia
+            root = uia.ControlFromHandle(hwnd)
+            if root:
+                # Search for the Contacts button by name or automation ID
+                contacts_keywords = ("通讯录", "Contacts", "contacts_tab")
+                for child, depth in uia.WalkControl(root, maxDepth=6):
+                    try:
+                        name = (child.Name or "").strip()
+                        auto_id = (child.AutomationId or "").strip()
+                        if any(kw in name for kw in contacts_keywords) or \
+                           any(kw in auto_id for kw in contacts_keywords):
+                            child.Click()
+                            time.sleep(self.TAB_SWITCH_DELAY)
+                            if self._foreground_matches(hwnd):
+                                logger.info(
+                                    "Contacts tab: UIA click on '%s' succeeded",
+                                    name or auto_id,
+                                )
+                                return True
+                    except Exception:
+                        pass
+        except ImportError:
+            logger.debug("_goto_contacts_tab: uiautomation not available")
+        except Exception as e:
+            logger.debug("_goto_contacts_tab: UIA navigation failed: %s", e)
+
+        logger.warning(
+            "_goto_contacts_tab: all methods failed — "
+            "will search from current tab (may hit 搜一搜)"
+        )
+        return False
+
     def navigate_to_chat(self, hwnd: int, group_name: str) -> bool:
         """Navigate to a specific group chat using keyboard-only input.
 
-        Flow: Ctrl+F → Ctrl+A → paste name → Enter.
-        All steps use keybd_event — no mouse clicks, no coordinate dependencies.
+        Flow: Contacts tab → Ctrl+F → Ctrl+A → paste name → Enter.
+        The Contacts-tab-first approach avoids the "搜一搜" global search
+        redirect that occurs when searching from the main chat list.
+        If Contacts tab navigation fails, falls back to searching from
+        the current view.
         """
         if not group_name:
             logger.error("navigate_to_chat: empty group_name")
@@ -542,6 +619,12 @@ class WeChatWindowController:
         logger.info(
             "Navigating to chat: '%s' (HWND=%s, keyboard-only)", group_name, hwnd,
         )
+
+        # Phase 0: Navigate to Contacts tab to avoid 搜一搜 redirect.
+        # When searching from the Contacts tab, the search box finds
+        # contacts and group chats without routing through 搜一搜.
+        self._goto_contacts_tab(hwnd)
+        hwnd = self._adopt_foreground_hwnd(hwnd, "after contacts tab")
 
         # Phase 1: Ctrl+F to focus search box
         send_combo(0x11, 0x46)  # Ctrl+F

@@ -39,7 +39,6 @@ WeChatBot 是一个运行在 Windows 上的微信群聊机器人。把它加入�
 在群里 **@机器人 + 你的问题**，即可获得 AI 回复。机器人会：
 
 - 自动附上最近 10 分钟的群聊记录作为上下文，让回答更贴合当前话题。
-- 可选**联网搜索**（DuckDuckGo，免费免 Key），查询前自动脱敏（手机号、身份证号等）。不需要的可关闭。
 - 支持 **Claude** 和 **DeepSeek** 两种 AI 后端，随时切换。
 
 ### 主动发言（可开关）
@@ -161,11 +160,11 @@ TRIGGER_KEYWORDS=总结一下,之前发了什么,错过了什么,summarize,what 
 ### 功能开关
 
 ```env
-# 联网搜索（DuckDuckGo 免费搜索，发送前自动脱敏可识别隐私）
-ENABLE_WEB_SEARCH=true        # true=开启  false=关闭
-
 # 主动发言（机器人在没人 @ 它时也会自动插话）
 PROACTIVE_ENABLED=false       # true=开启  false=关闭
+
+# 趣味抽签（@机器人说"抽签"，返回运势签文）
+FUN_ENABLED=true              # true=开启  false=关闭
 
 # 粘性提及（空 @ 后下一句话自动算 @）
 STICKY_MENTION_ENABLED=true  # true=开启  false=关闭
@@ -251,7 +250,7 @@ WeChatBot 只读取微信本地的加密数据库文件，通过键盘模拟发�
 - **DeepSeek V4 Flash**（推荐）：极速极低价，约 ¥0.001/千 tokens。普通群一天的总结费用通常不到 ¥0.10。
 - **DeepSeek V4 Pro**：1M 上下文旗舰，稍贵。
 - **Claude Haiku 4.5**：快速廉价，适合总结和简单对话。
-- **Claude Sonnet 4.5/4.6**：更高质量，适合复杂分析。
+- **Claude Sonnet 4.6**：更高质量，适合复杂分析。
 
 切换模型只需改 `.env` 中的 `AI_BACKEND` 和对应 Model 配置，或直接在仪表盘的配置面板里修改。
 

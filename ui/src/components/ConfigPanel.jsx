@@ -94,11 +94,18 @@ function IdentitySection({ form, update }) {
   }
 
   function removeGroup(index) {
+    const removed = groups[index]
     const next = groups.filter((_, i) => i !== index)
     if (next.length === 0) {
-      // Last group removed → default back to all groups
-      setGroups(['*'])
-      syncToForm(['*'])
+      if (removed === '*') {
+        // Removed the * chip → switch to empty input for adding specific groups
+        setGroups([''])
+        syncToForm([''])
+      } else {
+        // Last real group removed → default back to all groups
+        setGroups(['*'])
+        syncToForm(['*'])
+      }
     } else {
       setGroups(next)
       syncToForm(next)
@@ -129,10 +136,8 @@ function IdentitySection({ form, update }) {
             return (
               <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#EDF3EC] border border-[#C5DAC2] rounded-lg text-[13px] text-[#346538]">
                 {name === '*' ? '全部群聊' : name}
-                {name !== '*' && (
-                  <button type="button" onClick={() => removeGroup(i)}
-                    className="ml-0.5 text-[#8AB88A] hover:text-[#9F2F2D] transition-colors leading-none text-base">&times;</button>
-                )}
+                <button type="button" onClick={() => removeGroup(i)}
+                  className="ml-0.5 text-[#8AB88A] hover:text-[#9F2F2D] transition-colors leading-none text-base">&times;</button>
               </span>
             )
           })}

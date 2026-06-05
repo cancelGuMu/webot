@@ -809,74 +809,71 @@ class _UIHandler(SimpleHTTPRequestHandler):
         # ── API: Get nickname groups ─────────────────────────────────────
         if self.path == "/api/nicknames/groups":
             try:
-                from src.config import find_env_file, load_config
+                from src.config import find_env_file
                 env_path = find_env_file()
-                config = load_config() if env_path else None
-                groups_raw = config.wechat_groups if config else "*"
-                groups_raw = groups_raw.strip() or "*"
+                import sqlite3
+
+                # Resolve group names same way as wcdb_backend: read env, match sessions
+                groups_raw = "*"
+                if env_path and env_path.exists():
+                    for line in env_path.read_text(encoding="utf-8").splitlines():
+                        if line.strip().startswith("WECHAT_GROUPS="):
+                            groups_raw = line.strip().split("=", 1)[1].strip().strip('"').strip("'")
+                            break
+
+                db_path = "data/messages.db"
+                if env_path and env_path.exists():
+                    for line in env_path.read_text(encoding="utf-8").splitlines():
+                        if line.strip().startswith("DB_PATH="):
+                            db_path = line.strip().split("=", 1)[1].strip().strip('"').strip("'")
+                            break
+
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
 
                 groups = []
-                if groups_raw == "*":
-                    # Discover all groups from WCDB sessions
-                    try:
-                        from src.wechat.wcdb_client import WcdbClient
-                        client = WcdbClient()
-                        sessions = client.get_sessions()
-                        import sqlite3
-                        db_path = config.db_path if config else "data/messages.db"
-                        conn = sqlite3.connect(db_path)
-                        conn.row_factory = sqlite3.Row
-                        for s in sessions:
-                            username = s.get("username", "")
-                            if not username or "@chatroom" not in str(username):
-                                continue
-                            display = s.get("display_name", s.get("displayName", username))
-                            # Count distinct senders in this chat
-                            row = conn.execute(
-                                "SELECT COUNT(DISTINCT sender_id) as cnt FROM messages WHERE chat_id=?",
-                                (username,),
-                            ).fetchone()
-                            groups.append({
-                                "chat_id": username,
-                                "group_name": display or username,
-                                "member_count": row["cnt"] if row else 0,
-                            })
-                        conn.close()
-                    except Exception as e:
-                        logger.warning("Failed to discover groups from WCDB: %s", e)
+                if groups_raw == "*" or not groups_raw:
+                    # All groups: distinct chat_ids from messages
+                    rows = conn.execute(
+                        "SELECT DISTINCT chat_id FROM messages WHERE chat_id LIKE '%@chatroom%' ORDER BY chat_id"
+                    ).fetchall()
+                    for row in rows:
+                        chat_id = row["chat_id"]
+                        cnt_row = conn.execute(
+                            "SELECT COUNT(DISTINCT sender_id) as cnt FROM messages WHERE chat_id=?",
+                            (chat_id,),
+                        ).fetchone()
+                        groups.append({
+                            "chat_id": chat_id,
+                            "group_name": chat_id,
+                            "member_count": cnt_row["cnt"] if cnt_row else 0,
+                        })
                 else:
-                    # Specific groups — resolve from WCDB sessions
+                    # Specific group names — match against known chat_ids
                     wanted = [g.strip() for g in groups_raw.split(",") if g.strip()]
-                    try:
-                        from src.wechat.wcdb_client import WcdbClient
-                        client = WcdbClient()
-                        sessions = client.get_sessions()
-                        import sqlite3
-                        db_path = config.db_path if config else "data/messages.db"
-                        conn = sqlite3.connect(db_path)
-                        conn.row_factory = sqlite3.Row
-                        for name in wanted:
-                            found = None
-                            for s in sessions:
-                                disp = s.get("display_name", s.get("displayName", ""))
-                                if name.lower() in str(disp).lower():
-                                    found = s
-                                    break
-                            chat_id = found.get("username", "") if found else name
-                            display = found.get("display_name", found.get("displayName", name)) if found else name
-                            row = conn.execute(
-                                "SELECT COUNT(DISTINCT sender_id) as cnt FROM messages WHERE chat_id=?",
-                                (chat_id,),
-                            ).fetchone()
-                            groups.append({
-                                "chat_id": chat_id,
-                                "group_name": display or name,
-                                "member_count": row["cnt"] if row else 0,
-                            })
-                        conn.close()
-                    except Exception as e:
-                        logger.warning("Failed to resolve groups: %s", e)
+                    # Get all chatroom IDs from messages
+                    all_chats = conn.execute(
+                        "SELECT DISTINCT chat_id FROM messages WHERE chat_id LIKE '%@chatroom%'"
+                    ).fetchall()
+                    all_ids = [r["chat_id"] for r in all_chats]
+                    for name in wanted:
+                        # Try exact match first, then substring
+                        chat_id = name
+                        for cid in all_ids:
+                            if name.lower() in cid.lower():
+                                chat_id = cid
+                                break
+                        cnt_row = conn.execute(
+                            "SELECT COUNT(DISTINCT sender_id) as cnt FROM messages WHERE chat_id=?",
+                            (chat_id,),
+                        ).fetchone()
+                        groups.append({
+                            "chat_id": chat_id,
+                            "group_name": name,
+                            "member_count": cnt_row["cnt"] if cnt_row else 0,
+                        })
 
+                conn.close()
                 self.send_json({"ok": True, "groups": groups})
             except Exception as e:
                 logger.exception("Failed to list nickname groups")

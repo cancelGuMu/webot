@@ -77,12 +77,19 @@ def _read_gbk_string(ptr):
             break
         raw.append(b)
         addr += 1
-    # WCDB DLL returns JSON which is UTF-8 encoded.
-    # Try UTF-8 first (standard for JSON), fall back to GBK.
-    try:
-        return raw.decode("utf-8")
-    except (UnicodeDecodeError, LookupError):
-        return raw.decode("gbk", errors="replace")
+    # WCDB DLL returns JSON. Try both UTF-8 (JSON standard) and GBK
+    # (WeChat's native encoding on Chinese Windows).  Prefer the one
+    # that produces valid JSON to avoid silent corruption when GBK
+    # byte sequences happen to be valid (but wrong) UTF-8.
+    import json as _json
+    for enc in ("utf-8", "gbk"):
+        try:
+            text = raw.decode(enc)
+            _json.loads(text)
+            return text
+        except (UnicodeDecodeError, _json.JSONDecodeError):
+            continue
+    return raw.decode("gbk", errors="replace")
 
 
 # ── Filesystem auto-detection ─────────────────────────────────────────

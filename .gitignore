@@ -24,6 +24,7 @@ wx4py.log
 
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *.egg-info/
 dist/

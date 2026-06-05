@@ -51,14 +51,71 @@ function AiSection({ form, update }) {
 }
 
 function IdentitySection({ form, update }) {
+  // Parse wechat_groups into an array, handling * specially
+  const raw = (form.wechat_groups || '').trim()
+  const isAll = raw === '*' || raw === ''
+  const groups = isAll ? ['*'] : raw.split(',').map(s => s.trim()).filter(Boolean)
+
+  function setGroups(newGroups) {
+    const filtered = newGroups.filter(g => g !== '')
+    // If * is present, it replaces everything else
+    if (filtered.includes('*')) {
+      update('wechat_groups', '*')
+    } else {
+      update('wechat_groups', filtered.join(','))
+    }
+  }
+
+  function updateGroup(index, value) {
+    const next = [...groups]
+    next[index] = value
+    setGroups(next)
+  }
+
+  function removeGroup(index) {
+    const next = groups.filter((_, i) => i !== index)
+    if (next.length === 0) setGroups(['*'])
+    else setGroups(next)
+  }
+
+  function addGroup() {
+    setGroups([...groups, ''])
+  }
+
   return (
     <div>
       <Field label="机器人微信昵称" hint="用于检测 @提及">
         <Input value={form.bot_display_name} onChange={v => update('bot_display_name', v)} placeholder="例如：群聊小助手" />
       </Field>
-      <Field label="目标群聊" hint="输入 * 表示自动发现所有群聊，指定群名可用逗号分隔">
-        <Input value={form.wechat_groups} onChange={v => update('wechat_groups', v)} placeholder="* = 所有群聊" />
+
+      <Field label="目标群聊" hint={isAll ? '当前监控所有群聊。如需只监控指定群，先删除 * 再逐个添加群名' : `监控 ${groups.length} 个群聊`}>
+        <div className="flex flex-wrap gap-2 mb-2">
+          {groups.map((name, i) => (
+            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#EDF3EC] border border-[#C5DAC2] rounded-lg text-[13px] text-[#346538]">
+              {name === '*' ? '全部群聊' : name}
+              <button type="button" onClick={() => removeGroup(i)}
+                className="ml-0.5 text-[#8AB88A] hover:text-[#9F2F2D] transition-colors leading-none text-base">&times;</button>
+            </span>
+          ))}
+          {!isAll && (
+            <button type="button" onClick={addGroup}
+              className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#F8F8F5] border border-dashed border-[#D0D0CE] rounded-lg text-[13px] text-[#6E6E6C] hover:border-[#346538] hover:text-[#346538] transition-colors">
+              + 添加群聊
+            </button>
+          )}
+        </div>
+        {!isAll && groups.map((name, i) => (
+          <input key={i} type="text" value={name}
+            onChange={e => updateGroup(i, e.target.value)}
+            onBlur={() => { if (!groups[i]?.trim()) removeGroup(i) }}
+            placeholder={`群聊 ${i + 1} 的名称`}
+            className="w-full bg-[#F9F9F8] border border-[#E0E0DE] rounded-lg px-4 py-2 text-[15px] text-[#1F1F1F] placeholder:text-[#C8C8C6] focus:outline-none focus:border-[#C5DAC2] focus:ring-1 focus:ring-[#346538]/15 transition-all duration-200 hover:border-[#D0D0CE] mb-2" />
+        ))}
+        <p className="text-[11px] text-[#B8B8B6] mt-1.5">
+          ⚠ 请先将目标群聊添加到微信通讯录，否则无法通过搜索进入
+        </p>
       </Field>
+
       <Field label="微信后端" hint="当前使用本地数据库直读模式（无需外部进程）">
         <Select value={form.wechat_backend} onChange={v => update('wechat_backend', v)} options={[
           { value: 'wcdb', desc: 'WCDB', hint: '推荐 · 原生数据库直读' },

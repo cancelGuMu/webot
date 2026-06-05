@@ -131,7 +131,6 @@ def _write_onboarding_to_env(env_path):
         "WECHAT_GROUPS": _onboarding_data.get("wechat_groups", "*"),
         "BOT_DISPLAY_NAME": _onboarding_data.get("bot_display_name", "群聊小助手"),
         "PROACTIVE_ENABLED": str(_onboarding_data.get("proactive_enabled", False)).lower(),
-        "VULGAR_GUARD_ENABLED": str(_onboarding_data.get("vulgar_guard_enabled", True)).lower(),
         "STICKY_MENTION_ENABLED": str(_onboarding_data.get("sticky_mention_enabled", True)).lower(),
         "WCDB_KEY": _onboarding_data.get("key", ""),
         "ONBOARDING_DONE": "true",
@@ -452,7 +451,7 @@ _onboarding_data = {
     "bot_display_name": "", "wechat_groups": "*", "wechat_backend": "wcdb",
     "ai_backend": "deepseek", "deepseek_api_key": "", "deepseek_model": "deepseek-v4-flash",
     "anthropic_api_key": "", "summarize_model": "claude-haiku-4-5-20251001",
-    "proactive_enabled": False, "vulgar_guard_enabled": True,
+    "proactive_enabled": False,
     "sticky_mention_enabled": True,
 }
 _onboarding_lock = threading.Lock()
@@ -736,8 +735,13 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "wechat_backend": raw.get("WECHAT_BACKEND", "wcdb"),
                     "wechat_groups": raw.get("WECHAT_GROUPS", "*"),
                     "proactive_enabled": raw.get("PROACTIVE_ENABLED", "false").lower() == "true",
-                    "vulgar_guard_enabled": raw.get("VULGAR_GUARD_ENABLED", "true").lower() == "true",
+                    "proactive_rate_window_sec": int(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120")),
+                    "proactive_rate_quiet": float(raw.get("PROACTIVE_RATE_QUIET", "1.5")),
+                    "proactive_rate_casual": float(raw.get("PROACTIVE_RATE_CASUAL", "4.0")),
+                    "proactive_rate_lively": float(raw.get("PROACTIVE_RATE_LIVELY", "6.5")),
+                    "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
                     "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
+                    "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
                     "log_level": raw.get("LOG_LEVEL", "INFO"),
                 },
             })
@@ -763,8 +767,13 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         "WECHAT_BACKEND": config.get("wechat_backend"),
                         "WECHAT_GROUPS": config.get("wechat_groups") or "*",
                         "PROACTIVE_ENABLED": str(config.get("proactive_enabled", False)).lower(),
-                        "VULGAR_GUARD_ENABLED": str(config.get("vulgar_guard_enabled", True)).lower(),
+                        "PROACTIVE_RATE_WINDOW_SEC": str(config.get("proactive_rate_window_sec", 120)),
+                        "PROACTIVE_RATE_QUIET": str(config.get("proactive_rate_quiet", 1.5)),
+                        "PROACTIVE_RATE_CASUAL": str(config.get("proactive_rate_casual", 4.0)),
+                        "PROACTIVE_RATE_LIVELY": str(config.get("proactive_rate_lively", 6.5)),
+                        "PROACTIVE_RATE_BURST": str(config.get("proactive_rate_burst", 8.5)),
                         "STICKY_MENTION_ENABLED": str(config.get("sticky_mention_enabled", True)).lower(),
+                        "STICKY_MENTION_TTL_SEC": str(config.get("sticky_mention_ttl_sec", 60)),
                         "LOG_LEVEL": config.get("log_level"),
                     }
                     seen = set()
@@ -900,7 +909,6 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 with _onboarding_lock:
                     _onboarding_data["step4_done"] = True
                     _onboarding_data["proactive_enabled"] = data.get("proactive_enabled", False)
-                    _onboarding_data["vulgar_guard_enabled"] = data.get("vulgar_guard_enabled", True)
                     _onboarding_data["sticky_mention_enabled"] = data.get("sticky_mention_enabled", True)
 
                 # Write all accumulated data to .env

@@ -164,7 +164,7 @@
 
 ### P3 — 低优先级
 
-16. 单元测试 (TriggerDetector, VulgarDetector, NicknameService, AdminCommandHandler, RateTracker, ProactiveGate)
+16. 单元测试 (TriggerDetector, NicknameService, AdminCommandHandler, RateTracker, ProactiveGate)
 17. 集成测试 (summarize pipeline + mock API)
 18. 微信 DLL 版本检查
 19. 拆分 ChatHandler / SummaryHandler / ProactiveHandler

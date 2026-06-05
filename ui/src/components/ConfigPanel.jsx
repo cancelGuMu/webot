@@ -68,30 +68,79 @@ function IdentitySection({ form, update }) {
   )
 }
 
+const Label = ({ children }) => <span className="text-[13px] text-[#6E6E6C] font-medium">{children}</span>
+
 function FeaturesSection({ form, update }) {
   return (
     <div>
-      <div className="flex items-center justify-between py-4 border-b border-[#F0F0EE]">
-        <div className="flex-1 mr-8">
-          <p className="text-[15px] text-[#1F1F1F] font-medium">主动发言</p>
-          <p className="text-sm text-[#B8B8B6] mt-1.5">无需 @提及，根据聊天活跃度自动参与对话</p>
+      {/* ── Proactive Participation ── */}
+      <div className="py-4 border-b border-[#F0F0EE]">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 mr-8">
+            <p className="text-[15px] text-[#1F1F1F] font-medium">主动发言</p>
+            <p className="text-sm text-[#B8B8B6] mt-1.5">无需 @提及，根据聊天活跃度自动参与对话</p>
+          </div>
+          <Toggle enabled={form.proactive_enabled} onChange={v => update('proactive_enabled', v)} />
         </div>
-        <Toggle enabled={form.proactive_enabled} onChange={v => update('proactive_enabled', v)} />
+        {form.proactive_enabled && (
+          <div className="mt-3 p-4 bg-[#F8F8F5] rounded-lg space-y-3">
+            <p className="text-[13px] text-[#B8B8B6] mb-2">速率阈值参数（消息数/分钟）—— 根据群聊活跃度调整</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>速率窗口（秒）</Label>
+                <Input type="number" value={String(form.proactive_rate_window_sec || 120)}
+                  onChange={v => update('proactive_rate_window_sec', parseInt(v) || 120)} />
+              </div>
+              <div>
+                <Label>SLEEP → QUIET</Label>
+                <Input type="number" value={String(form.proactive_rate_quiet ?? 1.5)}
+                  onChange={v => update('proactive_rate_quiet', parseFloat(v) || 1.5)} />
+              </div>
+              <div>
+                <Label>QUIET → CASUAL</Label>
+                <Input type="number" value={String(form.proactive_rate_casual ?? 4.0)}
+                  onChange={v => update('proactive_rate_casual', parseFloat(v) || 4.0)} />
+              </div>
+              <div>
+                <Label>CASUAL → LIVELY</Label>
+                <Input type="number" value={String(form.proactive_rate_lively ?? 6.5)}
+                  onChange={v => update('proactive_rate_lively', parseFloat(v) || 6.5)} />
+              </div>
+              <div>
+                <Label>LIVELY → BURST</Label>
+                <Input type="number" value={String(form.proactive_rate_burst ?? 8.5)}
+                  onChange={v => update('proactive_rate_burst', parseFloat(v) || 8.5)} />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-      <div className="flex items-center justify-between py-4 border-b border-[#F0F0EE]">
-        <div className="flex-1 mr-8">
-          <p className="text-[15px] text-[#1F1F1F] font-medium">低俗内容过滤</p>
-          <p className="text-sm text-[#B8B8B6] mt-1.5">检测并警告群内的不当内容，过滤 AI 输出</p>
+
+      {/* ── Sticky Mention ── */}
+      <div className="py-4 border-b border-[#F0F0EE]">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 mr-8">
+            <p className="text-[15px] text-[#1F1F1F] font-medium">粘性提及</p>
+            <p className="text-sm text-[#B8B8B6] mt-1.5">@机器人后无需等待回复即可继续说，机器人会追踪后续消息</p>
+          </div>
+          <Toggle enabled={form.sticky_mention_enabled} onChange={v => update('sticky_mention_enabled', v)} />
         </div>
-        <Toggle enabled={form.vulgar_guard_enabled} onChange={v => update('vulgar_guard_enabled', v)} />
+        {form.sticky_mention_enabled && (
+          <div className="mt-3 p-4 bg-[#F8F8F5] rounded-lg">
+            <Field label="追踪超时" hint="用户空 @机器人后，等待后续消息的最大秒数">
+              <Select value={String(form.sticky_mention_ttl_sec || 60)} onChange={v => update('sticky_mention_ttl_sec', parseInt(v))}
+                options={[
+                  { value: '30', desc: '30 秒', hint: '快速响应' },
+                  { value: '60', desc: '60 秒', hint: '默认' },
+                  { value: '120', desc: '120 秒', hint: '宽松' },
+                  { value: '300', desc: '300 秒', hint: '最长时间' },
+                ]} />
+            </Field>
+          </div>
+        )}
       </div>
-      <div className="flex items-center justify-between py-4 border-b border-[#F0F0EE]">
-        <div className="flex-1 mr-8">
-          <p className="text-[15px] text-[#1F1F1F] font-medium">粘性提及</p>
-          <p className="text-sm text-[#B8B8B6] mt-1.5">@机器人后无需等待回复即可继续说，机器人会追踪后续消息</p>
-        </div>
-        <Toggle enabled={form.sticky_mention_enabled} onChange={v => update('sticky_mention_enabled', v)} />
-      </div>
+
+      {/* ── Log Level ── */}
       <div className="pt-4">
         <Field label="日志级别" hint="记录机器人运行日志的详细程度">
           <Select value={form.log_level} onChange={v => update('log_level', v)} options={[
@@ -117,8 +166,10 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     ai_backend: 'deepseek', deepseek_api_key: '', deepseek_model: 'deepseek-v4-flash',
     anthropic_api_key: '', summarize_model: 'claude-haiku-4-5-20251001',
     bot_display_name: '', wechat_backend: 'wcdb', wechat_groups: '*',
-    proactive_enabled: false, vulgar_guard_enabled: true,
-    sticky_mention_enabled: true,
+    proactive_enabled: false, proactive_rate_window_sec: 120,
+    proactive_rate_quiet: 1.5, proactive_rate_casual: 4.0,
+    proactive_rate_lively: 6.5, proactive_rate_burst: 8.5,
+    sticky_mention_enabled: true, sticky_mention_ttl_sec: 60,
     log_level: 'INFO',
   })
 
@@ -162,8 +213,13 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           wechat_backend: form.wechat_backend,
           wechat_groups: form.wechat_groups,
           proactive_enabled: form.proactive_enabled,
-          vulgar_guard_enabled: form.vulgar_guard_enabled,
+          proactive_rate_window_sec: form.proactive_rate_window_sec,
+          proactive_rate_quiet: form.proactive_rate_quiet,
+          proactive_rate_casual: form.proactive_rate_casual,
+          proactive_rate_lively: form.proactive_rate_lively,
+          proactive_rate_burst: form.proactive_rate_burst,
           sticky_mention_enabled: form.sticky_mention_enabled,
+          sticky_mention_ttl_sec: form.sticky_mention_ttl_sec,
           log_level: form.log_level,
         }),
       })

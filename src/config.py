@@ -133,12 +133,6 @@ class BotConfig:
     proactive_rate_lively: float = 6.5    # CASUAL → LIVELY boundary
     proactive_rate_burst: float = 8.5     # LIVELY → BURST  boundary
 
-    # === Vulgar Content Guard ===
-    # When enabled, the bot detects vulgar/low-brow memes in incoming
-    # messages and issues a firm verbal warning (no profanity) instead
-    # of engaging.  Also filters the AI's own output as a safety net.
-    vulgar_guard_enabled: bool = True
-
     # === Sticky Mention ===
     # When a user sends @bot with no message text, enter sticky listening
     # mode.  The user's next message in the same group is treated as if it
@@ -297,7 +291,6 @@ def load_config() -> BotConfig:
         "proactive_rate_casual": float(os.getenv("PROACTIVE_RATE_CASUAL", "4.0")),
         "proactive_rate_lively": float(os.getenv("PROACTIVE_RATE_LIVELY", "6.5")),
         "proactive_rate_burst": float(os.getenv("PROACTIVE_RATE_BURST", "8.5")),
-        "vulgar_guard_enabled": os.getenv("VULGAR_GUARD_ENABLED", "true").strip().lower() == "true",
         "sticky_mention_enabled": os.getenv("STICKY_MENTION_ENABLED", "true").strip().lower() == "true",
         "sticky_mention_ttl_sec": int(os.getenv("STICKY_MENTION_TTL_SEC", "60")),
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),

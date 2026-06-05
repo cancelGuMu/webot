@@ -330,7 +330,6 @@ export function Step4Features({ data, updateData, onComplete }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           proactive_enabled: data.proactive_enabled ?? false,
-          vulgar_guard_enabled: data.vulgar_guard_enabled ?? true,
           sticky_mention_enabled: data.sticky_mention_enabled ?? true,
         }),
       })
@@ -365,8 +364,6 @@ export function Step4Features({ data, updateData, onComplete }) {
         <div className="space-y-0">
           <ToggleRow label="主动发言" desc="根据群聊活跃度自动参与对话" enabled={data.proactive_enabled ?? false}
             onChange={v => updateData({ proactive_enabled: v })} />
-          <ToggleRow label="低俗内容过滤" desc="检测并警告群内的不当内容，过滤 AI 输出" enabled={data.vulgar_guard_enabled ?? true}
-            onChange={v => updateData({ vulgar_guard_enabled: v })} />
           <ToggleRow label="粘性提及" desc="@机器人后无需等待，机器人会追踪后续消息" enabled={data.sticky_mention_enabled ?? true}
             onChange={v => updateData({ sticky_mention_enabled: v })} />
         </div>

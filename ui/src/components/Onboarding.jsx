@@ -30,7 +30,7 @@ export default function Onboarding({ onComplete }) {
     ai_backend: 'deepseek', deepseek_api_key: '', deepseek_model: 'deepseek-v4-flash',
     anthropic_api_key: '', summarize_model: 'claude-haiku-4-5-20251001',
     // Step 4
-    proactive_enabled: false, vulgar_guard_enabled: true,
+    proactive_enabled: false,
     sticky_mention_enabled: true,
   })
 

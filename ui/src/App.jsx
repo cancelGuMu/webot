@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Gear, ChartLine, Scroll, Spinner } from '@phosphor-icons/react'
+import { Gear, ChartLine, Scroll, Users, Spinner } from '@phosphor-icons/react'
 import Dashboard from './components/Dashboard'
 import ConfigPanel from './components/ConfigPanel'
+import NicknameEditor from './components/NicknameEditor'
 import LogViewer from './components/LogViewer'
 import Onboarding from './components/Onboarding'
 
@@ -16,6 +17,7 @@ const TABS = [
       { id: 'features', label: '功能开关' },
     ],
   },
+  { id: 'nicknames', label: '群友昵称', icon: Users },
   { id: 'logs', label: '运行日志', icon: Scroll },
 ]
 
@@ -190,6 +192,7 @@ export default function App() {
           >
             {activeTab === 'dashboard' && <Dashboard status={status} />}
             {activeTab === 'config' && <ConfigPanel activeSection={configSection} onNavigate={setConfigSection} />}
+            {activeTab === 'nicknames' && <NicknameEditor />}
             {activeTab === 'logs' && <LogViewer />}
           </motion.div>
         </AnimatePresence>

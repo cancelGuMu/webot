@@ -653,6 +653,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         # Only delegate specific API paths; return 405 for unknown POST paths
         if self.path in ("/api/config", "/api/start", "/api/stop",
+                         "/api/nicknames",
                          "/api/onboarding/reset",
                          "/api/onboarding/step1", "/api/onboarding/step2",
                          "/api/onboarding/step3", "/api/onboarding/step4"):
@@ -802,6 +803,154 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     })
             except Exception as e:
                 logger.exception("Failed to save config")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Get nickname groups ─────────────────────────────────────
+        if self.path == "/api/nicknames/groups":
+            try:
+                from src.config import find_env_file, load_config
+                env_path = find_env_file()
+                config = load_config() if env_path else None
+                groups_raw = config.wechat_groups if config else "*"
+                groups_raw = groups_raw.strip() or "*"
+
+                groups = []
+                if groups_raw == "*":
+                    # Discover all groups from WCDB sessions
+                    try:
+                        from src.wechat.wcdb_client import WcdbClient
+                        client = WcdbClient()
+                        sessions = client.get_sessions()
+                        import sqlite3
+                        db_path = config.db_path if config else "data/messages.db"
+                        conn = sqlite3.connect(db_path)
+                        conn.row_factory = sqlite3.Row
+                        for s in sessions:
+                            username = s.get("username", "")
+                            if not username or "@chatroom" not in str(username):
+                                continue
+                            display = s.get("display_name", s.get("displayName", username))
+                            # Count distinct senders in this chat
+                            row = conn.execute(
+                                "SELECT COUNT(DISTINCT sender_id) as cnt FROM messages WHERE chat_id=?",
+                                (username,),
+                            ).fetchone()
+                            groups.append({
+                                "chat_id": username,
+                                "group_name": display or username,
+                                "member_count": row["cnt"] if row else 0,
+                            })
+                        conn.close()
+                    except Exception as e:
+                        logger.warning("Failed to discover groups from WCDB: %s", e)
+                else:
+                    # Specific groups — resolve from WCDB sessions
+                    wanted = [g.strip() for g in groups_raw.split(",") if g.strip()]
+                    try:
+                        from src.wechat.wcdb_client import WcdbClient
+                        client = WcdbClient()
+                        sessions = client.get_sessions()
+                        import sqlite3
+                        db_path = config.db_path if config else "data/messages.db"
+                        conn = sqlite3.connect(db_path)
+                        conn.row_factory = sqlite3.Row
+                        for name in wanted:
+                            found = None
+                            for s in sessions:
+                                disp = s.get("display_name", s.get("displayName", ""))
+                                if name.lower() in str(disp).lower():
+                                    found = s
+                                    break
+                            chat_id = found.get("username", "") if found else name
+                            display = found.get("display_name", found.get("displayName", name)) if found else name
+                            row = conn.execute(
+                                "SELECT COUNT(DISTINCT sender_id) as cnt FROM messages WHERE chat_id=?",
+                                (chat_id,),
+                            ).fetchone()
+                            groups.append({
+                                "chat_id": chat_id,
+                                "group_name": display or name,
+                                "member_count": row["cnt"] if row else 0,
+                            })
+                        conn.close()
+                    except Exception as e:
+                        logger.warning("Failed to resolve groups: %s", e)
+
+                self.send_json({"ok": True, "groups": groups})
+            except Exception as e:
+                logger.exception("Failed to list nickname groups")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Get nicknames for a group ────────────────────────────────
+        if self.path.startswith("/api/nicknames") and self.command == "GET":
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            if not parsed.path.startswith("/api/nicknames") or parsed.path != "/api/nicknames":
+                self.send_json({"ok": False, "error": "not found"})
+                return
+            try:
+                chat_id = params.get("chat_id", [""])[0]
+                if not chat_id:
+                    self.send_json({"ok": False, "error": "missing chat_id"})
+                    return
+
+                from src.nickname import NicknameService
+                nicks = NicknameService()
+                overrides = nicks.load()
+
+                import sqlite3
+                from src.config import load_config
+                config = load_config()
+                conn = sqlite3.connect(config.db_path)
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT DISTINCT sender_id, sender_name FROM messages WHERE chat_id=? ORDER BY sender_name",
+                    (chat_id,),
+                ).fetchall()
+                conn.close()
+
+                members = []
+                for row in rows:
+                    wxid = row["sender_id"]
+                    display = row["sender_name"] or wxid
+                    members.append({
+                        "wxid": wxid,
+                        "display_name": display,
+                        "nickname": overrides.get(wxid, ""),
+                    })
+
+                self.send_json({"ok": True, "members": members})
+            except Exception as e:
+                logger.exception("Failed to get nicknames")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Save nickname ────────────────────────────────────────────
+        if self.path == "/api/nicknames" and self.command != "GET":
+            try:
+                content_len = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_len) if content_len else b"{}"
+                data = json.loads(body)
+                wxid = (data.get("wxid") or "").strip()
+                nickname = (data.get("nickname") or "").strip()
+
+                if not wxid:
+                    self.send_json({"ok": False, "error": "missing wxid"})
+                    return
+
+                from src.nickname import NicknameService
+                nicks = NicknameService()
+                if nickname:
+                    nicks.update(wxid, nickname)
+                else:
+                    nicks.remove(wxid)
+
+                self.send_json({"ok": True})
+            except Exception as e:
+                logger.exception("Failed to save nickname")
                 self.send_json({"ok": False, "error": str(e)})
             return
 

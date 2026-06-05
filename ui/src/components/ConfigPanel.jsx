@@ -60,17 +60,21 @@ function IdentitySection({ form, update }) {
     if (raw === '*' || raw === '') {
       setGroups(['*'])
     } else {
-      setGroups(raw.split(',').map(s => s.trim()).filter(Boolean))
+      setGroups(raw.split(',').map(s => {
+        const trimmed = s.trim()
+        if (!trimmed) return ''
+        try { return decodeURIComponent(trimmed) } catch { return trimmed }
+      }).filter(Boolean))
     }
   }, [])
 
-  // Sync local groups array back to form.wechat_groups (comma-separated string)
+  // Sync local groups array back to form.wechat_groups (comma-separated, URL-encoded)
   function syncToForm(newGroups) {
     const nonEmpty = newGroups.filter(g => g !== '')
     if (nonEmpty.length === 0 || nonEmpty.includes('*')) {
       update('wechat_groups', '*')
     } else {
-      update('wechat_groups', nonEmpty.join(','))
+      update('wechat_groups', nonEmpty.map(g => encodeURIComponent(g)).join(','))
     }
   }
 
@@ -125,8 +129,10 @@ function IdentitySection({ form, update }) {
             return (
               <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#EDF3EC] border border-[#C5DAC2] rounded-lg text-[13px] text-[#346538]">
                 {name === '*' ? '全部群聊' : name}
-                <button type="button" onClick={() => removeGroup(i)}
-                  className="ml-0.5 text-[#8AB88A] hover:text-[#9F2F2D] transition-colors leading-none text-base">&times;</button>
+                {name !== '*' && (
+                  <button type="button" onClick={() => removeGroup(i)}
+                    className="ml-0.5 text-[#8AB88A] hover:text-[#9F2F2D] transition-colors leading-none text-base">&times;</button>
+                )}
               </span>
             )
           })}
@@ -155,6 +161,9 @@ function IdentitySection({ form, update }) {
         <p className="text-[11px] text-[#B8B8B6] mt-1.5">
           ⚠ 请先将目标群聊添加到微信通讯录，否则无法通过搜索进入
         </p>
+        {!isAll && (
+          <p className="text-[11px] text-[#B8B8B6] mt-1">💡 请输入微信中显示的完整群名，必须完全一致</p>
+        )}
       </Field>
 
       <Field label="微信后端" hint="当前使用本地数据库直读模式（无需外部进程）">

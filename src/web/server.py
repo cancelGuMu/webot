@@ -16,6 +16,7 @@ from hashlib import sha1
 from base64 import b64encode
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
+from urllib.parse import unquote
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def _find_or_create_env() -> Path:
     import sys
 
     # 1. Use the canonical search from config.py (consistent across the app)
-    from src.config import find_env_file
+    from src.config import find_env_file, _decode_wechat_groups
     existing = find_env_file()
     if existing:
         return existing
@@ -734,7 +735,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
                     "bot_display_name": raw.get("BOT_DISPLAY_NAME", ""),
                     "wechat_backend": raw.get("WECHAT_BACKEND", "wcdb"),
-                    "wechat_groups": raw.get("WECHAT_GROUPS", "*"),
+                    "wechat_groups": _decode_wechat_groups(raw.get("WECHAT_GROUPS", "*")),
                     "fun_enabled": raw.get("FUN_ENABLED", "true").lower() == "true",
                     "proactive_enabled": raw.get("PROACTIVE_ENABLED", "false").lower() == "true",
                     "proactive_rate_window_sec": int(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120")),
@@ -809,7 +810,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
         # ── API: Get nickname groups ─────────────────────────────────────
         if self.path == "/api/nicknames/groups":
             try:
-                from src.config import find_env_file
+                from src.config import find_env_file, _decode_wechat_groups
                 env_path = find_env_file()
                 import sqlite3
 
@@ -820,6 +821,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         if line.strip().startswith("WECHAT_GROUPS="):
                             groups_raw = line.strip().split("=", 1)[1].strip().strip('"').strip("'")
                             break
+                groups_raw = _decode_wechat_groups(groups_raw)
 
                 db_path = "data/messages.db"
                 if env_path and env_path.exists():

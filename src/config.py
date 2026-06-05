@@ -5,8 +5,33 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import unquote
 
 from dotenv import load_dotenv
+
+
+def _decode_wechat_groups(raw: str) -> str:
+    """Decode URL-encoded group names from .env WECHAT_GROUPS value.
+
+    We store each group name URL-encoded (via encodeURIComponent / urllib.parse.quote)
+    so that commas, equals signs, and newlines in real group names don't break the
+    .env format or our comma-separated delimiter.  This function reverses that encoding
+    with a fallback: if decoding a chunk doesn't change it (or raises), the original
+    is kept — for backward compatibility with old unencoded .env files.
+    """
+    if not raw or raw.strip() == "*":
+        return raw.strip() if raw else "*"
+    decoded = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            d = unquote(chunk)
+            decoded.append(d)
+        except Exception:
+            decoded.append(chunk)
+    return ",".join(decoded) if decoded else "*"
 
 
 def _sanitize_display_name(name: str) -> str:
@@ -280,7 +305,7 @@ def load_config() -> BotConfig:
         "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
         # deepseek_model handled conditionally below (dataclass default)
         "wechat_backend": os.getenv("WECHAT_BACKEND", "wcdb").strip(),
-        "wechat_groups": os.getenv("WECHAT_GROUPS", "*").strip(),
+        "wechat_groups": _decode_wechat_groups(os.getenv("WECHAT_GROUPS", "*")),
         "bot_display_name": _sanitize_display_name(os.getenv("BOT_DISPLAY_NAME", "群聊小助手")),
         "admin_wxid": os.getenv("ADMIN_WXID", "").strip(),
         "db_path": os.getenv("DB_PATH", "data/messages.db").strip(),

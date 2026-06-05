@@ -68,7 +68,21 @@ function IdentitySection({ form, update }) {
   )
 }
 
-const Label = ({ children }) => <span className="text-[13px] text-[#6E6E6C] font-medium">{children}</span>
+const paramPanel = {
+  initial: { opacity: 0, y: 20 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' } },
+  exit: { opacity: 0, y: 20, transition: { duration: 0.2 } },
+}
+
+function ParamRow({ label, hint, children }) {
+  return (
+    <div>
+      <p className="text-[14px] text-[#333333] font-medium">{label}</p>
+      <p className="text-xs text-[#999999] mt-0.5 mb-2">{hint}</p>
+      {children}
+    </div>
+  )
+}
 
 function FeaturesSection({ form, update }) {
   return (
@@ -82,38 +96,36 @@ function FeaturesSection({ form, update }) {
           </div>
           <Toggle enabled={form.proactive_enabled} onChange={v => update('proactive_enabled', v)} />
         </div>
-        {form.proactive_enabled && (
-          <div className="mt-3 p-4 bg-[#F8F8F5] rounded-lg space-y-3">
-            <p className="text-[13px] text-[#B8B8B6] mb-2">速率阈值参数（消息数/分钟）—— 根据群聊活跃度调整</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>速率窗口（秒）</Label>
-                <Input type="number" value={String(form.proactive_rate_window_sec || 120)}
-                  onChange={v => update('proactive_rate_window_sec', parseInt(v) || 120)} />
+        <AnimatePresence>
+          {form.proactive_enabled && (
+            <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
+              className="mt-3 p-4 bg-[#F8F8F5] rounded-lg space-y-3">
+              <p className="text-xs text-[#B8B8B6]">速率阈值参数 — 数值为每分钟消息数，根据群聊活跃度调整</p>
+              <div className="grid grid-cols-2 gap-3">
+                <ParamRow label="速率窗口" hint="计算活跃度的统计窗口">
+                  <Input type="number" value={String(form.proactive_rate_window_sec || 120)}
+                    onChange={v => update('proactive_rate_window_sec', parseInt(v) || 120)} />
+                </ParamRow>
+                <ParamRow label="休眠 → 安静" hint="低于此值不发言">
+                  <Input type="number" value={String(form.proactive_rate_quiet ?? 1.5)}
+                    onChange={v => update('proactive_rate_quiet', parseFloat(v) || 1.5)} />
+                </ParamRow>
+                <ParamRow label="安静 → 随口" hint="偶尔插一句话">
+                  <Input type="number" value={String(form.proactive_rate_casual ?? 4.0)}
+                    onChange={v => update('proactive_rate_casual', parseFloat(v) || 4.0)} />
+                </ParamRow>
+                <ParamRow label="随口 → 活跃" hint="较频繁参与讨论">
+                  <Input type="number" value={String(form.proactive_rate_lively ?? 6.5)}
+                    onChange={v => update('proactive_rate_lively', parseFloat(v) || 6.5)} />
+                </ParamRow>
+                <ParamRow label="活跃 → 爆发" hint="消息极快时全力参与">
+                  <Input type="number" value={String(form.proactive_rate_burst ?? 8.5)}
+                    onChange={v => update('proactive_rate_burst', parseFloat(v) || 8.5)} />
+                </ParamRow>
               </div>
-              <div>
-                <Label>SLEEP → QUIET</Label>
-                <Input type="number" value={String(form.proactive_rate_quiet ?? 1.5)}
-                  onChange={v => update('proactive_rate_quiet', parseFloat(v) || 1.5)} />
-              </div>
-              <div>
-                <Label>QUIET → CASUAL</Label>
-                <Input type="number" value={String(form.proactive_rate_casual ?? 4.0)}
-                  onChange={v => update('proactive_rate_casual', parseFloat(v) || 4.0)} />
-              </div>
-              <div>
-                <Label>CASUAL → LIVELY</Label>
-                <Input type="number" value={String(form.proactive_rate_lively ?? 6.5)}
-                  onChange={v => update('proactive_rate_lively', parseFloat(v) || 6.5)} />
-              </div>
-              <div>
-                <Label>LIVELY → BURST</Label>
-                <Input type="number" value={String(form.proactive_rate_burst ?? 8.5)}
-                  onChange={v => update('proactive_rate_burst', parseFloat(v) || 8.5)} />
-              </div>
-            </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* ── Sticky Mention ── */}
@@ -125,19 +137,23 @@ function FeaturesSection({ form, update }) {
           </div>
           <Toggle enabled={form.sticky_mention_enabled} onChange={v => update('sticky_mention_enabled', v)} />
         </div>
-        {form.sticky_mention_enabled && (
-          <div className="mt-3 p-4 bg-[#F8F8F5] rounded-lg">
-            <Field label="追踪超时" hint="用户空 @机器人后，等待后续消息的最大秒数">
-              <Select value={String(form.sticky_mention_ttl_sec || 60)} onChange={v => update('sticky_mention_ttl_sec', parseInt(v))}
-                options={[
-                  { value: '30', desc: '30 秒', hint: '快速响应' },
-                  { value: '60', desc: '60 秒', hint: '默认' },
-                  { value: '120', desc: '120 秒', hint: '宽松' },
-                  { value: '300', desc: '300 秒', hint: '最长时间' },
-                ]} />
-            </Field>
-          </div>
-        )}
+        <AnimatePresence>
+          {form.sticky_mention_enabled && (
+            <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
+              className="mt-3 p-4 bg-[#F8F8F5] rounded-lg">
+              <ParamRow label="追踪超时" hint="用户发送空 @消息后，等待后续消息的最长时间">
+                <Select value={String(form.sticky_mention_ttl_sec || 60)}
+                  onChange={v => update('sticky_mention_ttl_sec', parseInt(v))}
+                  options={[
+                    { value: '30', desc: '30 秒', hint: '快速响应' },
+                    { value: '60', desc: '60 秒', hint: '默认' },
+                    { value: '120', desc: '120 秒', hint: '宽松' },
+                    { value: '300', desc: '300 秒', hint: '最长时间' },
+                  ]} />
+              </ParamRow>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* ── Log Level ── */}

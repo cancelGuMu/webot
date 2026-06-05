@@ -92,6 +92,8 @@ tools/build_*.sh
 tools/FindSqlite3Key*
 
 # Private persona data
-skill/gumu-persona/data/
-skill/gumu-persona/self.md
+skill/gumu-persona/
+skill/server_download/
+skill/gemma4-usage/
+skill/孤慕-SKILL.md
 image/

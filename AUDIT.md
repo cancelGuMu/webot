@@ -95,7 +95,7 @@
 | UI dist 文件 | ✅ | ui/dist/ 包含 |
 | requirements.txt | ⚠️ | **缺少 `webview`** |
 | hiddenimports | ⚠️ | 缺少 `src.guard` (package)；新增 JSX 文件待验证 |
-| 硬编码路径 | ❌ | `C:/Users/GuMu/...` 绝对路径 |
+| 硬编码路径 | ⚠️ | 已修复 |
 | data/ 目录 | ⚠️ | 运行时文件（messages.db 等 6MB+）被打包进 EXE |
 | console 模式 | ✅ | console=False |
 | icon | ✅ | logo.ico 存在 |

@@ -51,41 +51,65 @@ function AiSection({ form, update }) {
 }
 
 function IdentitySection({ form, update }) {
-  // Parse wechat_groups into an array: * = all, comma-separated = specific
-  const raw = (form.wechat_groups || '').trim()
-  const isAll = raw === '*'
-  // Empty string → show one empty input ready for the first group name
-  const groups = isAll ? ['*'] : (raw === '' ? [''] : raw.split(',').map(s => s.trim()).filter(Boolean))
+  // Local editable groups array — source of truth for rendering
+  const [groups, setGroups] = useState([])
 
-  function setGroups(newGroups) {
-    const filtered = newGroups.filter(g => g !== '')
-    if (filtered.length === 0) {
-      update('wechat_groups', '')  // empty = show input ready for first group
-    } else if (filtered.includes('*')) {
+  // Initialize from form.wechat_groups on mount only
+  useEffect(() => {
+    const raw = (form.wechat_groups || '').trim()
+    if (raw === '*' || raw === '') {
+      setGroups(['*'])
+    } else {
+      setGroups(raw.split(',').map(s => s.trim()).filter(Boolean))
+    }
+  }, [])
+
+  // Sync local groups array back to form.wechat_groups (comma-separated string)
+  function syncToForm(newGroups) {
+    const nonEmpty = newGroups.filter(g => g !== '')
+    if (nonEmpty.length === 0 || nonEmpty.includes('*')) {
       update('wechat_groups', '*')
     } else {
-      update('wechat_groups', filtered.join(','))
+      update('wechat_groups', nonEmpty.join(','))
     }
   }
+
+  const isAll = groups.length === 1 && groups[0] === '*'
 
   function updateGroup(index, value) {
     const next = [...groups]
     next[index] = value
-    if (next.length === 1 && next[0] === '*') {
-      // User started typing over the * chip
-      update('wechat_groups', value)
+    if (groups.length === 1 && groups[0] === '*') {
+      // User started typing over the * chip → replace it
+      setGroups([value])
+      syncToForm([value])
     } else {
       setGroups(next)
+      syncToForm(next)
     }
   }
 
   function removeGroup(index) {
     const next = groups.filter((_, i) => i !== index)
-    setGroups(next)  // empty → '' → shows fresh input
+    if (next.length === 0) {
+      // Last group removed → default back to all groups
+      setGroups(['*'])
+      syncToForm(['*'])
+    } else {
+      setGroups(next)
+      syncToForm(next)
+    }
   }
 
   function addGroup() {
-    setGroups([...groups.filter(g => g !== ''), ''])
+    const next = [...groups, '']
+    setGroups(next)
+    syncToForm(next)
+  }
+
+  function restoreAll() {
+    setGroups(['*'])
+    syncToForm(['*'])
   }
 
   return (
@@ -94,10 +118,10 @@ function IdentitySection({ form, update }) {
         <Input value={form.bot_display_name} onChange={v => update('bot_display_name', v)} placeholder="例如：群聊小助手" />
       </Field>
 
-      <Field label="目标群聊" hint={isAll ? '当前监控所有群聊。点击 × 删除「全部群聊」后可指定群名' : (raw === '' ? '请输入要监控的群聊名称' : `监控 ${groups.length} 个群聊`)}>
+      <Field label="目标群聊" hint={isAll ? '当前监控所有群聊。点击 × 删除「全部群聊」后可指定群名' : `监控 ${groups.filter(g => g !== '').length} 个群聊`}>
         <div className="flex flex-wrap gap-2 mb-2">
           {groups.map((name, i) => {
-            if (name === '') return null  // empty placeholder handled below
+            if (name === '') return null  // empty placeholder slot — input shown below
             return (
               <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#EDF3EC] border border-[#C5DAC2] rounded-lg text-[13px] text-[#346538]">
                 {name === '*' ? '全部群聊' : name}
@@ -113,14 +137,18 @@ function IdentitySection({ form, update }) {
             </button>
           )}
         </div>
-        {!isAll && groups.map((name, i) => (
-          name === '' || !name ? null : null  // skip — input shown below for empty slots
-        ))}
-        {/* Show text inputs for each group, including the empty placeholder */}
+        {/* Restore link — visible when NOT in * mode */}
+        {!isAll && (
+          <button type="button" onClick={restoreAll}
+            className="text-xs text-[#6E9FCF] hover:text-[#1F6C9F] transition-colors mb-2 cursor-pointer">
+            恢复监控所有群聊
+          </button>
+        )}
+        {/* Text inputs for each group, including empty placeholder slots */}
         {!isAll && groups.map((name, i) => (
           <input key={`input-${i}`} type="text" value={name}
             onChange={e => updateGroup(i, e.target.value)}
-            onBlur={() => { if (!groups[i]?.trim()) removeGroup(i) }}
+            onBlur={() => { if (!name.trim()) removeGroup(i) }}
             placeholder={`群聊 ${i + 1} 的名称`}
             className="w-full bg-[#F9F9F8] border border-[#E0E0DE] rounded-lg px-4 py-2 text-[15px] text-[#1F1F1F] placeholder:text-[#C8C8C6] focus:outline-none focus:border-[#C5DAC2] focus:ring-1 focus:ring-[#346538]/15 transition-all duration-200 hover:border-[#D0D0CE] mb-2" />
         ))}

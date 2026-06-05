@@ -18,6 +18,13 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import unquote
 
+# Re-exported from config.py for use in API handlers.
+# NOTE: _decode_wechat_groups is also imported inside _handle_request()
+# conditional blocks, but for Python's scoping those later imports still
+# make the name a local — so it must be imported at module level too,
+# otherwise the first branch that references it raises UnboundLocalError.
+from src.config import _decode_wechat_groups
+
 logger = logging.getLogger(__name__)
 
 UI_DIR = (Path(__file__).resolve().parent.parent.parent / "ui" / "dist").resolve()
@@ -717,6 +724,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
 
         # ── API: Load config ───────────────────────────────────────────
         if self.path == "/api/load-config":
+            from src.config import _decode_wechat_groups  # noqa: F811 - needed before use (scoping)
             env_path = _find_or_create_env()
             raw = {}
             if env_path.exists():

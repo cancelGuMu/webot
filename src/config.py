@@ -104,9 +104,15 @@ _log = _logging.getLogger(__name__)
 if _env_path:
     _log.info("Loaded .env from: %s", _env_path)
 else:
+    _search_locations = [
+        PROJECT_ROOT / ".env",
+        Path.cwd() / ".env",
+    ]
+    if getattr(sys, "frozen", False):
+        _search_locations.insert(0, Path(sys.executable).resolve().parent / ".env")
     _log.warning(
         ".env not found in any search path (%s). Using defaults.",
-        ", ".join(str(p) for p in _locations),
+        ", ".join(str(p) for p in _search_locations),
     )
 
 

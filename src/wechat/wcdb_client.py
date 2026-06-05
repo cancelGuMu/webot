@@ -16,8 +16,41 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 PAGE_EXECUTE_READWRITE = 0x40
-PATCH_RVA = 0x6e1f6
-EXPECTED_PATCH_BYTE = 0x02  # mov eax, 2 -> we change to 0
+
+# ── DRM patch offset configuration ────────────────────────────────────
+# Default values target WeChat 4.x.  When WeChat updates and the patch
+# offset changes, you can override these via environment variables instead
+# of modifying the source:
+#
+#   WCDB_PATCH_RVA   – hex RVA (relative virtual address) of the patch site
+#   WCDB_PATCH_BYTE  – hex byte value expected at patch_site+1 before patching
+#
+# These are the bytes that the DRM check sets to signal "tampered":
+#   mov eax, 2      (B8 02 00 00 00)   → normal / DRM active
+#   mov eax, 0      (B8 00 00 00 00)   → patched / DRM bypassed
+#
+# Example for a future WeChat version:
+#   set WCDB_PATCH_RVA=0x6f2a0
+#   set WCDB_PATCH_BYTE=0x02
+
+_DEFAULT_PATCH_RVA = 0x6e1f6
+_DEFAULT_PATCH_BYTE = 0x02
+
+_env_rva = os.environ.get("WCDB_PATCH_RVA", "").strip()
+if _env_rva:
+    PATCH_RVA = int(_env_rva, 16)
+    logger.info("Using custom WCDB_PATCH_RVA from env: 0x%x", PATCH_RVA)
+else:
+    PATCH_RVA = _DEFAULT_PATCH_RVA
+    logger.debug("Using default WCDB_PATCH_RVA: 0x%x", PATCH_RVA)
+
+_env_byte = os.environ.get("WCDB_PATCH_BYTE", "").strip()
+if _env_byte:
+    EXPECTED_PATCH_BYTE = int(_env_byte, 16)
+    logger.info("Using custom WCDB_PATCH_BYTE from env: 0x%x", EXPECTED_PATCH_BYTE)
+else:
+    EXPECTED_PATCH_BYTE = _DEFAULT_PATCH_BYTE
+    logger.debug("Using default WCDB_PATCH_BYTE: 0x%x", EXPECTED_PATCH_BYTE)
 
 # ── DLL loading ──────────────────────────────────────────────────────
 
@@ -25,7 +58,12 @@ _kernel32 = ct.WinDLL("kernel32", use_last_error=True)
 
 
 def _apply_drm_patch(dll_handle, dll_path):
-    """One-byte patch: mov eax,2 -> mov eax,0 at RVA 0x6e1f6.
+    """One-byte DRM patch: mov eax,2 -> mov eax,0 at the configured RVA.
+
+    The patch offset and expected byte are controlled by PATCH_RVA and
+    EXPECTED_PATCH_BYTE (see module-level config above).  Override them via
+    WCDB_PATCH_RVA / WCDB_PATCH_BYTE environment variables when WeChat
+    updates change the patch location.
 
     Also verifies the DLL hasn't been tampered with beyond our patch.
     """

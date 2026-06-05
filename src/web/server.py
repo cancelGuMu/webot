@@ -734,6 +734,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "bot_display_name": raw.get("BOT_DISPLAY_NAME", ""),
                     "wechat_backend": raw.get("WECHAT_BACKEND", "wcdb"),
                     "wechat_groups": raw.get("WECHAT_GROUPS", "*"),
+                    "fun_enabled": raw.get("FUN_ENABLED", "true").lower() == "true",
                     "proactive_enabled": raw.get("PROACTIVE_ENABLED", "false").lower() == "true",
                     "proactive_rate_window_sec": int(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120")),
                     "proactive_rate_quiet": float(raw.get("PROACTIVE_RATE_QUIET", "1.5")),
@@ -766,6 +767,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         "BOT_DISPLAY_NAME": config.get("bot_display_name"),
                         "WECHAT_BACKEND": config.get("wechat_backend"),
                         "WECHAT_GROUPS": config.get("wechat_groups") or "*",
+                        "FUN_ENABLED": str(config.get("fun_enabled", True)).lower(),
                         "PROACTIVE_ENABLED": str(config.get("proactive_enabled", False)).lower(),
                         "PROACTIVE_RATE_WINDOW_SEC": str(config.get("proactive_rate_window_sec", 120)),
                         "PROACTIVE_RATE_QUIET": str(config.get("proactive_rate_quiet", 1.5)),
@@ -908,6 +910,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 data = json.loads(body)
                 with _onboarding_lock:
                     _onboarding_data["step4_done"] = True
+                    _onboarding_data["fun_enabled"] = data.get("fun_enabled", True)
                     _onboarding_data["proactive_enabled"] = data.get("proactive_enabled", False)
                     _onboarding_data["sticky_mention_enabled"] = data.get("sticky_mention_enabled", True)
 

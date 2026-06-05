@@ -87,6 +87,17 @@ function ParamRow({ label, hint, children }) {
 function FeaturesSection({ form, update }) {
   return (
     <div>
+      {/* ── Fun: Draw Lots ── */}
+      <div className="py-4 border-b border-[#F0F0EE]">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 mr-8">
+            <p className="text-[15px] text-[#1F1F1F] font-medium">趣味抽签</p>
+            <p className="text-sm text-[#B8B8B6] mt-1.5">@机器人说"抽签"，随机返回运势签文（大吉/中吉/小吉/末吉/凶）</p>
+          </div>
+          <Toggle enabled={form.fun_enabled} onChange={v => update('fun_enabled', v)} />
+        </div>
+      </div>
+
       {/* ── Proactive Participation ── */}
       <div className="py-4 border-b border-[#F0F0EE]">
         <div className="flex items-center justify-between">
@@ -182,6 +193,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     ai_backend: 'deepseek', deepseek_api_key: '', deepseek_model: 'deepseek-v4-flash',
     anthropic_api_key: '', summarize_model: 'claude-haiku-4-5-20251001',
     bot_display_name: '', wechat_backend: 'wcdb', wechat_groups: '*',
+    fun_enabled: true,
     proactive_enabled: false, proactive_rate_window_sec: 120,
     proactive_rate_quiet: 1.5, proactive_rate_casual: 4.0,
     proactive_rate_lively: 6.5, proactive_rate_burst: 8.5,
@@ -228,6 +240,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           bot_display_name: form.bot_display_name,
           wechat_backend: form.wechat_backend,
           wechat_groups: form.wechat_groups,
+          fun_enabled: form.fun_enabled,
           proactive_enabled: form.proactive_enabled,
           proactive_rate_window_sec: form.proactive_rate_window_sec,
           proactive_rate_quiet: form.proactive_rate_quiet,

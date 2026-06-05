@@ -329,6 +329,7 @@ export function Step4Features({ data, updateData, onComplete }) {
       await fetch(`${API}/api/onboarding/step4`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          fun_enabled: data.fun_enabled ?? true,
           proactive_enabled: data.proactive_enabled ?? false,
           sticky_mention_enabled: data.sticky_mention_enabled ?? true,
         }),
@@ -362,6 +363,8 @@ export function Step4Features({ data, updateData, onComplete }) {
 
       <div className="bg-white border border-[#EAEAEA] rounded-xl p-7">
         <div className="space-y-0">
+          <ToggleRow label="趣味抽签" desc="@机器人说抽签，随机返回运势签文" enabled={data.fun_enabled ?? true}
+            onChange={v => updateData({ fun_enabled: v })} />
           <ToggleRow label="主动发言" desc="根据群聊活跃度自动参与对话" enabled={data.proactive_enabled ?? false}
             onChange={v => updateData({ proactive_enabled: v })} />
           <ToggleRow label="粘性提及" desc="@机器人后无需等待，机器人会追踪后续消息" enabled={data.sticky_mention_enabled ?? true}

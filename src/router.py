@@ -162,7 +162,7 @@ class MessageRouter:
             if clean_content.strip() in ("帮助", "help", "命令"):
                 reply = self._admin.handle(clean_content, msg["sender_name"])
 
-            elif clean_content.strip() == "抽签":
+            elif self._config.fun_enabled and clean_content.strip() == "抽签":
                 from .fun import draw_lots
                 reply = draw_lots(msg["sender_name"])
 

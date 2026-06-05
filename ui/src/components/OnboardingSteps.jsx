@@ -68,7 +68,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
 
       <div className="bg-white border border-[#EAEAEA] rounded-xl p-7 space-y-5">
         <p className="text-[15px] text-[#5F5F5C] leading-relaxed">
-          WeChatBot 需要从微信获取加密密钥以读取聊天记录。此操作安全、无侵入，不会影响微信正常使用。
+          webot 需要从微信获取加密密钥以读取聊天记录。此操作安全、无侵入，不会影响微信正常使用。
         </p>
 
         {/* Key display field */}

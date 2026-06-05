@@ -1,4 +1,4 @@
-# WeChatBot
+# webot
 
 > 微信群聊 AI 助手 —— 原生读取微信数据库，零 Hook 零注入，安全不封号。
 
@@ -14,7 +14,7 @@
 
 ## 它是什么
 
-WeChatBot 是一个运行在 Windows 上的微信群聊机器人。把它加入你的群聊，它会：
+webot 是一个运行在 Windows 上的微信群聊机器人。把它加入你的群聊，它会：
 
 - **帮你总结错过的消息** —— 对群里说一句「总结一下」，立刻告诉你前面聊了什么，按话题分类、附关键人物和时间线。
 - **回应你的提问** —— **@机器人** 问任何问题，它会结合群聊上下文和联网搜索来回答。
@@ -92,7 +92,7 @@ AI 连续多次判断"不应该插话"时，会自动延长沉默时间（最高
 
 ### 方式一：下载 EXE（推荐）
 
-从 [Releases](https://github.com/cancelGuMu/webot/releases) 下载 `WeChatBot.exe`，双击运行。
+从 [Releases](https://github.com/cancelGuMu/webot/releases) 下载 `webot.exe`，双击运行。
 
 首次运行弹出配置向导，按提示完成四步即可开始使用：密钥提取 → 机器人身份 → AI 后端 → 功能开关。
 
@@ -100,7 +100,7 @@ AI 连续多次判断"不应该插话"时，会自动延长沉默时间（最高
 
 ```bash
 git clone https://github.com/cancelGuMu/webot.git
-cd wechat-group-bot
+cd webot
 pip install -r requirements.txt
 python desktop.py
 ```
@@ -240,7 +240,7 @@ LOG_FILE=data/bot.log         # 留空则只输出到控制台
 <details>
 <summary><strong>会被封号吗？</strong></summary>
 
-WeChatBot 只读取微信本地的加密数据库文件，通过键盘模拟发送消息。不注入进程、不 Hook 函数、不模拟网络协议。这是一种非常安全的只读方式，目前没有已知的封号案例。但任何第三方工具都有理论风险，请自行评估。
+webot 只读取微信本地的加密数据库文件，通过键盘模拟发送消息。不注入进程、不 Hook 函数、不模拟网络协议。这是一种非常安全的只读方式，目前没有已知的封号案例。但任何第三方工具都有理论风险，请自行评估。
 
 </details>
 

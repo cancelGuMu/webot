@@ -11,7 +11,7 @@ git commit -m "<描述做了什么，为什么>"
 
 ## 项目概述
 
-WeChat Summarizer Bot — 微信消息总结机器人，支持 WCDB 直读数据库、AI 自动总结/聊天/主动发言。
+webot — 微信消息总结机器人，支持 WCDB 直读数据库、AI 自动总结/聊天/主动发言。
 
 ## 技术栈
 
@@ -53,7 +53,7 @@ cd ui && npm run build
 # 打包 EXE
 pyinstaller build.spec
 
-# 输出: dist/WeChatBot.exe
+# 输出: dist/webot.exe
 ```
 
 ## 日志位置

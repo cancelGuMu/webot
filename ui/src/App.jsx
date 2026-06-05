@@ -104,7 +104,7 @@ export default function App() {
         <div className="p-6">
           <div className="flex items-center gap-3 mb-8">
             <div className="relative">
-              <img src="/logo-128.png" alt="WeChatBot" className="w-8 h-8 rounded-lg" />
+              <img src="/logo-128.png" alt="webot" className="w-8 h-8 rounded-lg" />
               <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white ${status.running ? 'bg-[#346538]' : 'bg-[#B8B8B6]'}`} />
             </div>
             <div>

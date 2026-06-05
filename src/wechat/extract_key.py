@@ -30,7 +30,7 @@ def _find_wechat_pid():
             ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG),
             ("dwFlags", wintypes.DWORD), ("szExeFile", ct.c_wchar * 260),
         ]
-    # Get our own PID to exclude WeChatBot.exe from results
+    # Get our own PID to exclude webot.exe from results
     import os as _os
     my_pid = _os.getpid()
 
@@ -42,7 +42,7 @@ def _find_wechat_pid():
     if kernel32.Process32FirstW(h, ct.byref(pe)):
         while True:
             n = pe.szExeFile.lower()
-            # Only match actual WeChat (Weixin.exe/WeChat.exe), not our own WeChatBot.exe
+            # Only match actual WeChat (Weixin.exe/WeChat.exe), not our own webot.exe
             if pe.th32ProcessID != my_pid and (n == "weixin.exe" or n == "wechat.exe"):
                 kernel32.CloseHandle(h)
                 return pe.th32ProcessID

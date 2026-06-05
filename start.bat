@@ -1,5 +1,5 @@
 @echo off
-title WeChat Bot - One-Click Launcher
+title webot - One-Click Launcher
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
@@ -7,7 +7,7 @@ cd /d "%~dp0"
 chcp 65001 > nul 2>&1
 
 echo ============================================
-echo   WeChat Bot - One-Click Launcher
+echo   webot - One-Click Launcher
 echo   (WeFlow will auto-start in background)
 echo ============================================
 echo.

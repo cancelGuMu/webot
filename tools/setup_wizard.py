@@ -144,7 +144,7 @@ def write_env(db_path: str, wxid: str, key: str, env_path: Path | None = None) -
 
 def main():
     print("=" * 50)
-    print("  WeChat Bot — 首次设置向导")
+    print("  webot — 首次设置向导")
     print("=" * 50)
     print()
 

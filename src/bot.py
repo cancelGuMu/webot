@@ -55,13 +55,29 @@ class HealthMonitor:
 
     # ── Internals ───────────────────────────────────────────────────
 
+    _FAST_TICK_SEC = 30    # push message count to dashboard every 30s
+    _FULL_TICK_CYCLES = 10  # full health check every 10 fast ticks (5 min)
+
     def _run(self) -> None:
+        cycle = 0
         while self._running:
-            time.sleep(300)  # 5 minutes
+            time.sleep(self._FAST_TICK_SEC)
             if not self._running:
                 break
+            cycle += 1
             try:
-                self._tick()
+                # Fast tick (every 30s): push live stats to dashboard
+                self._on_tick(
+                    messages_processed=self._router.messages_processed,
+                    last_api_call_time=self._summarizer.last_api_call_time,
+                    last_api_call_sec_ago=(
+                        int(time.time() - self._summarizer.last_api_call_time)
+                        if self._summarizer.last_api_call_time > 0 else -1
+                    ),
+                )
+                # Full tick (every 300s): logging + JSON + health checks
+                if cycle % self._FULL_TICK_CYCLES == 0:
+                    self._tick()
             except Exception:
                 logger.exception("Health monitor tick failed")
 
@@ -79,6 +95,7 @@ class HealthMonitor:
             uptime_sec=uptime_sec,
             messages_processed=msgs,
             db_ok=db_status == "OK",
+            last_api_call_time=self._summarizer.last_api_call_time,
             last_api_call_sec_ago=int(time.time() - self._summarizer.last_api_call_time)
                 if self._summarizer.last_api_call_time > 0 else -1,
         )
@@ -177,6 +194,13 @@ class Bot:
         self._conn = initialize_db(config.db_path)
         store = MessageStore(self._conn)
 
+        # Notify Web UI early: database is ready
+        try:
+            from .web.server import update_status as _us
+            _us(db_ok=True)
+        except Exception:
+            pass
+
         # ── 3. Components ───────────────────────────────────────
         detector = TriggerDetector(
             keywords=config.trigger_keywords,
@@ -211,6 +235,15 @@ class Bot:
         # ── 5. WeChat backend ───────────────────────────────────
         backend = self._create_wechat_backend()
         self._backend = backend
+        self.backend = backend   # public ref for lifecycle control
+
+        # Register backend with web server for stop/restart (explicit
+        # API — no monkey-patching needed).
+        try:
+            from .web.server import _register_backend
+            _register_backend(backend)
+        except Exception:
+            pass
 
         # ── 6. Health monitor ───────────────────────────────────
         self._health = HealthMonitor(
@@ -239,30 +272,19 @@ class Bot:
 
         # ── 7. Start listening (blocks) ─────────────────────────
         #
-        # DESIGN NOTE — synchronous poll loop:
-        #   backend.start() runs a tight while-loop: poll → callback → sleep.
-        #   The callback (router.handle) may trigger summarization via the
-        #   AI backend, which can take 5–30 seconds depending on model
-        #   latency and message volume. Because the loop is single-threaded,
-        #   a long-running callback *delays the next poll cycle*. Messages
-        #   arriving during summarization are not picked up until the
-        #   callback returns and the next iteration begins.
+        # DESIGN NOTE — fire-and-forget callback execution:
+        #   WcdbBackend uses a ThreadPoolExecutor (max_workers=4) to
+        #   offload AI-triggering callbacks from the poll loop.  The poll
+        #   thread submits each message to the pool and returns immediately,
+        #   so a slow summarization in one group never blocks polling of
+        #   other groups.  Reply sending + WCDB confirmation happen inside
+        #   the worker, serialized through a client_lock to keep ctypes
+        #   safe.  On shutdown the pool drains with a 30 s timeout.
         #
-        # Trade-offs:
-        #   + Simple — no threads, no queues, no coordination
-        #   + Predictable — one message at a time, no concurrent UIA
-        #   - Poll latency — bursty summarization adds jitter
-        #   - Head-of-line blocking — a slow reply blocks ALL groups
-        #
-        # Mitigations already in place:
-        #   - poll_interval_sec controls idle cadence (default 1 s)
-        #   - Reply sends happen inline; admin commands return instantly
-        #   - Health monitor runs in its own daemon thread
-        #
-        # Future options (not implemented):
-        #   - Fire-and-forget: queue the callback work and return immediately
-        #   - Dedicated summarizer thread with a work queue
-        #   - Async I/O (asyncio) for the poll loop
+        # Legacy design (pre-2026-06):
+        #   The old single-threaded loop caused head-of-line blocking:
+        #   one slow AI call delayed ALL groups' message polling.
+        #   The old comment is archived in AUDIT.md §C1.
         try:
             logger.info("Bot is running. Press Ctrl+C to stop.")
             backend.start(router.handle)
@@ -273,6 +295,10 @@ class Bot:
                 self._health.stop()
             if self._conn is not None:
                 self._conn.close()
+            try:
+                self._update_status(running=False)
+            except Exception:
+                pass
             logger.info("Bot shut down gracefully.")
 
     # ── Helpers ──────────────────────────────────────────────────
@@ -288,7 +314,7 @@ class Bot:
             logger.info("Model: %s", config.deepseek_model)
         else:
             logger.info("Model: %s", config.summarize_model)
-        logger.info("Bot name: %s", config.bot_display_name)
+        logger.info("Bot name: %r", config.bot_display_name)
         if config.wechat_groups:
             logger.info("Groups: %s", config.wechat_groups)
         logger.info("DB path: %s", config.db_path)

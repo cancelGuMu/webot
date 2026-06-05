@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowDown, Trash } from '@phosphor-icons/react'
 
@@ -11,19 +11,71 @@ const LEVEL_STYLES = {
 const LEVEL_LABELS = { ALL: '全部', INFO: 'INFO', WARNING: '警告', ERROR: '错误', DEBUG: 'DEBUG' }
 const FILTER_OPTIONS = ['ALL', 'INFO', 'WARNING', 'ERROR', 'DEBUG']
 
-const MOCK_LOGS = []
-
 export default function LogViewer() {
   const [filter, setFilter] = useState('ALL')
-  const [logs, setLogs] = useState(MOCK_LOGS)
+  const [logs, setLogs] = useState([])
   const scrollRef = useRef(null)
+  const seenRef = useRef(new Set())
+  // Track whether the user has scrolled up — only auto-scroll when
+  // they're near the bottom of the log view.
+  const [autoScroll, setAutoScroll] = useState(true)
+  const SCROLL_THRESHOLD = 50  // px from bottom considered "at bottom"
 
   const filtered = filter === 'ALL' ? logs : logs.filter(l => l.level === filter)
 
-  function scrollToBottom() {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+  const fetchLogs = useCallback(async () => {
+    try {
+      const res = await fetch('http://127.0.0.1:7327/api/logs')
+      const data = await res.json()
+      if (data.ok && data.logs?.length) {
+        setLogs(prev => {
+          // Dedupe by raw line content and only append new entries
+          const merged = [...prev]
+          for (const entry of data.logs) {
+            const key = entry.raw
+            if (!seenRef.current.has(key)) {
+              seenRef.current.add(key)
+              merged.push(entry)
+            }
+          }
+          // Keep at most 2000 entries in memory
+          return merged.length > 2000 ? merged.slice(-2000) : merged
+        })
+      }
+    } catch {
+      // silently retry on next poll
+    }
+  }, [])
+
+  // Poll for new logs every 2 seconds
+  useEffect(() => {
+    fetchLogs()
+    const timer = setInterval(fetchLogs, 2000)
+    return () => clearInterval(timer)
+  }, [fetchLogs])
+
+  // Detect manual scroll to pause/resume auto-scroll
+  function handleScroll() {
+    const el = scrollRef.current
+    if (!el) return
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    setAutoScroll(distFromBottom < SCROLL_THRESHOLD)
   }
-  useEffect(() => { scrollToBottom() }, [logs])
+
+  function scrollToBottom() {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    setAutoScroll(true)
+  }
+
+  // Auto-scroll only when user hasn't scrolled up
+  useEffect(() => {
+    if (autoScroll) {
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    }
+  }, [logs, autoScroll])
 
   return (
     <div className="max-w-4xl space-y-4">
@@ -46,7 +98,7 @@ export default function LogViewer() {
         <button onClick={scrollToBottom} className="p-2 rounded-md text-[#B8B8B6] hover:text-[#5F5F5C] hover:bg-[#F7F6F3] transition-colors">
           <ArrowDown size={16} />
         </button>
-        <button onClick={() => setLogs([])} className="p-2 rounded-md text-[#B8B8B6] hover:text-[#9F2F2D] hover:bg-[#FDEBEC] transition-colors">
+        <button onClick={() => { setLogs([]); seenRef.current.clear() }} className="p-2 rounded-md text-[#B8B8B6] hover:text-[#9F2F2D] hover:bg-[#FDEBEC] transition-colors">
           <Trash size={16} />
         </button>
       </div>
@@ -54,6 +106,7 @@ export default function LogViewer() {
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}
         ref={scrollRef}
+        onScroll={handleScroll}
         className="bg-white border border-[#EAEAEA] rounded-xl overflow-hidden max-h-[600px] overflow-y-auto font-mono text-sm leading-relaxed"
       >
         {filtered.length === 0 ? (

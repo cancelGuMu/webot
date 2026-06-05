@@ -1,6 +1,6 @@
 """Shared utilities for WeChat backends.
 
-These reduce duplication across wx4py, uia, and weflow backends.
+These reduce duplication across WeChat backend implementations.
 """
 
 import hashlib

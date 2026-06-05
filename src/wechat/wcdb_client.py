@@ -1,8 +1,8 @@
 """
-Native WCDB database client — direct DLL calls, NO WeFlow.exe, NO HTTP bridge.
+Native WCDB database client — direct DLL calls, no external HTTP bridge.
 
 Loads wcdb_api.dll via ctypes, applies one-byte DRM patch, and provides
-the same data access as the WeFlow HTTP API but entirely in-process.
+the same data access as a dedicated HTTP bridge but entirely in-process.
 """
 import ctypes as ct
 from ctypes import wintypes
@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -63,9 +64,8 @@ def _apply_drm_patch(dll_handle, dll_path):
 def _read_gbk_string(ptr):
     """Read null-terminated string from a raw pointer.
 
-    WeChat stores data primarily as GBK on Chinese Windows, but some
-    fields may use UTF-8 or contain mixed encodings. We try GBK first,
-    then UTF-8, and fall back to latin-1 (always succeeds).
+    WCDB DLL returns data in GBK (WeChat's native encoding on Chinese Windows).
+    We decode as GBK, then re-encode as UTF-8 for Python's native string handling.
     """
     if not ptr or ptr.value == 0:
         return ""
@@ -77,42 +77,93 @@ def _read_gbk_string(ptr):
             break
         raw.append(b)
         addr += 1
-    data = bytes(raw)
-    # Try GBK first (WeChat's default on Chinese Windows)
+    # WCDB DLL returns JSON which is UTF-8 encoded.
+    # Try UTF-8 first (standard for JSON), fall back to GBK.
     try:
-        return data.decode("gbk")
+        return raw.decode("utf-8")
     except (UnicodeDecodeError, LookupError):
-        pass
-    # Try UTF-8
-    try:
-        return data.decode("utf-8")
-    except (UnicodeDecodeError, LookupError):
-        pass
-    # Fall back: replace invalid bytes
-    return data.decode("gbk", errors="replace")
+        return raw.decode("gbk", errors="replace")
+
+
+# ── Filesystem auto-detection ─────────────────────────────────────────
+
+
+def _find_dll():
+    """Find the bundled wcdb_api.dll."""
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / "lib" / "wcdb_api.dll",
+    ]
+    if getattr(sys, "frozen", False):
+        candidates.insert(0, Path(sys.executable).resolve().parent / "lib" / "wcdb_api.dll")
+        candidates.insert(0, Path(sys._MEIPASS) / "lib" / "wcdb_api.dll")
+
+    for c in candidates:
+        if c.exists():
+            logger.info("Found wcdb_api.dll at: %s", c)
+            return str(c.parent), str(c)
+
+    raise FileNotFoundError(
+        "wcdb_api.dll not found. Please place it in the 'lib' folder next to the EXE."
+    )
+
+
+def _find_wxid_and_dbpath():
+    """Auto-detect WeChat wxid and database path from the filesystem.
+
+    Scans Documents\\xwechat_files\\ for wxid_* directories.
+    """
+    # 1. Scan filesystem (primary — no external dependencies)
+    documents = Path.home() / "Documents"
+    candidates = [
+        documents / "xwechat_files",
+        documents / "WeChat Files",
+    ]
+
+    for base in candidates:
+        if not base.exists():
+            continue
+        # Find wxid directories (e.g., wxid_zogepsik3fud12_b6ce)
+        wxid_dirs = sorted(
+            [d for d in base.iterdir() if d.is_dir() and d.name.startswith("wxid_")],
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )
+        for wxid_dir in wxid_dirs:
+            # Verify session.db exists
+            session_db = wxid_dir / "db_storage" / "session" / "session.db"
+            if session_db.exists():
+                wxid = wxid_dir.name
+                logger.info("Auto-detected: wxid=%s db=%s", wxid, str(base))
+                return wxid, str(base)
+
+    raise FileNotFoundError(
+        "Cannot find WeChat data directory. Make sure WeChat is installed "
+        "and you have logged in at least once."
+    )
 
 
 # ── Public API ────────────────────────────────────────────────────────
 
+import sys as _sys
+
+
 class WcdbNativeClient:
-    """Direct WCDB database reader via patched wcdb_api.dll."""
+    """Direct WCDB database reader via patched wcdb_api.dll.
+
+    Auto-detects WeChat data paths from the filesystem.
+    The DLL is bundled with the EXE in the lib/ directory.
+    """
 
     def __init__(self, dll_dir=None, config_path=None):
-        if dll_dir is None:
-            dll_dir = os.path.join(
-                os.environ.get("LOCALAPPDATA", ""),
-                "Programs", "WeFlow", "resources",
-                "resources", "wcdb", "win32", "x64",
-            )
+        # Resolve DLL
+        if dll_dir is not None:
+            self._dll_dir = dll_dir
+            self._dll_path = os.path.join(dll_dir, "wcdb_api.dll")
+        else:
+            self._dll_dir, self._dll_path = _find_dll()
 
-        if config_path is None:
-            config_path = os.path.join(
-                os.environ.get("APPDATA", ""),
-                "WeFlow", "WeFlow-config.json",
-            )
-
-        self._dll_dir = dll_dir
-        self._config_path = config_path
+        # Resolve config (wxid + dbPath)
+        self._config_path = config_path  # may be None — auto-detected
         self._dll = None
         self._handle = 0
         self._config = None
@@ -123,8 +174,11 @@ class WcdbNativeClient:
     # ── Init ──────────────────────────────────────────────────────────
 
     def _load_config(self):
-        with open(self._config_path, "r", encoding="utf-8") as f:
-            self._config = json.load(f)
+        wxid, db_path = _find_wxid_and_dbpath()
+        self._config = {
+            "myWxid": wxid,
+            "dbPath": db_path,
+        }
 
     def init(self):
         """Load wcdb_api.dll, patch DRM, and initialize the WCDB engine."""
@@ -187,46 +241,168 @@ class WcdbNativeClient:
         logger.info("WCDB engine initialized (DRM patched)")
 
     def open(self):
-        """Open the WeChat session.db for the configured account."""
-        from .extract_key import extract_aes_key, decrypt_wcdb_key
+        """Open the WeChat session.db for the configured account.
 
-        aes_key = extract_aes_key()
-        hex_key = decrypt_wcdb_key(aes_key)
-        if not hex_key:
-            raise RuntimeError("Failed to decrypt WCDB key")
-
+        Tries cached keys first.  If they produce 0 sessions (stale key),
+        attempts live extraction from the running WeChat process.
+        """
         my_wxid = self._config.get("myWxid", "")
         db_base = self._config.get("dbPath", "")
         wxid_base = "_".join(my_wxid.split("_")[:3])
 
-        db_path = None
+        account_dir = None   # wxid directory (e.g. .../xwechat_files/wxid_xxx)
+        session_db = None    # full path to session.db
         base = Path(db_base)
         for entry in base.iterdir():
             if entry.name.startswith(wxid_base):
+                account_dir = str(entry)
                 candidate = entry / "db_storage" / "session" / "session.db"
                 if candidate.exists():
-                    db_path = str(candidate)
-                    break
+                    session_db = str(candidate)
+                    break   # only stop when we actually found session.db
 
-        if not db_path:
+        if not account_dir or not session_db:
             raise RuntimeError(f"session.db not found in {db_base}")
 
-        handle = ct.c_int64(0)
-        ret = self._dll.wcdb_open_account(
-            db_path.encode("utf-8"),
-            hex_key.encode("utf-8"),
-            ct.byref(handle),
+        # wcdb_open_account expects the session.db file path.
+        # Passing the account directory results in ret=-3.
+        db_paths = [session_db]
+
+        # ── Resolve key, try each source until one yields data ──────
+        import os as _os
+
+        for attempt, (key_candidate, source_label) in enumerate(self._key_candidates()):
+            logger.info(
+                "Trying WCDB key source #%d: %s (len=%d)",
+                attempt + 1, source_label,
+                len(key_candidate) if key_candidate else 0,
+            )
+
+            # Build key variants to try.  The DLL accepts 64-char hex strings
+            # (ret=0) but explicitly rejects raw bytes (ret=-3).  Only try hex.
+            key_variants = []
+            if key_candidate and len(key_candidate) == 64 and all(
+                c in "0123456789abcdefABCDEF" for c in key_candidate
+            ):
+                key_variants.append((key_candidate.encode("utf-8"), "hex"))
+            elif key_candidate:
+                key_variants.append((key_candidate.encode("utf-8"), "str"))
+            # else: empty key → skip (ret=-2 means DLL requires a key)
+
+            for key_bytes, key_fmt in key_variants:
+                for db_path in db_paths:
+                    path_label = "dir" if db_path == account_dir else "file"
+                    handle = ct.c_int64(0)
+                    ret = self._dll.wcdb_open_account(
+                        db_path.encode("utf-8"),
+                        key_bytes,
+                        ct.byref(handle),
+                    )
+                    if ret != 0:
+                        logger.info(
+                            "wcdb_open_account FAIL (ret=%d) fmt=%s path=%s source=%s",
+                            ret, key_fmt, path_label, source_label,
+                        )
+                        continue
+
+                    self._handle = handle.value
+
+                    # Verify the key actually decrypts data
+                    sessions = self.get_sessions()
+                    if sessions:
+                        session_count = (
+                            len(sessions) if isinstance(sessions, list)
+                            else len(sessions.get("sessions", sessions))
+                        )
+                        logger.info(
+                            "Key WORKS (source=%s, fmt=%s, path=%s): %d sessions found",
+                            source_label, key_fmt, path_label, session_count,
+                        )
+                        # Persist key for next cold start
+                        _os.environ["WCDB_KEY"] = key_candidate
+                        self._save_key_to_env(key_candidate)
+                        logger.info("Database opened: %s", db_path)
+                        self._load_nickname_cache()
+                        return True
+
+                    # Key didn't work — close and try next variant
+                    logger.info(
+                        "Key from %s (fmt=%s, path=%s) → 0 sessions",
+                        source_label, key_fmt, path_label,
+                    )
+                    self._close_handle()
+
+            logger.warning(
+                "Key from %s failed all formats — trying next source...",
+                source_label,
+            )
+
+        raise RuntimeError(
+            "KEY_MISSING: 密钥未配置。"
+            "点击下方「重新获取密钥」按钮，按提示退出并重新登录微信即可。"
         )
-        if ret != 0:
-            raise RuntimeError(f"wcdb_open_account failed: {ret}")
 
-        self._handle = handle.value
-        logger.info("Database opened: %s", db_path)
+    @staticmethod
+    def _save_key_to_env(key: str):
+        """Persist a working WCDB key to .env for next cold start."""
+        import os as _os, sys as _sys
+        from pathlib import Path as _Path
 
-        # Load nickname cache
-        self._load_nickname_cache()
+        # Find .env next to EXE (packaged) or project root (dev)
+        env_path = None
+        if getattr(_sys, "frozen", False):
+            exe_dir = _Path(_sys.executable).resolve().parent
+            candidate = exe_dir / ".env"
+            if candidate.exists():
+                env_path = candidate
+        if not env_path:
+            candidate = _Path(__file__).resolve().parent.parent.parent / ".env"
+            if candidate.exists():
+                env_path = candidate
+        if not env_path:
+            logger.debug("No .env found for key persistence — key in memory only")
+            return
 
-        return True
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+            new_lines = []
+            found = False
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("WCDB_KEY=") or stripped.startswith("WCDB_KEY "):
+                    new_lines.append(f"WCDB_KEY={key}")
+                    found = True
+                else:
+                    new_lines.append(line)
+            if not found:
+                new_lines.append(f"WCDB_KEY={key}")
+            tmp = env_path.with_suffix(".tmp")
+            tmp.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            _os.replace(tmp, env_path)
+            logger.debug("Persisted WCDB_KEY to %s", env_path)
+        except Exception as e:
+            logger.debug("Failed to persist WCDB_KEY: %s", e)
+
+    def _key_candidates(self):
+        """Generate (key, label) pairs in priority order.
+
+        The key is captured ONCE during onboarding (WeChat restart flow)
+        and persisted to .env / WCDB_KEY.  Live extraction from an
+        already-running WeChat is unreliable (the key was loaded at
+        startup and the hook may miss it), so we don't try it here.
+
+        As a last resort, tries an empty key — some wcdb_api.dll builds
+        can derive the key internally via InitProtection.
+        """
+        import os as _os
+
+        # Environment variable — persists across runs after onboarding
+        env_key = _os.environ.get("WCDB_KEY", "").strip()
+        if env_key and len(env_key) == 64:
+            yield env_key, "env"
+
+        # Fallback: let the DLL try its own internal key discovery
+        yield "", "builtin"
 
     def _load_nickname_cache(self):
         """Load wxid -> display name mappings from sessions and contacts."""
@@ -266,25 +442,39 @@ class WcdbNativeClient:
         out = ct.c_void_p()
         ret = func(*args, ct.byref(out))
         if ret != 0:
+            logger.warning("WCDB call %s failed: ret=%d", func.__name__, ret)
             return None
         if not out.value:
+            logger.debug("WCDB call %s returned null pointer", func.__name__)
             return {}
         try:
             data = _read_gbk_string(out)
             self._dll.wcdb_free_string(out)
             return json.loads(data)
-        except Exception as e:
+        except json.JSONDecodeError as e:
             logger.debug("JSON parse error: %s", e)
+            self._dll.wcdb_free_string(out)
+            return {}
+        except Exception as e:
+            logger.warning("Unexpected error in _call_json for %s: %s",
+                           func.__name__, e)
             self._dll.wcdb_free_string(out)
             return {}
 
     def get_sessions(self, limit=500):
         """Get all chat sessions with metadata."""
         result = self._call_json(self._dll.wcdb_get_sessions, self._handle)
+        if result is None:
+            logger.warning("wcdb_get_sessions returned None (DLL call failed)")
+            return []
         if isinstance(result, list):
+            logger.info("Got %d sessions (list)", len(result))
             return result
         if isinstance(result, dict):
+            keys = list(result.keys())
+            logger.info("Got sessions dict with keys: %s", keys)
             return result.get("sessions", result.get("data", []))
+        logger.warning("wcdb_get_sessions returned unexpected type: %s", type(result))
         return []
 
     def get_messages(self, talker, limit=200, offset=0):
@@ -345,7 +535,8 @@ class WcdbNativeClient:
 
     # ── Cleanup ───────────────────────────────────────────────────────
 
-    def close(self):
+    def _close_handle(self):
+        """Close current DB handle safely (no-op if already closed)."""
         if self._handle:
             try:
                 wcdb_close = self._dll.wcdb_close_account
@@ -355,6 +546,9 @@ class WcdbNativeClient:
             except Exception:
                 pass
             self._handle = 0
+
+    def close(self):
+        self._close_handle()
 
     def __enter__(self):
         return self

@@ -6,11 +6,13 @@ patched wcdb_api.dll (ctypes).  Uses WeChatWindowController for sending.
 
 NO WeFlow.exe, NO Node.js, NO HTTP bridge — everything in-process.
 """
+import concurrent.futures
 import hashlib
 import json
 import logging
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_SEC = 1.0
 MAX_DEDUP_SIZE = 5000
+MAX_CONSECUTIVE_ERRORS = 5   # trigger reinit after this many consecutive failures
 
 
 class WcdbBackend(AbstractWeChatBackend):
@@ -53,6 +56,12 @@ class WcdbBackend(AbstractWeChatBackend):
         self._window = WeChatWindowController()
         self._talker_ids: dict[str, str] = {}
         self._known_ids = DedupSet(max_size=MAX_DEDUP_SIZE)
+        # Thread safety: WCDB DLL (ctypes) may not be thread-safe internally.
+        # All _client calls are serialized through this lock.
+        self._client_lock = threading.Lock()
+        # Callback thread pool — fire-and-forget AI calls so the poll loop
+        # never blocks on a slow summarization.
+        self._pool: concurrent.futures.ThreadPoolExecutor | None = None
 
     # ── Public API ─────────────────────────────────────────────────
 
@@ -62,7 +71,7 @@ class WcdbBackend(AbstractWeChatBackend):
             return
 
         logger.info(
-            "WcdbBackend starting (groups=%s, poll=%ss, bot='%s')",
+            "WcdbBackend starting (groups=%s, poll=%ss, bot=%r)",
             self._groups, self._poll_sec, self._bot_name,
         )
 
@@ -74,6 +83,12 @@ class WcdbBackend(AbstractWeChatBackend):
             logger.info("WCDB database opened successfully")
         except Exception as e:
             logger.error("Failed to initialize WCDB: %s", e)
+            # Push error to Web UI so the user sees a recovery path
+            try:
+                from src.web.server import update_status
+                update_status(running=False, error=str(e))
+            except Exception:
+                pass
             return
 
         # Resolve group talker IDs
@@ -93,24 +108,63 @@ class WcdbBackend(AbstractWeChatBackend):
         self._running = True
         consecutive_errors = 0
 
-        # Main poll loop
-        while self._running:
-            try:
-                self._poll_cycle(callback)
-                consecutive_errors = 0
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                consecutive_errors += 1
-                wait = min(2 ** min(consecutive_errors, 5), 30)
-                logger.warning(
-                    "Poll error #%d (%s): %s. Retry in %ss...",
-                    consecutive_errors, type(e).__name__, e, wait,
-                )
-                time.sleep(wait)
+        # Main poll loop with fire-and-forget callback execution.
+        # AI-triggering callbacks (summarize, chat) are submitted to a thread
+        # pool so a slow reply in one group never blocks polling of others.
+        self._pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="bot-cb-",
+        )
+        self._running = True
+        consecutive_errors = 0
 
-        if self._client:
-            self._client.close()
+        # Import once to avoid per-iteration overhead
+        from src.web.server import is_shutting_down as _is_shutting_down
+
+        try:
+            while self._running and not _is_shutting_down():
+                try:
+                    self._poll_cycle(callback)
+                    consecutive_errors = 0
+                except KeyboardInterrupt:
+                    break
+                except Exception as e:
+                    consecutive_errors += 1
+
+                    # After MAX_CONSECUTIVE_ERRORS consecutive failures,
+                    # attempt full reinitialization (WeChat may have restarted).
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        logger.error(
+                            "Hit %d consecutive errors — attempting "
+                            "reinitialization...", consecutive_errors,
+                        )
+                        try:
+                            self._reinitialize()
+                            consecutive_errors = 0
+                            continue
+                        except Exception as reinit_err:
+                            logger.error(
+                                "Reinitialization failed: %s", reinit_err,
+                            )
+                            # Fall through to backoff; will retry next cycle.
+                            push_error = str(reinit_err)
+                            try:
+                                from src.web.server import update_status
+                                update_status(error=push_error)
+                            except Exception:
+                                pass
+
+                    wait = min(2 ** min(consecutive_errors % MAX_CONSECUTIVE_ERRORS, 5), 30)
+                    logger.warning(
+                        "Poll error #%d (%s): %s. Retry in %ss...",
+                        consecutive_errors, type(e).__name__, e, wait,
+                    )
+                    time.sleep(wait)
+        finally:
+            # Drain in-flight callbacks gracefully
+            self._pool.shutdown(wait=True, timeout=30)
+            self._pool = None
+            if self._client:
+                self._client.close()
         logger.info("WcdbBackend stopped.")
 
     def send_text(self, chat_id: str, content: str) -> bool:
@@ -126,6 +180,42 @@ class WcdbBackend(AbstractWeChatBackend):
 
     def stop(self) -> None:
         self._running = False
+        if self._pool:
+            self._pool.shutdown(wait=False)
+
+    # ── Recovery ─────────────────────────────────────────────────────
+
+    def _reinitialize(self) -> None:
+        """Close and re-open the WCDB client after persistent errors.
+
+        Called when the poll loop hits MAX_CONSECUTIVE_ERRORS consecutive
+        failures — typically because WeChat was restarted and the DB handle
+        or HWND became stale.
+        """
+        logger.warning("Reinitializing WCDB backend after consecutive errors...")
+        if self._client:
+            try:
+                self._client.close()
+            except Exception:
+                pass
+        try:
+            self._client = WcdbNativeClient()
+            self._client.init()
+            self._client.open()
+            logger.info("WCDB reinitialized successfully")
+        except Exception as e:
+            logger.error("WCDB reinitialization failed: %s", e)
+            raise
+        # Clear dedup set — WCDB may return messages with new IDs
+        self._known_ids = DedupSet(max_size=MAX_DEDUP_SIZE)
+        # Re-resolve groups (talker IDs may have changed)
+        self._resolve_groups()
+        # Re-find WeChat window
+        hwnd = self._window.find_hwnd()
+        if hwnd:
+            logger.info("WeChat window re-detected: HWND=%s", hwnd)
+        else:
+            logger.warning("WeChat window not found after reinit")
 
     # ── Group resolution ────────────────────────────────────────────
 
@@ -223,12 +313,20 @@ class WcdbBackend(AbstractWeChatBackend):
             if not talker:
                 continue
             self._poll_group(group_name, talker, callback)
+        # Check shutdown signal before sleeping so stop() is responsive
+        if not self._running:
+            return
         time.sleep(self._poll_sec)
 
     def _poll_group(self, group_name: str, talker: str,
                     callback: MessageCallback) -> None:
-        """Fetch messages for one group and dispatch new ones."""
-        messages = self._client.get_messages(talker=talker, limit=50)
+        """Fetch messages for one group and dispatch new ones.
+
+        AI-triggering callbacks are submitted to the thread pool so slow
+        summarization in one group never blocks polling of other groups.
+        """
+        with self._client_lock:
+            messages = self._client.get_messages(talker=talker, limit=50)
         if not messages:
             return
 
@@ -250,13 +348,33 @@ class WcdbBackend(AbstractWeChatBackend):
 
             self._trim_dedup()
 
+            # Fire-and-forget: callback (potentially AI call) + send run in
+            # a thread pool worker so the poll loop continues immediately.
+            if self._pool:
+                self._pool.submit(
+                    self._handle_message,
+                    group_name, talker, standardized, callback,
+                )
+            else:
+                # Fallback (pool already shut down): run inline
+                self._handle_message(
+                    group_name, talker, standardized, callback,
+                )
+
+    def _handle_message(self, group_name: str, talker: str,
+                        standardized: dict, callback: MessageCallback) -> None:
+        """Execute callback and send reply (runs in thread pool worker)."""
+        if not self._running:
+            return
+
+        try:
             cb_start = time.monotonic()
             reply = callback(standardized)
             cb_elapsed = time.monotonic() - cb_start
             if cb_elapsed > 0.5:
                 logger.debug(
                     "Callback took %.2fs (msg_id=%s, group='%s')",
-                    cb_elapsed, msg_id, group_name,
+                    cb_elapsed, standardized["message_id"], group_name,
                 )
 
             if reply:
@@ -264,7 +382,8 @@ class WcdbBackend(AbstractWeChatBackend):
                     "Reply ready: group='%s' sender='%s' len=%d",
                     group_name, standardized["sender_name"], len(reply),
                 )
-                success = self._send_and_confirm(group_name, talker, reply)
+                with self._client_lock:
+                    success = self._send_and_confirm(group_name, talker, reply)
                 if success:
                     logger.info(
                         "Reply sent: group='%s' (%d chars)",
@@ -275,6 +394,11 @@ class WcdbBackend(AbstractWeChatBackend):
                         "Reply FAILED: group='%s' — check WeChat window",
                         group_name,
                     )
+        except Exception:
+            logger.exception(
+                "Unhandled error in callback worker (group='%s', sender='%s')",
+                group_name, standardized.get("sender_name", "?"),
+            )
 
     # ── Message standardization ──────────────────────────────────────
 

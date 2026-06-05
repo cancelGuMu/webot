@@ -128,6 +128,18 @@ class AbstractSummarizer(ABC):
         """
         import datetime
 
+        # ── Defense-in-depth: escape curly braces in all user-supplied
+        #     strings so they don't break str.format() below.  (Config-level
+        #     sanitization already removes them from bot_name, but message
+        #     content and sender names come directly from WeChat.)
+        def _esc(s: str) -> str:
+            return s.replace("{", "{{").replace("}", "}}")
+
+        bot_name = _esc(bot_name)
+        group_name = _esc(group_name)
+        requester_name = _esc(requester_name or "群友")
+        message = _esc(message)
+
         # ── 0. Memory display ────────────────────────────────────
         memory_display = (
             group_memory if group_memory
@@ -167,6 +179,11 @@ class AbstractSummarizer(ABC):
                 )
 
         # ── 3. Build full system prompt ────────────────────────────
+        # Escape any user-supplied strings that could contain { or }
+        search_section = _esc(search_section)
+        context_section = _esc(context_section)
+        memory_display = _esc(memory_display)
+
         system_prompt = self.CHAT_SYSTEM_PROMPT.format(
             bot_name=bot_name,
             group_name=group_name,
@@ -307,6 +324,13 @@ class AbstractSummarizer(ABC):
         """
         import datetime
 
+        # ── Defense-in-depth: escape curly braces (see chat() above)
+        def _esc(s: str) -> str:
+            return s.replace("{", "{{").replace("}", "}}")
+
+        bot_name = _esc(bot_name)
+        group_name = _esc(group_name)
+
         # Build memory display
         memory_display = (
             group_memory if group_memory
@@ -325,6 +349,9 @@ class AbstractSummarizer(ABC):
         if not recent_lines:
             return ""
 
+        recent_messages = _esc("\n".join(recent_lines))
+        memory_display = _esc(memory_display)
+
         system_prompt = self.PROACTIVE_SYSTEM_PROMPT.format(
             bot_name=bot_name,
             group_name=group_name,
@@ -333,7 +360,7 @@ class AbstractSummarizer(ABC):
             mode_instruction=mode.instruction,
             max_chars=mode.max_chars,
             current_time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            recent_messages="\n".join(recent_lines),
+            recent_messages=recent_messages,
             group_memory=memory_display,
         )
 

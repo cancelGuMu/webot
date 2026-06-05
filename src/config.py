@@ -1,33 +1,88 @@
 """Configuration loading from .env file."""
 
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+
+def _sanitize_display_name(name: str) -> str:
+    """Remove only truly dangerous characters from a display name.
+
+    This preserves the user's actual name (including quotes, braces, etc.)
+    and relies on *usage-point escaping* (``repr()`` in logs, ``_esc()``
+    in ``str.format()`` calls) to prevent injection at each call site.
+
+    Only stripped:
+    - Control characters (CR/LF → log-line injection)
+    - Leading/trailing whitespace + quotes (almost certainly accidental)
+    - Excessive length (> 128 chars)
+    """
+    if not name:
+        return "群聊小助手"
+
+    # 1. Strip control chars (except space) — prevents log-line injection
+    name = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", name)
+
+    # 2. Collapse whitespace and strip
+    name = re.sub(r"\s+", " ", name).strip()
+
+    # 3. Truncate to reasonable length
+    if len(name) > 128:
+        name = name[:128]
+
+    # 4. Fallback
+    if not name:
+        return "群聊小助手"
+
+    return name
+
 # Load .env from the project root directory.
 # In a PyInstaller EXE, __file__ resolves inside the temp extraction dir.
 # We search multiple locations so the EXE finds .env placed next to it.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-_env_path = None
-_locations = [
-    PROJECT_ROOT / ".env",                     # development / legacy
-    Path.cwd() / ".env",                       # EXE placed next to .env
-]
-if getattr(sys, "frozen", False):
-    # PyInstaller: also check the directory containing the EXE
-    _exe_dir = Path(sys.executable).resolve().parent
-    _locations.insert(0, _exe_dir / ".env")
 
-for _loc in _locations:
-    if _loc.exists():
-        _env_path = _loc
-        break
+def find_env_file() -> Path | None:
+    """Find the .env file using a consistent search order.
 
-load_dotenv(_env_path) if _env_path else load_dotenv()
+    Order: EXE directory (frozen) → project root → current working directory.
+    Returns the Path if found, or None if no .env exists anywhere.
+    """
+    locations = [
+        PROJECT_ROOT / ".env",
+        Path.cwd() / ".env",
+    ]
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        locations.insert(0, exe_dir / ".env")
+
+    for loc in locations:
+        if loc.exists():
+            return loc
+    return None
+
+
+_env_path = find_env_file()
+
+if _env_path:
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
+
+# Log which .env was loaded (helpful for debugging EXE packaging issues)
+import logging as _logging
+_log = _logging.getLogger(__name__)
+if _env_path:
+    _log.info("Loaded .env from: %s", _env_path)
+else:
+    _log.warning(
+        ".env not found in any search path (%s). Using defaults.",
+        ", ".join(str(p) for p in _locations),
+    )
 
 
 @dataclass
@@ -49,7 +104,7 @@ class BotConfig:
     # === WeChat Backend ===
     wechat_backend: str = "wcdb"
     # Comma-separated group names to monitor. "*" = auto-discover all groups.
-    wechat_groups: str = ""
+    wechat_groups: str = "*"
 
     # === Bot Identity ===
     bot_display_name: str = "群聊小助手"
@@ -192,17 +247,15 @@ def _validate_config(kwargs: dict) -> None:
             )
 
     if errors:
-        print("ERROR: Invalid configuration values:")
-        for err in errors:
-            print(f"  - {err}")
-        raise SystemExit(1)
+        msg = "配置值无效:\n" + "\n".join(f"  - {err}" for err in errors)
+        raise RuntimeError(msg)
 
 
 def load_config() -> BotConfig:
     """Load configuration from environment variables.
 
     Returns a validated BotConfig instance.
-    Raises SystemExit if required configuration is missing.
+    Raises RuntimeError if required configuration is missing.
     """
     ai_backend = os.getenv("AI_BACKEND", "claude").strip().lower()
 
@@ -210,15 +263,13 @@ def load_config() -> BotConfig:
     if ai_backend == "deepseek":
         api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
         if not api_key:
-            print("ERROR: DEEPSEEK_API_KEY is required when AI_BACKEND=deepseek.")
-            print("       Set it in your .env file.")
-            raise SystemExit(1)
+            msg = "DEEPSEEK_API_KEY 未设置，请在 .env 文件中配置或通过引导页完成设置"
+            raise RuntimeError(msg)
     else:
         api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
         if not api_key:
-            print("ERROR: ANTHROPIC_API_KEY is required when AI_BACKEND=claude.")
-            print("       Set it in your .env file.")
-            raise SystemExit(1)
+            msg = "ANTHROPIC_API_KEY 未设置，请在 .env 文件中配置或通过引导页完成设置"
+            raise RuntimeError(msg)
 
     # Parse trigger keywords from comma-separated string
     keywords_str = os.getenv("TRIGGER_KEYWORDS", "").strip()
@@ -235,8 +286,8 @@ def load_config() -> BotConfig:
         "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
         # deepseek_model handled conditionally below (dataclass default)
         "wechat_backend": os.getenv("WECHAT_BACKEND", "wcdb").strip(),
-        "wechat_groups": os.getenv("WECHAT_GROUPS", "").strip(),
-        "bot_display_name": os.getenv("BOT_DISPLAY_NAME", "群聊小助手").strip(),
+        "wechat_groups": os.getenv("WECHAT_GROUPS", "*").strip(),
+        "bot_display_name": _sanitize_display_name(os.getenv("BOT_DISPLAY_NAME", "群聊小助手")),
         "admin_wxid": os.getenv("ADMIN_WXID", "").strip(),
         "db_path": os.getenv("DB_PATH", "data/messages.db").strip(),
         "poll_interval_sec": float(os.getenv("POLL_INTERVAL_SEC", "1.0")),
@@ -272,3 +323,18 @@ def load_config() -> BotConfig:
     _validate_config(kwargs)
 
     return BotConfig(**kwargs)
+
+
+def is_onboarding_done() -> bool:
+    """Check if onboarding has been completed without loading full config.
+
+    Uses find_env_file() for consistent .env resolution.
+    """
+    env_path = find_env_file()
+    if env_path and env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("ONBOARDING_DONE="):
+                return line.split("=", 1)[1].strip().lower() == "true"
+        return False  # .env exists but no ONBOARDING_DONE key
+    return False  # No .env found

@@ -38,7 +38,10 @@ def start_bot():
     """Start bot in background thread (signal-safe)."""
     sys.path.insert(0, str(PROJECT_ROOT))
 
-    from src.web.server import start_web_server, update_status
+    from src.web.server import (
+        start_web_server, update_status,
+        register_bot, _bot_exited,
+    )
     web_thread = start_web_server()
 
     try:
@@ -50,25 +53,34 @@ def start_bot():
         )
         from src.bot import Bot
         bot = Bot(config)
+        # Bot.run() calls _register_backend() during init — no patch needed
+        register_bot(thread=threading.current_thread(), backend=None)
         bot.run()
+        # Bot exited normally (e.g., no groups found)
+        update_status(running=False)
     except SystemExit:
         update_status(running=False)
-        while True:
-            time.sleep(1)
     except Exception as e:
         update_status(running=False, error=str(e))
         exc_info = traceback.format_exc()
         _write_crash_log(exc_info)
-        # In windowed mode, stdout/stderr are invisible — write to file
-        # and push error to web UI
-        while True:
-            time.sleep(1)
+    finally:
+        # Always reset bot control state so the user can restart
+        # via the web UI (or auto-restart will work next launch)
+        _bot_exited()
 
 
 def main():
-    # Start bot in background
-    bot_thread = threading.Thread(target=start_bot, daemon=True, name="bot-main")
-    bot_thread.start()
+    # Check if onboarding is needed
+    from src.config import is_onboarding_done
+    onboarding_needed = not is_onboarding_done()
+
+    # Always start web server (needed for both onboarding and dashboard)
+    from src.web.server import start_web_server
+    web_thread = start_web_server()
+
+    # Bot starts STOPPED — user must click "启动机器人" in the UI.
+    # This prevents auto-startup races with WeChat login / key availability.
 
     # Wait for web server
     ready = False
@@ -83,7 +95,6 @@ def main():
 
     if not ready:
         _write_crash_log("Web server startup timeout (30 attempts)")
-        # Try to show a minimal message
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(
@@ -91,17 +102,19 @@ def main():
                 "Web 服务器启动超时，请检查端口 7327 是否被占用。\n\n"
                 "详情见 data/crash.log",
                 "WeChat Bot — 启动失败",
-                0x10,  # MB_ICONERROR
+                0x10,
             )
         except Exception:
             pass
         return
 
+    title = "WeChat Bot — 初始设置" if onboarding_needed else "WeChat Bot — Dashboard"
+
     # Try native WebView2, fall back to browser
     try:
         import webview
         window = webview.create_window(
-            title="WeChat Bot — Dashboard",
+            title=title,
             url="http://127.0.0.1:7327",
             width=1200,
             height=800,

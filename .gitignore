@@ -64,6 +64,33 @@ WeFlow-main/
 # WeChat runtime binaries (from WeFlow install, not tracked in git)
 src/wechat/bin/
 
+# DLL binaries (bundled from WeFlow, tracked via Git LFS or releases)
+lib/*.dll
+
+# Ghidra reverse engineering
+ghidra_project/
+
+# Reverse engineering artifacts
+weflow_source/
+weflow_js/
+Weixin.dll
+weflow.asar
+
+# C build artifacts
+src/wechat/native/*.c
+src/wechat/native/*.exe
+src/wechat/native/*.dll
+
+# Dev tools (keep only production tools)
+tools/test_*
+tools/capture_*
+tools/extract_weflow*
+tools/find_weflow*
+tools/copy_dll*
+tools/debug_*
+tools/build_*.sh
+tools/FindSqlite3Key*
+
 # Private persona data
 skill/gumu-persona/data/
 skill/gumu-persona/self.md

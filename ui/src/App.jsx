@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Gear, ChartLine, Scroll } from '@phosphor-icons/react'
+import { Gear, ChartLine, Scroll, Spinner } from '@phosphor-icons/react'
 import Dashboard from './components/Dashboard'
 import ConfigPanel from './components/ConfigPanel'
 import LogViewer from './components/LogViewer'
+import Onboarding from './components/Onboarding'
 
 const TABS = [
   { id: 'dashboard', label: '运行状态', icon: ChartLine },
@@ -22,15 +23,47 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [configSection, setConfigSection] = useState('ai')
   const [botStatus, setBotStatus] = useState(null)
+  const [onboardingDone, setOnboardingDone] = useState(null) // null = loading
 
+  // Check onboarding status on mount
   useEffect(() => {
-    const socket = new WebSocket('ws://127.0.0.1:7327')
-    socket.onmessage = (e) => {
-      try { setBotStatus(JSON.parse(e.data)) } catch {}
+    async function check() {
+      try {
+        const res = await fetch('http://127.0.0.1:7327/api/onboarding/status')
+        const d = await res.json()
+        setOnboardingDone(d.onboarding_done)
+      } catch {
+        setTimeout(check, 1000) // Retry every 1s until server is ready
+      }
     }
-    socket.onclose = () => setTimeout(() => {}, 3000)
-    return () => socket.close()
+    check()
   }, [])
+
+  // Connect WebSocket only after onboarding is confirmed
+  useEffect(() => {
+    if (!onboardingDone) return
+    let reconnectTimer = null
+    let socket = null
+
+    function connectWS() {
+      socket = new WebSocket('ws://127.0.0.1:7327/ws')
+      socket.onmessage = (e) => {
+        try { setBotStatus(JSON.parse(e.data)) } catch {}
+      }
+      socket.onclose = () => {
+        reconnectTimer = setTimeout(connectWS, 3000)
+      }
+      socket.onerror = () => {
+        socket?.close()
+      }
+    }
+    connectWS()
+
+    return () => {
+      clearTimeout(reconnectTimer)
+      socket?.close()
+    }
+  }, [onboardingDone])
 
   const status = botStatus || {
     running: false,
@@ -40,8 +73,26 @@ export default function App() {
     ai_backend: 'deepseek',
     db_ok: false,
     last_api_call_sec_ago: -1,
+    last_api_call_time: 0,
     timestamp: '',
     error: '',
+  }
+
+  // Loading state
+  if (onboardingDone === null) {
+    return (
+      <div className="min-h-[100dvh] bg-[#F7F6F3] flex items-center justify-center">
+        <div className="text-center">
+          <Spinner size={32} weight="bold" className="animate-spin text-[#346538] mx-auto mb-4" />
+          <p className="text-sm text-[#787774] font-mono">正在加载...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Onboarding
+  if (!onboardingDone) {
+    return <Onboarding onComplete={() => setOnboardingDone(true)} />
   }
 
   return (
@@ -50,8 +101,9 @@ export default function App() {
       <div className="fixed left-0 top-0 h-full w-56 bg-white border-r border-[#EAEAEA] z-40">
         <div className="p-6">
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-8 h-8 rounded-lg bg-[#EDF3EC] flex items-center justify-center">
-              <div className={`w-2.5 h-2.5 rounded-full ${status.running ? 'bg-[#346538]' : 'bg-[#B8B8B6]'}`} />
+            <div className="relative">
+              <img src="/logo-128.png" alt="WeChatBot" className="w-8 h-8 rounded-lg" />
+              <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white ${status.running ? 'bg-[#346538]' : 'bg-[#B8B8B6]'}`} />
             </div>
             <div>
               <h1 className="text-base font-semibold tracking-tight text-[#1F1F1F]">微信机器人</h1>

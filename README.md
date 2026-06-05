@@ -92,14 +92,14 @@ AI 连续多次判断"不应该插话"时，会自动延长沉默时间（最高
 
 ### 方式一：下载 EXE（推荐）
 
-从 [Releases](https://github.com/cancelGuMu/wechat-group-bot/releases) 下载 `WeChatBot.exe`，双击运行。
+从 [Releases](https://github.com/cancelGuMu/webot/releases) 下载 `WeChatBot.exe`，双击运行。
 
 首次运行弹出配置向导，按提示完成四步即可开始使用：密钥提取 → 机器人身份 → AI 后端 → 功能开关。
 
 ### 方式二：从源码运行
 
 ```bash
-git clone https://github.com/cancelGuMu/wechat-group-bot.git
+git clone https://github.com/cancelGuMu/webot.git
 cd wechat-group-bot
 pip install -r requirements.txt
 python desktop.py

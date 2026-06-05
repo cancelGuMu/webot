@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # ── Tuning constants ─────────────────────────────────────────────────
 
 # Trigger consolidation after this many NEW messages
-CONSOLIDATE_MSG_THRESHOLD = 20
+CONSOLIDATE_MSG_THRESHOLD = 50
 # Or after this many seconds since last consolidation (with new messages)
 CONSOLIDATE_TIME_THRESHOLD_SEC = 1 * 3600  # 1 hour
 # Maximum new messages to send per consolidation (limits prompt size)

@@ -1,7 +1,7 @@
 """Shared keyboard simulation helpers via Win32 keybd_event.
 
-These are used by both window_controller and uia_backend to inject
-keystrokes into the foreground window.
+These are used by window_controller to inject keystrokes into the
+foreground window.
 """
 
 import ctypes

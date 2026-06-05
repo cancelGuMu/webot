@@ -3,13 +3,6 @@ from unittest.mock import MagicMock, patch
 
 from src.wechat.window_controller import WeChatWindowController, WindowCandidate
 
-# weflow_backend is not yet implemented — skip dependent tests
-try:
-    from src.wechat.weflow_backend import WeFlowBackend, WeFlowClient
-    _HAS_WEFLOW = True
-except (ImportError, ModuleNotFoundError):
-    _HAS_WEFLOW = False
-
 
 class WeChatWindowControllerTests(unittest.TestCase):
     def test_navigate_to_chat_uses_keyboard_only(self):
@@ -169,57 +162,6 @@ class WeChatWindowControllerTests(unittest.TestCase):
                 "target group", "hello", "WeChat window is blank/white", 100
             )
 
-    @unittest.skipUnless(_HAS_WEFLOW, "weflow backend not implemented")
-    def test_send_succeeds_optimistically_when_weflow_confirmation_times_out(self):
-        """When WeFlow confirmation times out, the send still returns True
-        (optimistic), but a warning is logged.  The bot must not block on
-        transient API issues — the message was likely sent via keyboard."""
-        backend = WeFlowBackend(groups=["target group"])
-        backend._talker_ids["target group"] = "room@chatroom"
-        backend._window = MagicMock()
-        backend._window.send_to_chat.return_value = True
-        backend._client = MagicMock()
-        backend._client.get_messages.return_value = []
-
-        with self.assertLogs("src.wechat.weflow_backend", level="WARNING") as log:
-            self.assertTrue(backend.send_text("room@chatroom", "hello"))
-
-        self.assertTrue(
-            any("Send unconfirmed" in msg for msg in log.output),
-            "Should log a warning when send is unconfirmed",
-        )
-
-    @unittest.skipUnless(_HAS_WEFLOW, "weflow backend not implemented")
-    def test_send_text_succeeds_when_weflow_confirms_sent_message(self):
-        backend = WeFlowBackend(groups=["target group"])
-        backend._talker_ids["target group"] = "room@chatroom"
-        backend._window = MagicMock()
-        backend._window.send_to_chat.return_value = True
-        backend._client = MagicMock()
-        backend._client.get_messages.side_effect = [
-            [],
-            [{"content": "hello", "isSend": 1, "localId": 42}],
-        ]
-
-        self.assertTrue(backend.send_text("room@chatroom", "hello"))
-
-    @unittest.skipUnless(_HAS_WEFLOW, "weflow backend not implemented")
-    def test_weflow_client_retries_messages_with_date_range_when_default_is_empty(self):
-        client = WeFlowClient()
-        calls = []
-
-        def fake_get(_path, params):
-            calls.append(params)
-            if "start" in params and "end" in params:
-                return {"messages": [{"content": "hello"}]}
-            return {"messages": []}
-
-        with patch.object(client, "_get", side_effect=fake_get):
-            self.assertEqual(client.get_messages("room@chatroom"), [{"content": "hello"}])
-
-        self.assertEqual(calls[0], {"talker": "room@chatroom", "limit": 200})
-        self.assertIn("start", calls[1])
-        self.assertIn("end", calls[1])
 
 
 if __name__ == "__main__":

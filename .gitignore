@@ -86,7 +86,6 @@ src/wechat/native/*.dll
 tools/test_*
 tools/capture_*
 tools/extract_weflow*
-tools/find_weflow*
 tools/copy_dll*
 tools/debug_*
 tools/build_*.sh

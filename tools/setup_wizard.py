@@ -5,26 +5,17 @@ to manually open or interact with WeFlow.
 Only needed ONCE. After setup, bot runs fully standalone.
 
 Usage:
-    python src/wechat/setup_wizard.py
+    python tools/setup_wizard.py
 
 What it does:
     1. Auto-detects dbPath (Documents/xwechat_files)
     2. Auto-detects myWxid (scans dbPath for wxid_* directories)
-    3. Launches WeFlow.exe ONE TIME to extract the decrypt key
+    3. Extracts the WCDB decrypt key via wx_key.dll hook
     4. Saves everything to .env
-    5. After this, WeFlow.exe is only used as a Node.js runtime
-       (our bridge + DLLs handle everything else)
 """
 
-import base64
-import ctypes
-import json
 import os
-import shutil
-import subprocess
 import sys
-import time
-from ctypes import wintypes
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -78,46 +69,30 @@ def find_weflow_exe() -> Path | None:
 
 
 def extract_key_via_weflow(weflow_exe: Path, timeout: float = 60) -> str | None:
-    """Use WeFlow.exe to extract the decrypt key.
+    """Extract WCDB decrypt key using wx_key.dll hook.
 
-    WeFlow.exe is launched in ELECTRON_RUN_AS_NODE=1 mode with a small
-    inline script that reads and decrypts the key from WeFlow config.
-    If no config exists yet, we guide the user to run WeFlow once.
+    Uses the current key extraction method (wx_key.dll) which hooks
+    WeChat on startup to capture the database key.
 
     Returns the hex key string or None.
     """
-    config_path = (
-        Path(os.environ.get("APPDATA", "")) / "WeFlow" / "WeFlow-config.json"
-    )
+    import sys as _sys
+    _sys.path.insert(0, str(PROJECT_ROOT))
+    from src.wechat.extract_key import extract_wcdb_key
 
-    if not config_path.exists():
-        print("\n[信息] 未检测到 WeFlow 配置文件。")
-        print("       首次使用需要运行一次 WeFlow 来完成初始化：")
-        print(f"       1. 双击 {weflow_exe}")
-        print("       2. 在 WeFlow 中选择微信数据目录和你的微信号")
-        print("       3. 关闭 WeFlow")
-        print("       4. 再次运行本向导\n")
-        return None
+    print("\n[信息] 正在使用 wx_key.dll 提取数据库密钥...")
+    print("       微信需要在启动时完成密钥捕获。")
 
-    # Read the encrypted key from config
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
+    key = extract_wcdb_key()
+    if key:
+        return key
 
-    encrypted_key = config.get("decryptKey", "")
-    if not encrypted_key:
-        print("[错误] WeFlow 配置中没有 decryptKey")
-        return None
-
-    # Decrypt the key (same DPAPI + AES-GCM as start_bridge.py)
-    from .start_bridge import _get_aes_key_from_local_state
-
-    aes_key_hex = _get_aes_key_from_local_state()
-    if not aes_key_hex:
-        print("[错误] 无法提取 AES 密钥")
-        return None
-
-    from .extract_key import decrypt_wcdb_key
-    return decrypt_wcdb_key(aes_key_hex)
+    print("\n[警告] 密钥提取失败。")
+    print("       请确保：")
+    print("       1. 微信版本兼容")
+    print("       2. wx_key.dll 在 lib/ 目录中")
+    print("       3. 按照提示重启微信")
+    return None
 
 
 def write_env(db_path: str, wxid: str, key: str, env_path: Path | None = None) -> None:

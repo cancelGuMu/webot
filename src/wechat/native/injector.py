@@ -4,6 +4,11 @@ DLL injector — starts WeChat suspended, injects keyhook.dll, resumes.
 The DLL hooks wcdb_open_account() to capture the WCDB hex key,
 writing it to a temp file for us to read.
 
+NOTE: This module is currently a REFERENCE / FALLBACK implementation.
+The primary key extraction path is extract_key.py → wx_key.dll hook.
+Keep this module as an alternative approach; it is bundled via
+PyInstaller (build.spec hiddenimports) but not imported at runtime.
+
 Usage:
     from .native.injector import inject_and_capture_key
     key = inject_and_capture_key()   # Returns hex key string or None

@@ -51,15 +51,17 @@ function AiSection({ form, update }) {
 }
 
 function IdentitySection({ form, update }) {
-  // Parse wechat_groups into an array, handling * specially
+  // Parse wechat_groups into an array: * = all, comma-separated = specific
   const raw = (form.wechat_groups || '').trim()
-  const isAll = raw === '*' || raw === ''
-  const groups = isAll ? ['*'] : raw.split(',').map(s => s.trim()).filter(Boolean)
+  const isAll = raw === '*'
+  // Empty string → show one empty input ready for the first group name
+  const groups = isAll ? ['*'] : (raw === '' ? [''] : raw.split(',').map(s => s.trim()).filter(Boolean))
 
   function setGroups(newGroups) {
     const filtered = newGroups.filter(g => g !== '')
-    // If * is present, it replaces everything else
-    if (filtered.includes('*')) {
+    if (filtered.length === 0) {
+      update('wechat_groups', '')  // empty = show input ready for first group
+    } else if (filtered.includes('*')) {
       update('wechat_groups', '*')
     } else {
       update('wechat_groups', filtered.join(','))
@@ -69,17 +71,21 @@ function IdentitySection({ form, update }) {
   function updateGroup(index, value) {
     const next = [...groups]
     next[index] = value
-    setGroups(next)
+    if (next.length === 1 && next[0] === '*') {
+      // User started typing over the * chip
+      update('wechat_groups', value)
+    } else {
+      setGroups(next)
+    }
   }
 
   function removeGroup(index) {
     const next = groups.filter((_, i) => i !== index)
-    if (next.length === 0) setGroups(['*'])
-    else setGroups(next)
+    setGroups(next)  // empty → '' → shows fresh input
   }
 
   function addGroup() {
-    setGroups([...groups, ''])
+    setGroups([...groups.filter(g => g !== ''), ''])
   }
 
   return (
@@ -88,15 +94,18 @@ function IdentitySection({ form, update }) {
         <Input value={form.bot_display_name} onChange={v => update('bot_display_name', v)} placeholder="例如：群聊小助手" />
       </Field>
 
-      <Field label="目标群聊" hint={isAll ? '当前监控所有群聊。如需只监控指定群，先删除 * 再逐个添加群名' : `监控 ${groups.length} 个群聊`}>
+      <Field label="目标群聊" hint={isAll ? '当前监控所有群聊。点击 × 删除「全部群聊」后可指定群名' : (raw === '' ? '请输入要监控的群聊名称' : `监控 ${groups.length} 个群聊`)}>
         <div className="flex flex-wrap gap-2 mb-2">
-          {groups.map((name, i) => (
-            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#EDF3EC] border border-[#C5DAC2] rounded-lg text-[13px] text-[#346538]">
-              {name === '*' ? '全部群聊' : name}
-              <button type="button" onClick={() => removeGroup(i)}
-                className="ml-0.5 text-[#8AB88A] hover:text-[#9F2F2D] transition-colors leading-none text-base">&times;</button>
-            </span>
-          ))}
+          {groups.map((name, i) => {
+            if (name === '') return null  // empty placeholder handled below
+            return (
+              <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#EDF3EC] border border-[#C5DAC2] rounded-lg text-[13px] text-[#346538]">
+                {name === '*' ? '全部群聊' : name}
+                <button type="button" onClick={() => removeGroup(i)}
+                  className="ml-0.5 text-[#8AB88A] hover:text-[#9F2F2D] transition-colors leading-none text-base">&times;</button>
+              </span>
+            )
+          })}
           {!isAll && (
             <button type="button" onClick={addGroup}
               className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#F8F8F5] border border-dashed border-[#D0D0CE] rounded-lg text-[13px] text-[#6E6E6C] hover:border-[#346538] hover:text-[#346538] transition-colors">
@@ -105,7 +114,11 @@ function IdentitySection({ form, update }) {
           )}
         </div>
         {!isAll && groups.map((name, i) => (
-          <input key={i} type="text" value={name}
+          name === '' || !name ? null : null  // skip — input shown below for empty slots
+        ))}
+        {/* Show text inputs for each group, including the empty placeholder */}
+        {!isAll && groups.map((name, i) => (
+          <input key={`input-${i}`} type="text" value={name}
             onChange={e => updateGroup(i, e.target.value)}
             onBlur={() => { if (!groups[i]?.trim()) removeGroup(i) }}
             placeholder={`群聊 ${i + 1} 的名称`}

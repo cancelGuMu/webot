@@ -29,17 +29,25 @@ class MessageStore:
             True if inserted, False if duplicate (silently skipped).
         """
         try:
+            # Coerce all fields to SQLite-safe types (defensive).
+            # WCDB may return unexpected types (bytes, float timestamps, etc.)
+            # that cause sqlite3.InterfaceError at bind time.
+            message_id = str(msg["message_id"])
+            chat_id = str(msg["chat_id"])
+            sender_id = str(msg["sender_id"])
+            sender_name = str(msg["sender_name"])
+            content = str(msg.get("content", ""))
+            msg_type = int(msg.get("msg_type", 1))
+            timestamp = int(msg.get("timestamp", 0))
+
             with self.conn:
                 self.conn.execute(
                     """INSERT INTO messages
                        (message_id, chat_id, sender_id, sender_name,
                         content, msg_type, timestamp)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        msg["message_id"], msg["chat_id"], msg["sender_id"],
-                        msg["sender_name"], msg["content"], msg["msg_type"],
-                        msg["timestamp"],
-                    ),
+                    (message_id, chat_id, sender_id, sender_name,
+                     content, msg_type, timestamp),
                 )
                 # Upsert the last-message cursor
                 self.conn.execute(

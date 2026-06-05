@@ -161,7 +161,7 @@ class WcdbBackend(AbstractWeChatBackend):
                     time.sleep(wait)
         finally:
             # Drain in-flight callbacks gracefully
-            self._pool.shutdown(wait=True, timeout=30)
+            self._pool.shutdown(wait=True, cancel_futures=True)
             self._pool = None
             if self._client:
                 self._client.close()

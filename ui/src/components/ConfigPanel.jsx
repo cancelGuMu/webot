@@ -111,25 +111,28 @@ function FeaturesSection({ form, update }) {
           {form.proactive_enabled && (
             <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
               className="mt-3 p-4 bg-[#F8F8F5] rounded-lg space-y-3">
-              <p className="text-xs text-[#B8B8B6]">速率阈值参数 — 数值为每分钟消息数，根据群聊活跃度调整</p>
+              <p className="text-xs text-[#B8B8B6] leading-relaxed">
+                机器人统计最近 <strong>速率窗口</strong> 秒内的群聊消息速率（条/分钟），
+                与下方四个阈值比较，决定发言频率：
+              </p>
               <div className="grid grid-cols-2 gap-3">
-                <ParamRow label="速率窗口" hint="计算活跃度的统计窗口">
+                <ParamRow label="速率窗口" hint="统计消息速率的时间范围（秒），默认 120 = 2 分钟">
                   <Input type="number" value={String(form.proactive_rate_window_sec || 120)}
                     onChange={v => update('proactive_rate_window_sec', parseInt(v) || 120)} />
                 </ParamRow>
-                <ParamRow label="休眠 → 安静" hint="低于此值不发言">
+                <ParamRow label="安静阈值" hint={"速率低于此值不发言（默认 1.5 条/分）"}>
                   <Input type="number" value={String(form.proactive_rate_quiet ?? 1.5)}
                     onChange={v => update('proactive_rate_quiet', parseFloat(v) || 1.5)} />
                 </ParamRow>
-                <ParamRow label="安静 → 随口" hint="偶尔插一句话">
+                <ParamRow label="随口阈值" hint={"超过此值偶尔插话（默认 4.0 条/分）"}>
                   <Input type="number" value={String(form.proactive_rate_casual ?? 4.0)}
                     onChange={v => update('proactive_rate_casual', parseFloat(v) || 4.0)} />
                 </ParamRow>
-                <ParamRow label="随口 → 活跃" hint="较频繁参与讨论">
+                <ParamRow label="活跃阈值" hint={"超过此值频繁参与（默认 6.5 条/分）"}>
                   <Input type="number" value={String(form.proactive_rate_lively ?? 6.5)}
                     onChange={v => update('proactive_rate_lively', parseFloat(v) || 6.5)} />
                 </ParamRow>
-                <ParamRow label="活跃 → 爆发" hint="消息极快时全力参与">
+                <ParamRow label="爆发阈值" hint={"超过此值火力全开（默认 8.5 条/分）"}>
                   <Input type="number" value={String(form.proactive_rate_burst ?? 8.5)}
                     onChange={v => update('proactive_rate_burst', parseFloat(v) || 8.5)} />
                 </ParamRow>
@@ -153,13 +156,13 @@ function FeaturesSection({ form, update }) {
             <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
               className="mt-3 p-4 bg-[#F8F8F5] rounded-lg">
               <ParamRow label="追踪超时" hint="用户发送空 @消息后，等待后续消息的最长时间">
-                <Select value={String(form.sticky_mention_ttl_sec || 60)}
+                <Select value={String(form.sticky_mention_ttl_sec || 60) + ' 秒'}
                   onChange={v => update('sticky_mention_ttl_sec', parseInt(v))}
                   options={[
-                    { value: '30', desc: '30 秒', hint: '快速响应' },
-                    { value: '60', desc: '60 秒', hint: '默认' },
-                    { value: '120', desc: '120 秒', hint: '宽松' },
-                    { value: '300', desc: '300 秒', hint: '最长时间' },
+                    { value: '30 秒', desc: '快速响应', hint: '30 秒后自动失效' },
+                    { value: '60 秒', desc: '默认', hint: '60 秒后自动失效' },
+                    { value: '120 秒', desc: '宽松', hint: '120 秒后自动失效' },
+                    { value: '300 秒', desc: '最长时间', hint: '300 秒后自动失效' },
                   ]} />
               </ParamRow>
             </motion.div>

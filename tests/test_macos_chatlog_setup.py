@@ -47,6 +47,19 @@ WeChat 17947 user 101r REG 1,16 565248 /Users/me/Library/Containers/com.tencent.
 
             self.assertEqual(setup.count_valid_keys(path), 2)
 
+    def test_parse_sip_status(self):
+        setup = _load_setup_module()
+
+        self.assertEqual(
+            setup.parse_sip_status("System Integrity Protection status: disabled."),
+            "disabled",
+        )
+        self.assertEqual(
+            setup.parse_sip_status("System Integrity Protection status: enabled."),
+            "enabled",
+        )
+        self.assertEqual(setup.parse_sip_status("unexpected"), "unknown")
+
     def test_normalize_key_entries_converts_supported_formats(self):
         setup = _load_setup_module()
         key = "A" * 64

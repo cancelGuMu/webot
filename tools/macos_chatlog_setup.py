@@ -171,6 +171,57 @@ def run_text(cmd: list[str], timeout: int = 10) -> str:
     return result.stdout
 
 
+def run_combined_text(cmd: list[str], timeout: int = 10) -> str:
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    return (result.stdout or "") + (result.stderr or "")
+
+
+def parse_sip_status(output: str) -> str:
+    lowered = output.lower()
+    if "disabled" in lowered:
+        return "disabled"
+    if "enabled" in lowered:
+        return "enabled"
+    return "unknown"
+
+
+def get_sip_status() -> str:
+    if platform.system() != "Darwin":
+        return "not_darwin"
+    return parse_sip_status(run_combined_text(["csrutil", "status"], timeout=5))
+
+
+def sudo_cached() -> bool:
+    result = subprocess.run(
+        ["sudo", "-n", "true"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def detect_wechat_version() -> str:
+    out = run_text([
+        "defaults",
+        "read",
+        "/Applications/WeChat.app/Contents/Info.plist",
+        "CFBundleShortVersionString",
+    ], timeout=5)
+    return out.strip().splitlines()[0] if out.strip() else ""
+
+
+def detect_lldb_python_path() -> str:
+    out = run_text(["lldb", "-P"], timeout=5)
+    return out.strip().splitlines()[0] if out.strip() else ""
+
+
 def detect_wechat_pid() -> int:
     out = run_text(["pgrep", "-x", "WeChat"])
     first = out.strip().splitlines()[0] if out.strip() else ""
@@ -425,6 +476,12 @@ def print_diagnose(base_url: str = DEFAULT_CHATLOG_BASE_URL) -> int:
     service_ok = chatlog_health(base_url)
     chatlog_bin = find_chatlog_binary()
 
+    print(f"system={platform.system()}")
+    print(f"sip_status={get_sip_status()}")
+    print(f"sudo_cached={'yes' if sudo_cached() else 'no'}")
+    print(f"go_bin={shutil.which('go') or ''}")
+    print(f"lldb_python_path={detect_lldb_python_path()}")
+    print(f"wechat_version={detect_wechat_version()}")
     print(f"wechat_pid={pid or ''}")
     print(f"data_dir={data_dir}")
     print(f"all_keys={keys_path if keys_path else ''}")

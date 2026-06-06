@@ -1,5 +1,11 @@
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
+
+import pytest
+
+if sys.platform != "win32":
+    pytest.skip("Windows-only HWND controller tests", allow_module_level=True)
 
 from src.wechat.window_controller import WeChatWindowController, WindowCandidate
 

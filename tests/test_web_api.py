@@ -1038,6 +1038,7 @@ class ApiConfigEndpointTests(unittest.TestCase):
             fake_env.exists.return_value = True
             fake_env.read_text.return_value = (
                 "AI_BACKEND=claude\n"
+                "DEEPSEEK_BASE_URL=https://proxy.example.com/v1\n"
                 "BOT_DISPLAY_NAME=MyBot\n"
                 "FUN_ENABLED=false\n"
             )
@@ -1047,6 +1048,7 @@ class ApiConfigEndpointTests(unittest.TestCase):
             body = json.loads(parts[1])
             config = body["config"]
             self.assertEqual(config["ai_backend"], "claude")
+            self.assertEqual(config["deepseek_base_url"], "https://proxy.example.com/v1")
             self.assertEqual(config["bot_display_name"], "MyBot")
             self.assertFalse(config["fun_enabled"])
 
@@ -1123,6 +1125,7 @@ class ApiConfigEndpointTests(unittest.TestCase):
             # -- Save --
             save_body = json.dumps({
                 "deepseek_api_key": "new-key",
+                "deepseek_base_url": "https://proxy.example.com/v1",
                 "bot_display_name": "new-name",
                 "fun_enabled": False,
             }).encode()
@@ -1141,6 +1144,7 @@ class ApiConfigEndpointTests(unittest.TestCase):
             # -- Read back --
             saved_content = tmp_env.read_text(encoding="utf-8")
             self.assertIn("DEEPSEEK_API_KEY=new-key", saved_content)
+            self.assertIn("DEEPSEEK_BASE_URL=https://proxy.example.com/v1", saved_content)
             self.assertIn("BOT_DISPLAY_NAME=new-name", saved_content)
             self.assertIn("FUN_ENABLED=false", saved_content)
             self.assertIn("AI_BACKEND=deepseek", saved_content)

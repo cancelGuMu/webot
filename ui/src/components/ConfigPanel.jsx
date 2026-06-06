@@ -45,6 +45,9 @@ function AiSection({ form, update }) {
           <Field label="DeepSeek API Key" hint="在 platform.deepseek.com/api_keys 免费注册获取" error={!form.deepseek_api_key ? '请填写 API Key' : null}>
             <Input type="password" value={form.deepseek_api_key} onChange={v => update('deepseek_api_key', v)} placeholder="sk-xxxxxxxxxxxxxxxx" />
           </Field>
+          <Field label="DeepSeek Base URL" hint="兼容 OpenAI 的转发地址；留默认值使用官方 API">
+            <Input value={form.deepseek_base_url} onChange={v => update('deepseek_base_url', v)} placeholder="https://api.deepseek.com" />
+          </Field>
           <Field label="DeepSeek 模型选择">
             <Select value={form.deepseek_model} onChange={v => update('deepseek_model', v)} options={[
               { value: 'deepseek-v4-flash', desc: 'V4 Flash', hint: '极速 · 极低费用' },
@@ -474,6 +477,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
   const [loaded, setLoaded] = useState(false)
   const [form, setForm] = useState({
     ai_backend: 'deepseek', deepseek_api_key: '', deepseek_model: 'deepseek-v4-flash',
+    deepseek_base_url: 'https://api.deepseek.com',
     anthropic_api_key: '', summarize_model: 'claude-haiku-4-5-20251001',
     bot_display_name: '', wechat_backend: 'wcdb', wechat_groups: '*',
     fun_enabled: true,
@@ -553,6 +557,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
         body: JSON.stringify({
           ai_backend: form.ai_backend,
           deepseek_api_key: form.deepseek_api_key,
+          deepseek_base_url: form.deepseek_base_url,
           deepseek_model: form.deepseek_model,
           anthropic_api_key: form.anthropic_api_key,
           summarize_model: form.summarize_model,

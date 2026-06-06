@@ -43,6 +43,7 @@ export default function Onboarding({ onComplete }) {
     bot_display_name: '', wechat_groups: '*',
     // Step 3
     ai_backend: 'deepseek', deepseek_api_key: '', deepseek_model: 'deepseek-v4-flash',
+    deepseek_base_url: 'https://api.deepseek.com',
     anthropic_api_key: '', summarize_model: 'claude-haiku-4-5-20251001',
     // Step 4
     fun_enabled: true,

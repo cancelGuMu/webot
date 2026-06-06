@@ -139,6 +139,7 @@ def _write_onboarding_to_env(env_path):
     env_map = {
         "AI_BACKEND": _onboarding_data.get("ai_backend", "deepseek"),
         "DEEPSEEK_API_KEY": _onboarding_data.get("deepseek_api_key", ""),
+        "DEEPSEEK_BASE_URL": _onboarding_data.get("deepseek_base_url", "https://api.deepseek.com"),
         "DEEPSEEK_MODEL": _onboarding_data.get("deepseek_model", "deepseek-v4-flash"),
         "ANTHROPIC_API_KEY": _onboarding_data.get("anthropic_api_key", ""),
         "SUMMARIZE_MODEL": _onboarding_data.get("summarize_model", "claude-haiku-4-5-20251001"),
@@ -833,6 +834,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 "config": {
                     "ai_backend": raw.get("AI_BACKEND", "deepseek"),
                     "deepseek_api_key": raw.get("DEEPSEEK_API_KEY", ""),
+                    "deepseek_base_url": raw.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
                     "deepseek_model": raw.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
                     "anthropic_api_key": raw.get("ANTHROPIC_API_KEY", ""),
                     "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
@@ -865,6 +867,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     new_lines = []
                     updates = {
                         "DEEPSEEK_API_KEY": config.get("deepseek_api_key"),
+                        "DEEPSEEK_BASE_URL": config.get("deepseek_base_url"),
                         "DEEPSEEK_MODEL": config.get("deepseek_model"),
                         "ANTHROPIC_API_KEY": config.get("anthropic_api_key"),
                         "SUMMARIZE_MODEL": config.get("summarize_model"),
@@ -1282,6 +1285,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     _onboarding_data["step3_done"] = True
                     _onboarding_data["ai_backend"] = ai
                     _onboarding_data["deepseek_api_key"] = data.get("deepseek_api_key", "")
+                    _onboarding_data["deepseek_base_url"] = data.get("deepseek_base_url", "https://api.deepseek.com")
                     _onboarding_data["deepseek_model"] = data.get("deepseek_model", "deepseek-v4-flash")
                     _onboarding_data["anthropic_api_key"] = data.get("anthropic_api_key", "")
                     _onboarding_data["summarize_model"] = data.get("summarize_model", "claude-haiku-4-5-20251001")

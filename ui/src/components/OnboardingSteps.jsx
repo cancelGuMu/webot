@@ -515,6 +515,7 @@ export function Step3AIConfig({ data, updateData, onDone }) {
         body: JSON.stringify({
           ai_backend: data.ai_backend || 'deepseek',
           deepseek_api_key: data.deepseek_api_key || '',
+          deepseek_base_url: data.deepseek_base_url || 'https://api.deepseek.com',
           deepseek_model: data.deepseek_model || 'deepseek-v4-flash',
           anthropic_api_key: data.anthropic_api_key || '',
           summarize_model: data.summarize_model || 'claude-haiku-4-5-20251001',
@@ -544,6 +545,9 @@ export function Step3AIConfig({ data, updateData, onDone }) {
           <>
             <Field label="DeepSeek API Key" hint="在 platform.deepseek.com/api_keys 注册获取">
               <Input type="password" value={data.deepseek_api_key || ''} onChange={v => updateData({ deepseek_api_key: v })} placeholder="sk-xxxxxxxxxxxxxxxx" />
+            </Field>
+            <Field label="DeepSeek Base URL" hint="兼容 OpenAI 的转发地址；留默认值使用官方 API">
+              <Input value={data.deepseek_base_url || 'https://api.deepseek.com'} onChange={v => updateData({ deepseek_base_url: v })} placeholder="https://api.deepseek.com" />
             </Field>
             <Field label="模型选择">
               <Select value={data.deepseek_model || 'deepseek-v4-flash'} onChange={v => updateData({ deepseek_model: v })} options={[

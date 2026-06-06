@@ -760,7 +760,8 @@ class _UIHandler(SimpleHTTPRequestHandler):
                          "/api/onboarding/reset",
                          "/api/onboarding/step1", "/api/onboarding/step2",
                          "/api/onboarding/step3", "/api/onboarding/step4",
-                         "/api/sandbox/test"):
+                         "/api/sandbox/test",
+                         "/api/lots"):
             self.do_GET()
         else:
             self.send_response(405)
@@ -1095,6 +1096,32 @@ class _UIHandler(SimpleHTTPRequestHandler):
             except Exception as e:
                 logger.exception("Failed to save nickname")
                 self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Get / Save lots config ───────────────────────────────
+        if self.path == "/api/lots":
+            if self.command == "GET":
+                try:
+                    from src.fun import load_lots_config
+                    config = load_lots_config()
+                    self.send_json({"ok": True, "config": config})
+                except Exception as e:
+                    logger.exception("Failed to load lots config")
+                    self.send_json({"ok": False, "error": str(e)})
+            else:
+                # POST — save custom lots config
+                content_len = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_len) if content_len else b"{}"
+                try:
+                    data = json.loads(body)
+                    from src.fun import save_lots_config
+                    save_lots_config(data)
+                    self.send_json({"ok": True})
+                except ValueError as e:
+                    self.send_json({"ok": False, "error": str(e)})
+                except Exception as e:
+                    logger.exception("Failed to save lots config")
+                    self.send_json({"ok": False, "error": str(e)})
             return
 
         # ── API: Test AI prompt sandbox ──────────────────────────────

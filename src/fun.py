@@ -1,10 +1,15 @@
 """趣味功能模块 — 群聊小玩法。"""
 
+import json
+import logging
 import random
+from pathlib import Path
 
-# ── 抽签 ────────────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
 
-_LOTS = [
+# ── 默认签文数据（用户未自定义时使用）──────────────────────────────
+
+_DEFAULT_LEVELS = [
     ("大吉", "🟢", [
         "福星在线，连外卖都能准点到",
         "好运爆棚，随手一抽全是惊喜",
@@ -117,13 +122,156 @@ _LOTS = [
     ]),
 ]
 
-# 加权：大吉12% 中吉23% 小吉30% 末吉20% 凶15%
-_LOTS_WEIGHTS = [12, 23, 30, 20, 15]
+_DEFAULT_WEIGHTS = [12, 23, 30, 20, 15]
+
+# ── JSON 文件路径 ──────────────────────────────────────────────────
+
+_LOTS_PATH = Path("data/lots.json")
+
+# ── 缓存 ────────────────────────────────────────────────────────────
+
+_lots_cache: tuple[list, list] | None = None
+
+
+def _build_default_lots() -> tuple[list, list]:
+    """将硬编码的默认数据转为标准化格式（levels 列表 + weights 列表）。"""
+    levels = [
+        {"name": name, "emoji": emoji, "phrases": list(phrases)}
+        for name, emoji, phrases in _DEFAULT_LEVELS
+    ]
+    return levels, list(_DEFAULT_WEIGHTS)
+
+
+def load_lots_config() -> dict:
+    """读取当前抽签配置，返回标准化 dict。
+
+    加载顺序：JSON 文件 → 代码默认值。
+
+    Returns:
+        {"weights": [...], "levels": [{"name": str, "emoji": str, "phrases": [...]}, ...]}
+    """
+    levels, weights = _get_lots()
+    return {"weights": weights, "levels": levels}
+
+
+def save_lots_config(data: dict) -> None:
+    """保存抽签配置到 JSON 文件并清除缓存。
+
+    Args:
+        data: {"weights": [...], "levels": [...]}
+
+    Raises:
+        ValueError: 格式校验失败时抛出。
+    """
+    weights = data.get("weights", [])
+    levels = data.get("levels", [])
+
+    # ── 恢复默认：空数据 → 删除 JSON 文件 ──────────────────────
+    if (not weights or len(weights) == 0) and (not levels or len(levels) == 0):
+        if _LOTS_PATH.exists():
+            _LOTS_PATH.unlink()
+        reset_lots_cache()
+        logger.info("抽签配置已恢复为默认值（删除了 lots.json）")
+        return
+
+    # ── 校验 ──────────────────────────────────────────────────────
+    if not isinstance(weights, list) or not isinstance(levels, list):
+        raise ValueError("weights 和 levels 必须是数组")
+    if len(weights) != len(levels):
+        raise ValueError(
+            f"weights 长度 ({len(weights)}) 与 levels 长度 ({len(levels)}) 不一致"
+        )
+    if len(levels) == 0:
+        raise ValueError("至少需要一个等级")
+    for w in weights:
+        if not isinstance(w, (int, float)) or w <= 0:
+            raise ValueError(f"权重必须是正数，得到: {w}")
+    for i, level in enumerate(levels):
+        if not isinstance(level, dict):
+            raise ValueError(f"levels[{i}] 必须是对象")
+        if not level.get("name", "").strip():
+            raise ValueError(f"levels[{i}] 缺少名称")
+        phrases = level.get("phrases", [])
+        if not isinstance(phrases, list) or len(phrases) == 0:
+            raise ValueError(f"「{level.get('name', i)}」至少需要一条签文")
+
+    # ── 写入 ──────────────────────────────────────────────────────
+    _LOTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _LOTS_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(_LOTS_PATH)
+
+    # 清除缓存
+    reset_lots_cache()
+    logger.info("抽签配置已保存到 %s", _LOTS_PATH)
+
+
+def reset_lots_cache() -> None:
+    """清除抽签缓存，下次调用 _get_lots() 时重新加载。"""
+    global _lots_cache
+    _lots_cache = None
+
+
+def _load_lots_from_json() -> tuple[list, list] | None:
+    """从 JSON 文件加载抽签配置。失败返回 None。"""
+    if not _LOTS_PATH.exists():
+        return None
+    try:
+        data = json.loads(_LOTS_PATH.read_text(encoding="utf-8"))
+        weights = data.get("weights", [])
+        levels = data.get("levels", [])
+
+        # 快速校验（不做完整校验——save 时已经校验过；这里只防文件被手动损坏）
+        if not weights or not levels or len(weights) != len(levels):
+            logger.warning("lots.json 格式无效，使用默认签文")
+            return None
+        for level in levels:
+            if not level.get("phrases"):
+                logger.warning("lots.json 存在空签文等级，使用默认签文")
+                return None
+
+        return levels, weights
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("无法读取 lots.json (%s)，使用默认签文", e)
+        return None
+
+
+def _get_lots() -> tuple[list, list]:
+    """获取当前抽签数据（带缓存）。
+
+    Returns:
+        (levels, weights) — levels 是 list[dict]，weights 是 list[float]。
+    """
+    global _lots_cache
+    if _lots_cache is not None:
+        return _lots_cache
+
+    loaded = _load_lots_from_json()
+    if loaded is not None:
+        _lots_cache = loaded
+    else:
+        _lots_cache = _build_default_lots()
+
+    return _lots_cache
+
+
+# ── 抽签 ────────────────────────────────────────────────────────
 
 
 def draw_lots(requester_name: str) -> str:
-    """抽签 — 返回带解读的运势结果。"""
-    (label, emoji, phrases), = random.choices(_LOTS, weights=_LOTS_WEIGHTS, k=1)
+    """抽签 — 返回带解读的运势结果。
+
+    优先使用 data/lots.json 中的自定义配置，文件不存在时使用默认签文。
+    """
+    levels_data, weights = _get_lots()
+
+    # 构建 (label, emoji, phrases) 元组列表，兼容 random.choices
+    lots = [
+        (level["name"], level.get("emoji", ""), level["phrases"])
+        for level in levels_data
+    ]
+
+    (label, emoji, phrases), = random.choices(lots, weights=weights, k=1)
     phrase = random.choice(phrases)
     return (
         f"@{requester_name} 抽签结果：{emoji} {label}\n"

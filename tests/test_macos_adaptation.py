@@ -205,16 +205,43 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertEqual(automation.sent, ["pong"])
 
     def test_mac_ui_automation_send_text_uses_clipboard_and_osascript(self):
-        runner = FakeRunner()
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+        ])
         automation = MacUIAutomation(app_name="WeChat", runner=runner)
 
         self.assertTrue(automation.send_text("hello"))
 
-        self.assertEqual(runner.calls[0]["cmd"], ["pbcopy"])
-        self.assertEqual(runner.calls[0]["input_text"], "hello")
-        self.assertIn("osascript", runner.calls[1]["cmd"][0])
-        self.assertIn("keystroke \"v\"", runner.calls[1]["cmd"][-1])
-        self.assertIn("key code 36", runner.calls[1]["cmd"][-1])
+        self.assertEqual(runner.calls[0]["cmd"], ["open", "-a", "WeChat"])
+        self.assertIn("frontmost", runner.calls[1]["cmd"][-1])
+        self.assertEqual(runner.calls[2]["cmd"], ["pbcopy"])
+        self.assertEqual(runner.calls[2]["input_text"], "hello")
+        self.assertIn("osascript", runner.calls[3]["cmd"][0])
+        self.assertIn("click at", runner.calls[3]["cmd"][-1])
+        self.assertIn("keystroke \"v\"", runner.calls[3]["cmd"][-1])
+        self.assertIn("key code 36", runner.calls[3]["cmd"][-1])
+
+    def test_mac_ui_automation_open_chat_uses_main_window_search_not_cmd_f(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+        ])
+        automation = MacUIAutomation(app_name="WeChat", runner=runner)
+
+        self.assertTrue(automation.open_chat("honker"))
+
+        self.assertEqual(runner.calls[0]["cmd"], ["open", "-a", "WeChat"])
+        self.assertEqual(runner.calls[2]["cmd"], ["pbcopy"])
+        self.assertEqual(runner.calls[2]["input_text"], "honker")
+        script = runner.calls[3]["cmd"][-1]
+        self.assertIn("click at", script)
+        self.assertNotIn('keystroke "f"', script)
+        self.assertIn("key code 36", script)
 
     def test_mac_ui_automation_read_visible_texts_parses_json(self):
         runner = FakeRunner([

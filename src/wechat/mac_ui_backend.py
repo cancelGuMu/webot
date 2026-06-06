@@ -44,24 +44,41 @@ class MacUIAutomation:
         )
 
     def activate_wechat(self) -> bool:
-        script = f'tell application "{self._escape_applescript(self._app_name)}" to activate'
-        return self._run_osascript(script)
+        return self._bring_wechat_frontmost()
 
     def open_chat(self, chat_name: str) -> bool:
         if not chat_name:
             return False
+        if not self._bring_wechat_frontmost():
+            return False
         copied = self._run(["pbcopy"], input_text=chat_name)
         if not copied:
             return False
-        app = self._escape_applescript(self._app_name)
-        script = f'''
-tell application "{app}" to activate
-delay 0.2
+        script = '''
 tell application "System Events"
-  keystroke "f" using command down
+  tell process "WeChat"
+    repeat with w in windows
+      try
+        if (name of w) ends with "聊天记录" then click button 1 of w
+      end try
+    end repeat
+    set mainWindow to missing value
+    repeat with w in windows
+      if name of w is "微信" then
+        set mainWindow to w
+        exit repeat
+      end if
+    end repeat
+    if mainWindow is missing value then set mainWindow to window 1
+    set {winX, winY} to position of mainWindow
+    set {winW, winH} to size of mainWindow
+  end tell
+  click at {winX + 150, winY + 36}
   delay 0.2
+  keystroke "a" using command down
+  delay 0.05
   keystroke "v" using command down
-  delay 0.3
+  delay 0.5
   key code 36
 end tell
 '''
@@ -120,20 +137,63 @@ JSON.stringify([...new Set(values)]);
     def send_text(self, content: str) -> bool:
         if not content:
             return False
+        if not self._bring_wechat_frontmost():
+            return False
         copied = self._run(["pbcopy"], input_text=content)
         if not copied:
             return False
-        app = self._escape_applescript(self._app_name)
-        script = f'''
-tell application "{app}" to activate
-delay 0.1
+        script = '''
 tell application "System Events"
+  tell process "WeChat"
+    set mainWindow to missing value
+    repeat with w in windows
+      if name of w is "微信" then
+        set mainWindow to w
+        exit repeat
+      end if
+    end repeat
+    if mainWindow is missing value then set mainWindow to window 1
+    set {winX, winY} to position of mainWindow
+    set {winW, winH} to size of mainWindow
+  end tell
+  click at {winX + (winW * 0.68), winY + winH - 44}
+  delay 0.1
   keystroke "v" using command down
   delay 0.1
   key code 36
 end tell
 '''
         return self._run_osascript(script, timeout=8)
+
+    def _bring_wechat_frontmost(self) -> bool:
+        if not self._run(["open", "-a", self._app_name], timeout=8):
+            return False
+        for _ in range(10):
+            if self._is_wechat_frontmost():
+                return True
+            time.sleep(0.2)
+        logger.warning("WeChat did not become frontmost after activation")
+        return False
+
+    def _is_wechat_frontmost(self) -> bool:
+        script = '''
+const se = Application("System Events");
+const front = se.processes.whose({frontmost: true})();
+const name = front.length ? front[0].name() : "";
+JSON.stringify({front: name});
+'''
+        result = self._runner(
+            ["osascript", "-l", "JavaScript", "-e", script],
+            timeout=3,
+        )
+        if result.returncode != 0:
+            logger.warning("macOS frontmost check failed: %s", result.stderr)
+            return False
+        try:
+            data = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError:
+            return False
+        return data.get("front") in {self._app_name, "WeChat", "微信"}
 
     def _run(self, cmd, input_text=None, timeout=5) -> bool:
         result = self._runner(cmd, input_text=input_text, timeout=timeout)

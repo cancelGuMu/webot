@@ -253,10 +253,10 @@ end tell
 
     @staticmethod
     def _send_key_script_line() -> str:
-        shortcut = os.getenv("MAC_WECHAT_SEND_SHORTCUT", "cmd_enter").strip().lower()
-        if shortcut in {"enter", "return"}:
-            return "  key code 36"
-        return "  key code 36 using command down"
+        shortcut = os.getenv("MAC_WECHAT_SEND_SHORTCUT", "enter").strip().lower()
+        if shortcut in {"cmd_enter", "command_enter", "command+enter", "cmd+enter"}:
+            return "  key code 36 using command down"
+        return "  key code 36"
 
     def _verify_current_chat_title(
         self,

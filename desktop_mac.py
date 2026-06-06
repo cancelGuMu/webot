@@ -23,6 +23,7 @@ def ensure_macos_env_file() -> Path:
             "DEEPSEEK_API_KEY=\n"
             "WECHAT_BACKEND=mac_hybrid\n"
             "CHATLOG_BASE_URL=http://127.0.0.1:5030\n"
+            "MAC_WECHAT_SEND_SHORTCUT=enter\n"
             "BOT_DISPLAY_NAME=群聊小助手\n"
             "WECHAT_GROUPS=*\n"
             "ONBOARDING_DONE=true\n"

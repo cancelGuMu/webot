@@ -179,6 +179,7 @@ python3 tools/macos_chatlog_setup.py restart-chatlog
 ```env
 WECHAT_BACKEND=mac_hybrid
 CHATLOG_BASE_URL=http://127.0.0.1:5030
+MAC_WECHAT_SEND_SHORTCUT=enter
 # 如已安装自己的 chatlog_alpha，可指定二进制路径
 # CHATLOG_BIN=/path/to/chatlog
 ```

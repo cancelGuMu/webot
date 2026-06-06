@@ -254,6 +254,23 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertIn("osascript", runner.calls[5]["cmd"][0])
         self.assertNotIn("click at", runner.calls[5]["cmd"][-1])
         self.assertIn("keystroke \"v\"", runner.calls[5]["cmd"][-1])
+        self.assertIn("key code 36", runner.calls[5]["cmd"][-1])
+        self.assertNotIn("key code 36 using command down", runner.calls[5]["cmd"][-1])
+
+    def test_mac_ui_automation_send_text_can_use_cmd_enter_when_configured(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+        ])
+        automation = MacUIAutomation(app_name="WeChat", runner=runner, clicker=FakeClicker())
+
+        with patch.dict("os.environ", {"MAC_WECHAT_SEND_SHORTCUT": "cmd_enter"}):
+            self.assertTrue(automation.send_text("hello"))
+
         self.assertIn("key code 36 using command down", runner.calls[5]["cmd"][-1])
 
     def test_mac_ui_automation_open_chat_uses_existing_chat_search_not_start_chat_sheet(self):

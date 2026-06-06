@@ -238,6 +238,15 @@ def run_combined_text(cmd: list[str], timeout: int = 10) -> str:
     return (result.stdout or "") + (result.stderr or "")
 
 
+def ensure_project_root_on_path(paths: list[str] | None = None) -> bool:
+    target = str(PROJECT_ROOT)
+    active_paths = paths if paths is not None else sys.path
+    if target in active_paths:
+        return False
+    active_paths.insert(0, target)
+    return True
+
+
 def parse_sip_status(output: str) -> str:
     lowered = output.lower()
     if "disabled" in lowered:
@@ -750,6 +759,7 @@ def wait_for_new_wechat_pid(old_pid: int, timeout: int = 30) -> int:
 
 
 def warm_wechat_chats(open_chats: list[str]) -> None:
+    ensure_project_root_on_path()
     try:
         from src.wechat.mac_ui_backend import MacUIAutomation
     except Exception as exc:

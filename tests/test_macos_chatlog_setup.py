@@ -202,6 +202,16 @@ WeChat 123 me 80r REG 1,16 1 /tmp/other.db
         self.assertIn("--duration", cmd)
         self.assertIn("120", cmd)
 
+    def test_ensure_project_root_on_path_prepends_root_for_script_imports(self):
+        setup = _load_setup_module()
+        paths = ["/tmp/tools"]
+
+        self.assertTrue(setup.ensure_project_root_on_path(paths))
+
+        self.assertEqual(paths[0], str(setup.PROJECT_ROOT))
+        self.assertEqual(paths[1], "/tmp/tools")
+        self.assertFalse(setup.ensure_project_root_on_path(paths))
+
     def test_extract_keys_falls_back_to_lldb_when_mach_scanner_finds_no_keys(self):
         setup = _load_setup_module()
 

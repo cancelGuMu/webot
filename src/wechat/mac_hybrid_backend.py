@@ -93,6 +93,9 @@ class MacHybridBackend(AbstractWeChatBackend):
         self._running = False
         self._seen_ids: set[str] = set()
         self._chat_titles: dict[str, str] = {}
+        self._chat_is_group: dict[str, bool] = {}
+        self._title_entries: dict[str, dict[str, bool]] = {}
+        self._session_order: dict[str, int] = {}
         self._chat_titles_loaded = False
 
     def start(self, callback: MessageCallback) -> None:
@@ -110,10 +113,18 @@ class MacHybridBackend(AbstractWeChatBackend):
     def send_text(self, chat_id: str, content: str) -> bool:
         if not content:
             return False
+        if not self._chat_titles_loaded:
+            self._load_chat_titles()
         target = self._chat_titles.get(chat_id, chat_id)
         if _looks_internal_chat_id(target):
             target = self._resolve_chat_title(chat_id) or target
-        if target and not self._automation.open_chat(target):
+        prefer_group = self._should_prefer_group_result(chat_id, target)
+        sidebar_index = self._session_order.get(chat_id)
+        if target and not self._automation.open_chat(
+            target,
+            prefer_group=prefer_group,
+            sidebar_index=sidebar_index,
+        ):
             logger.warning("Failed to open macOS WeChat chat for send: %s", target)
             return False
         sent = self._automation.send_text(content)
@@ -201,9 +212,10 @@ class MacHybridBackend(AbstractWeChatBackend):
         group_name = str(raw.get("chat") or username or "当前聊天").strip()
         if not username:
             username = group_name
+        is_group = _to_bool(raw.get("is_group")) or str(username).endswith("@chatroom")
         if _looks_internal_chat_id(group_name):
             group_name = self._resolve_chat_title(username) or group_name
-        self._chat_titles[username] = group_name
+        self._remember_chat_session(username, group_name, is_group)
 
         sender_name = str(raw.get("sender") or raw.get("sender_name") or "unknown").strip() or "unknown"
         timestamp = _to_int(raw.get("timestamp"), default=int(time.time()))
@@ -229,7 +241,7 @@ class MacHybridBackend(AbstractWeChatBackend):
                 self._bot_name
                 and (f"@{self._bot_name}" in content or self._bot_name in content)
             ),
-            "is_group": _to_bool(raw.get("is_group")) or str(username).endswith("@chatroom"),
+            "is_group": is_group,
         }
 
     def _should_monitor(self, msg: dict) -> bool:
@@ -266,7 +278,7 @@ class MacHybridBackend(AbstractWeChatBackend):
         sessions = payload.get("sessions") if isinstance(payload, dict) else None
         if not isinstance(sessions, list):
             return
-        for item in sessions:
+        for index, item in enumerate(sessions):
             if not isinstance(item, dict):
                 continue
             username = str(item.get("username") or "").strip()
@@ -277,7 +289,28 @@ class MacHybridBackend(AbstractWeChatBackend):
                 or "",
             ).strip()
             if username and title and not _looks_internal_chat_id(title):
-                self._chat_titles[username] = title
+                self._session_order[username] = index
+                self._remember_chat_session(username, title, _session_is_group(item, username))
+
+    def _remember_chat_session(self, username: str, title: str, is_group: bool) -> None:
+        if not username:
+            return
+        if title:
+            self._chat_titles[username] = title
+        self._chat_is_group[username] = bool(is_group)
+        if title and not _looks_internal_chat_id(title):
+            self._title_entries.setdefault(title, {})[username] = bool(is_group)
+
+    def _should_prefer_group_result(self, username: str, title: str) -> bool:
+        if not title or _looks_internal_chat_id(title):
+            return False
+        is_group = self._chat_is_group.get(username, str(username).endswith("@chatroom"))
+        if not is_group:
+            return False
+        entries = self._title_entries.get(title, {})
+        has_group = any(entries.values())
+        has_private = any(not value for value in entries.values())
+        return has_group and has_private
 
 
 def _can_int(value) -> bool:
@@ -306,6 +339,15 @@ def _to_bool(value) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _session_is_group(item: dict, username: str) -> bool:
+    chat_type = str(item.get("chat_type") or item.get("type") or "").strip().lower()
+    return (
+        _to_bool(item.get("is_group"))
+        or str(username).endswith("@chatroom")
+        or chat_type in {"group", "chatroom", "群聊"}
+    )
 
 
 def _chatlog_type_to_msg_type(value) -> int:

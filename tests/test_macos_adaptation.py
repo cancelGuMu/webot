@@ -38,14 +38,20 @@ class FakeMacAutomation:
         self.snapshots = list(snapshots or [])
         self.sent = []
         self.opened = []
+        self.open_options = []
         self.activated = 0
 
     def activate_wechat(self):
         self.activated += 1
         return True
 
-    def open_chat(self, chat_name):
+    def open_chat(self, chat_name, prefer_group=False, sidebar_index=None):
         self.opened.append(chat_name)
+        self.open_options.append({
+            "chat_name": chat_name,
+            "prefer_group": prefer_group,
+            "sidebar_index": sidebar_index,
+        })
         return True
 
     def read_visible_texts(self):
@@ -260,6 +266,36 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertIn('keystroke "v"', scripts)
         self.assertEqual(clicker.points, [(264, 374), (786, 730)])
 
+    def test_mac_ui_automation_open_chat_can_prefer_second_group_result(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600},"sheet":{"x":200,"y":250,"w":640,"h":520}}'),
+        ])
+        clicker = FakeClicker()
+        automation = MacUIAutomation(app_name="WeChat", runner=runner, clicker=clicker)
+
+        self.assertTrue(automation.open_chat("honker", prefer_group=True))
+
+        self.assertEqual(clicker.points, [(264, 424), (786, 730)])
+
+    def test_mac_ui_automation_open_chat_can_click_sidebar_session_index(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+        ])
+        clicker = FakeClicker()
+        automation = MacUIAutomation(app_name="WeChat", runner=runner, clicker=clicker)
+
+        self.assertTrue(automation.open_chat("honker", sidebar_index=1))
+
+        self.assertEqual(clicker.points, [(327, 378)])
+        self.assertFalse(any(call["cmd"] == ["pbcopy"] for call in runner.calls))
+
     def test_mac_ui_automation_read_visible_texts_parses_json(self):
         runner = FakeRunner([
             FakeCompletedProcess(stdout='["Alice: hi", "", "Bob: ok"]')
@@ -370,6 +406,58 @@ class MacOSAdaptationTests(unittest.TestCase):
         backend.poll_once(lambda msg: "收到")
 
         self.assertEqual(automation.opened, ["honker"])
+        self.assertEqual(automation.sent, ["收到"])
+
+    def test_mac_hybrid_prefers_group_result_when_title_collides_with_private_chat(self):
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        client = FakeChatlogClient(
+            batches=[{
+                "count": 1,
+                "new_state": {"52859259744@chatroom": 1780743227},
+                "messages": [{
+                    "timestamp": 1780743227,
+                    "sender": "honker",
+                    "type": "text",
+                    "content": "@群聊小助手 你好",
+                    "local_id": 11,
+                    "chat": "honker",
+                    "username": "52859259744@chatroom",
+                    "is_group": True,
+                }],
+            }],
+            sessions={
+                "sessions": [
+                    {
+                        "username": "wxid_jfs04ffdka4u21",
+                        "chat": "honker",
+                        "chat_type": "private",
+                        "is_group": False,
+                    },
+                    {
+                        "username": "52859259744@chatroom",
+                        "chat": "honker",
+                        "chat_type": "group",
+                        "is_group": True,
+                    },
+                ],
+            },
+        )
+        automation = FakeMacAutomation()
+        backend = MacHybridBackend(
+            bot_display_name="群聊小助手",
+            groups=["*"],
+            client=client,
+            automation=automation,
+        )
+
+        backend.poll_once(lambda msg: "收到")
+
+        self.assertEqual(automation.open_options, [{
+            "chat_name": "honker",
+            "prefer_group": True,
+            "sidebar_index": 1,
+        }])
         self.assertEqual(automation.sent, ["收到"])
 
     def test_mac_hybrid_start_primes_chatlog_state_without_replying_to_history(self):

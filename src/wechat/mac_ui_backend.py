@@ -49,11 +49,18 @@ class MacUIAutomation:
     def activate_wechat(self) -> bool:
         return self._bring_wechat_frontmost()
 
-    def open_chat(self, chat_name: str) -> bool:
+    def open_chat(
+        self,
+        chat_name: str,
+        prefer_group: bool = False,
+        sidebar_index: int | None = None,
+    ) -> bool:
         if not chat_name:
             return False
         if not self._bring_wechat_frontmost():
             return False
+        if sidebar_index is not None:
+            return self._open_sidebar_chat(sidebar_index)
         if not self._open_start_chat_sheet():
             return False
         time.sleep(0.2)
@@ -67,10 +74,26 @@ class MacUIAutomation:
         if not sheet:
             logger.warning("Could not locate WeChat start-chat sheet")
             return False
-        if not self._click_screen(sheet["x"] + 64, sheet["y"] + 124):
+        if not self._click_screen(sheet["x"] + 64, self._search_result_y(sheet, prefer_group)):
             return False
         time.sleep(0.15)
         if not self._click_screen(sheet["x"] + sheet["w"] - 54, sheet["y"] + sheet["h"] - 40):
+            return False
+        time.sleep(0.25)
+        return True
+
+    def _open_sidebar_chat(self, sidebar_index: int) -> bool:
+        if sidebar_index < 0 or sidebar_index > 7:
+            logger.warning("WeChat sidebar session index is not visible: %s", sidebar_index)
+            return False
+        geometry = self._get_wechat_geometry()
+        window = self._window_rect(geometry)
+        if not window:
+            logger.warning("Could not locate WeChat main window for sidebar chat open")
+            return False
+        x = window["x"] + 227
+        y = window["y"] + 110 + (sidebar_index * 68)
+        if not self._click_screen(x, y):
             return False
         time.sleep(0.25)
         return True
@@ -99,6 +122,10 @@ tell application "System Events"
 end tell
 '''
         return self._run_osascript(script, timeout=8)
+
+    @staticmethod
+    def _search_result_y(sheet: dict, prefer_group: bool) -> float:
+        return sheet["y"] + (174 if prefer_group else 124)
 
     def read_visible_texts(self) -> list[str]:
         app = self._escape_jxa(self._app_name)

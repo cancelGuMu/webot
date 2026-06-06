@@ -43,6 +43,12 @@ class ChatlogClient:
             params["state"] = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
         return self._get_json("/api/v1/new_messages", params)
 
+    def get_sessions(self, limit: int = 500) -> dict:
+        return self._get_json("/api/v1/sessions", {
+            "format": "json",
+            "limit": str(limit),
+        })
+
     def health(self) -> bool:
         req = Request(self.base_url + "/health", headers={"Accept": "application/json"})
         try:
@@ -87,6 +93,7 @@ class MacHybridBackend(AbstractWeChatBackend):
         self._running = False
         self._seen_ids: set[str] = set()
         self._chat_titles: dict[str, str] = {}
+        self._chat_titles_loaded = False
 
     def start(self, callback: MessageCallback) -> None:
         self._running = True
@@ -103,10 +110,17 @@ class MacHybridBackend(AbstractWeChatBackend):
         if not content:
             return False
         target = self._chat_titles.get(chat_id, chat_id)
+        if _looks_internal_chat_id(target):
+            target = self._resolve_chat_title(chat_id) or target
         if target and not self._automation.open_chat(target):
             logger.warning("Failed to open macOS WeChat chat for send: %s", target)
             return False
-        return self._automation.send_text(content)
+        sent = self._automation.send_text(content)
+        if sent:
+            logger.info("Sent macOS WeChat reply to %s via %r", chat_id[:20], target)
+        else:
+            logger.warning("Failed to send macOS WeChat reply to %s", chat_id[:20])
+        return sent
 
     def stop(self) -> None:
         self._running = False
@@ -160,6 +174,8 @@ class MacHybridBackend(AbstractWeChatBackend):
         group_name = str(raw.get("chat") or username or "当前聊天").strip()
         if not username:
             username = group_name
+        if _looks_internal_chat_id(group_name):
+            group_name = self._resolve_chat_title(username) or group_name
         self._chat_titles[username] = group_name
 
         sender_name = str(raw.get("sender") or raw.get("sender_name") or "unknown").strip() or "unknown"
@@ -199,6 +215,43 @@ class MacHybridBackend(AbstractWeChatBackend):
         group_name = str(msg.get("group_name") or "")
         return any(g == chat_id or g == group_name for g in groups)
 
+    def _resolve_chat_title(self, username: str) -> str | None:
+        title = self._chat_titles.get(username, "")
+        if title and not _looks_internal_chat_id(title):
+            return title
+        if not self._chat_titles_loaded:
+            self._load_chat_titles()
+        title = self._chat_titles.get(username, "")
+        if title and not _looks_internal_chat_id(title):
+            return title
+        return None
+
+    def _load_chat_titles(self) -> None:
+        self._chat_titles_loaded = True
+        get_sessions = getattr(self._client, "get_sessions", None)
+        if not callable(get_sessions):
+            return
+        try:
+            payload = get_sessions()
+        except Exception as exc:
+            logger.warning("Failed to load chatlog sessions for title map: %s", exc)
+            return
+        sessions = payload.get("sessions") if isinstance(payload, dict) else None
+        if not isinstance(sessions, list):
+            return
+        for item in sessions:
+            if not isinstance(item, dict):
+                continue
+            username = str(item.get("username") or "").strip()
+            title = str(
+                item.get("chat")
+                or item.get("display")
+                or item.get("nickname")
+                or "",
+            ).strip()
+            if username and title and not _looks_internal_chat_id(title):
+                self._chat_titles[username] = title
+
 
 def _can_int(value) -> bool:
     try:
@@ -213,6 +266,11 @@ def _to_int(value, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _looks_internal_chat_id(value: str) -> bool:
+    value = str(value or "").strip()
+    return value.endswith("@chatroom") or value.startswith("wxid_")
 
 
 def _to_bool(value) -> bool:

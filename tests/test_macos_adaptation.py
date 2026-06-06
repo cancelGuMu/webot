@@ -59,8 +59,9 @@ class FakeMacAutomation:
 
 
 class FakeChatlogClient:
-    def __init__(self, batches=None):
+    def __init__(self, batches=None, sessions=None):
         self.batches = list(batches or [])
+        self.sessions = sessions or {"sessions": []}
         self.calls = []
 
     def get_new_messages(self, state=None, limit=200):
@@ -68,6 +69,9 @@ class FakeChatlogClient:
         if self.batches:
             return self.batches.pop(0)
         return {"count": 0, "messages": [], "new_state": state or {}}
+
+    def get_sessions(self, limit=500):
+        return self.sessions
 
     def health(self):
         return True
@@ -283,6 +287,45 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertEqual(seen[0]["content"], "@群聊小助手 总结一下")
         self.assertTrue(seen[0]["is_at_mentioned"])
         self.assertEqual(automation.opened, ["摸鱼群"])
+        self.assertEqual(automation.sent, ["收到"])
+
+    def test_mac_hybrid_resolves_internal_chatroom_id_before_send(self):
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        client = FakeChatlogClient(
+            batches=[{
+                "count": 1,
+                "new_state": {"52859259744@chatroom": 1780740773},
+                "messages": [{
+                    "timestamp": 1780740773,
+                    "sender": "honker",
+                    "type": "text",
+                    "content": "@群聊小助手 你好",
+                    "local_id": 10,
+                    "chat": "52859259744@chatroom",
+                    "username": "52859259744@chatroom",
+                    "is_group": True,
+                }],
+            }],
+            sessions={
+                "sessions": [{
+                    "username": "52859259744@chatroom",
+                    "chat": "honker",
+                    "is_group": True,
+                }],
+            },
+        )
+        automation = FakeMacAutomation()
+        backend = MacHybridBackend(
+            bot_display_name="群聊小助手",
+            groups=["*"],
+            client=client,
+            automation=automation,
+        )
+
+        backend.poll_once(lambda msg: "收到")
+
+        self.assertEqual(automation.opened, ["honker"])
         self.assertEqual(automation.sent, ["收到"])
 
     def test_health_monitor_uses_mac_backend_health_status_without_window(self):

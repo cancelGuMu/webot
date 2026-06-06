@@ -34,6 +34,52 @@ AES_BREAKPOINT_NAMES = [
     "AES_set_decrypt_key",
     "AES_set_encrypt_key",
 ]
+HOOK_BREAKPOINT_NAMES = [
+    "sqlite3_key_v2",
+    "sqlite3_key",
+    "loadKeyCCCrypt",
+    "sqliteCodecCCCrypto",
+    "CCCryptorCreateWithMode",
+    "CCCryptorCreateFromData",
+    "CCCryptorCreate",
+    "CCCrypt",
+    *AES_BREAKPOINT_NAMES,
+]
+MAX_HOOK_KEY_BYTES = 256
+HOOK_KEY_ARGUMENT_SPECS = [
+    {
+        "names": tuple(AES_BREAKPOINT_NAMES),
+        "ptr_regs": ["x0", "rdi"],
+        "len_regs": ["x1", "rsi"],
+        "len_unit": "bits",
+    },
+    {
+        "names": ("sqlite3_key",),
+        "ptr_regs": ["x1", "rsi"],
+        "len_regs": ["x2", "rdx"],
+        "len_unit": "bytes",
+    },
+    {
+        "names": ("sqlite3_key_v2",),
+        "ptr_regs": ["x2", "rdx"],
+        "len_regs": ["x3", "rcx"],
+        "len_unit": "bytes",
+    },
+    {
+        "names": ("CCCrypt", "CCCryptorCreate", "CCCryptorCreateFromData"),
+        "ptr_regs": ["x3", "rcx"],
+        "len_regs": ["x4", "r8"],
+        "len_unit": "bytes",
+    },
+    {
+        "names": ("CCCryptorCreateWithMode",),
+        "ptr_regs": ["x5", "r9"],
+        "len_regs": ["x6"],
+        "len_unit": "bytes",
+    },
+]
+GENERIC_KEY_POINTER_SYMBOLS = ("loadKeyCCCrypt", "sqliteCodecCCCrypto")
+GENERIC_KEY_POINTER_REGS = ["x0", "x1", "x2", "x3", "x4", "x5", "rdi", "rsi", "rdx", "rcx", "r8", "r9"]
 
 
 def resolve_db_storage(data_dir: Path) -> tuple[Path, Path]:
@@ -331,9 +377,9 @@ def scan_process_memory(lldb, process, db_files: list[dict], salt_to_dbs: dict[s
     }
 
 
-def create_aes_breakpoints(target) -> int:
+def create_hook_breakpoints(target) -> int:
     locations = 0
-    for name in AES_BREAKPOINT_NAMES:
+    for name in HOOK_BREAKPOINT_NAMES:
         bp = target.BreakpointCreateByName(name)
         bp.SetAutoContinue(False)
         locations += bp.GetNumLocations()
@@ -358,6 +404,105 @@ def first_register_value(frame, names: list[str]) -> int:
     return 0
 
 
+def frame_function_name(frame) -> str:
+    try:
+        name = frame.GetFunctionName()
+        if name:
+            return str(name)
+    except Exception:
+        pass
+
+    try:
+        symbol = frame.GetSymbol()
+        if symbol.IsValid():
+            name = symbol.GetName()
+            if name:
+                return str(name)
+    except Exception:
+        pass
+    return ""
+
+
+def symbol_name_matches(symbol_name: str, target_name: str) -> bool:
+    if not symbol_name:
+        return False
+    tokens = [token for token in re.split(r"[^0-9A-Za-z_]+", symbol_name) if token]
+    return target_name in tokens
+
+
+def hook_key_argument_ranges(frame) -> list[tuple[int, int]]:
+    function_name = frame_function_name(frame)
+    ranges: list[tuple[int, int]] = []
+
+    for spec in HOOK_KEY_ARGUMENT_SPECS:
+        if not any(symbol_name_matches(function_name, name) for name in spec["names"]):
+            continue
+        key_ptr = first_register_value(frame, spec["ptr_regs"])
+        key_len = first_register_value(frame, spec["len_regs"])
+        if spec["len_unit"] == "bits":
+            if key_len % 8 != 0:
+                continue
+            key_len //= 8
+        if key_ptr and 0 < key_len <= MAX_HOOK_KEY_BYTES:
+            ranges.append((key_ptr, key_len))
+
+    if any(symbol_name_matches(function_name, name) for name in GENERIC_KEY_POINTER_SYMBOLS):
+        seen_ptrs = {address for address, _ in ranges}
+        for reg_name in GENERIC_KEY_POINTER_REGS:
+            key_ptr = register_value(frame, reg_name)
+            if key_ptr and key_ptr not in seen_ptrs:
+                ranges.append((key_ptr, KEY_SIZE))
+                seen_ptrs.add(key_ptr)
+
+    return ranges
+
+
+def decode_hook_key_buffer(data: bytes) -> list[bytes]:
+    if not data:
+        return []
+
+    candidates: list[bytes] = []
+    if len(data) == KEY_SIZE:
+        candidates.append(data)
+
+    text = data.split(b"\x00", 1)[0].strip()
+    for enc_key_hex, _salt_hex in iter_hex_candidates(text):
+        try:
+            raw = bytes.fromhex(enc_key_hex)
+        except ValueError:
+            continue
+        if len(raw) == KEY_SIZE:
+            candidates.append(raw)
+
+    deduped: list[bytes] = []
+    seen: set[bytes] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return deduped
+
+
+def extract_hook_key_candidates(lldb, process, frame) -> list[bytes]:
+    candidates: list[bytes] = []
+    seen: set[bytes] = set()
+
+    for key_ptr, key_len in hook_key_argument_ranges(frame):
+        error = lldb.SBError()
+        raw = process.ReadMemory(key_ptr, key_len, error)
+        if not error.Success() or not raw:
+            continue
+
+        for candidate in decode_hook_key_buffer(raw):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    return candidates
+
+
 def selected_frame_for_breakpoint(process):
     for thread in process:
         if thread.GetStopReason() != 3:  # lldb.eStopReasonBreakpoint
@@ -380,8 +525,8 @@ def scan_aes_hook_keys(
     salt_to_dbs: dict[str, list[str]],
     duration: int,
 ) -> dict:
-    locations = create_aes_breakpoints(target)
-    print(f"aes_breakpoint_locations={locations}")
+    locations = create_hook_breakpoints(target)
+    print(f"hook_breakpoint_locations={locations}")
     if locations == 0:
         return {"key_map": {}, "hook_hits": 0, "candidate_keys": 0}
 
@@ -406,19 +551,16 @@ def scan_aes_hook_keys(
         frame = selected_frame_for_breakpoint(process)
         if frame is not None:
             hook_hits += 1
-            key_ptr = first_register_value(frame, ["x0", "rdi"])
-            bits = first_register_value(frame, ["x1", "rsi"]) & 0xFFFFFFFF
-            if bits == 256 and key_ptr:
-                error = lldb.SBError()
-                raw_key = process.ReadMemory(key_ptr, KEY_SIZE, error)
-                if error.Success() and len(raw_key) == KEY_SIZE and raw_key not in seen_keys:
-                    seen_keys.add(raw_key)
-                    candidate_keys += 1
-                    key_hex = raw_key.hex()
-                    for db in db_files:
-                        remember_key(key_map, remaining_salts, db_files, db["salt"], key_hex)
-                        if not remaining_salts:
-                            break
+            for raw_key in extract_hook_key_candidates(lldb, process, frame):
+                if len(raw_key) != KEY_SIZE or raw_key in seen_keys:
+                    continue
+                seen_keys.add(raw_key)
+                candidate_keys += 1
+                key_hex = raw_key.hex()
+                for db in db_files:
+                    remember_key(key_map, remaining_salts, db_files, db["salt"], key_hex)
+                    if not remaining_salts:
+                        break
 
         process.Continue()
 

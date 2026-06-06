@@ -100,3 +100,125 @@ def test_add_lldb_python_path_discovers_lldb_p_path(monkeypatch):
         assert sys.path[0] == "/tmp/lldb-python"
     finally:
         sys.path[:] = original_path
+
+
+def _fake_frame(function_name, registers):
+    class FakeRegister:
+        def __init__(self, value):
+            self.value = value
+
+        def IsValid(self):
+            return self.value is not None
+
+        def GetValueAsUnsigned(self):
+            return self.value
+
+    class FakeSymbol:
+        def __init__(self, name):
+            self.name = name
+
+        def IsValid(self):
+            return bool(self.name)
+
+        def GetName(self):
+            return self.name
+
+    class FakeFrame:
+        def FindRegister(self, name):
+            return FakeRegister(registers.get(name))
+
+        def GetFunctionName(self):
+            return function_name
+
+        def GetSymbol(self):
+            return FakeSymbol(function_name)
+
+    return FakeFrame()
+
+
+def _hook_candidates(scanner, function_name, registers, memory):
+    class FakeError:
+        def Success(self):
+            return True
+
+    class FakeLLDB:
+        @staticmethod
+        def SBError():
+            return FakeError()
+
+    class FakeProcess:
+        def ReadMemory(self, address, size, error):
+            return memory.get(address, b"")[:size]
+
+    frame = _fake_frame(function_name, registers)
+    return scanner.extract_hook_key_candidates(FakeLLDB, FakeProcess(), frame)
+
+
+def test_extract_hook_key_candidates_reads_aes_key_argument():
+    scanner = _load_scanner_module()
+    key = bytes(range(32))
+
+    candidates = _hook_candidates(
+        scanner,
+        "AES_set_decrypt_key",
+        {"x0": 0x1000, "x1": 256},
+        {0x1000: key},
+    )
+
+    assert candidates == [key]
+
+
+def test_extract_hook_key_candidates_reads_sqlite3_key_argument():
+    scanner = _load_scanner_module()
+    key = bytes(range(32))
+
+    candidates = _hook_candidates(
+        scanner,
+        "sqlite3_key",
+        {"x1": 0x2000, "x2": 32},
+        {0x2000: key},
+    )
+
+    assert candidates == [key]
+
+
+def test_extract_hook_key_candidates_reads_sqlite3_key_v2_argument():
+    scanner = _load_scanner_module()
+    key = bytes(range(32))
+
+    candidates = _hook_candidates(
+        scanner,
+        "sqlite3_key_v2",
+        {"x2": 0x3000, "x3": 32},
+        {0x3000: key},
+    )
+
+    assert candidates == [key]
+
+
+def test_extract_hook_key_candidates_reads_cccryptorcreate_key_argument():
+    scanner = _load_scanner_module()
+    key = bytes(range(32))
+
+    candidates = _hook_candidates(
+        scanner,
+        "CCCryptorCreate",
+        {"x3": 0x4000, "x4": 32},
+        {0x4000: key},
+    )
+
+    assert candidates == [key]
+
+
+def test_extract_hook_key_candidates_reads_cccryptorcreatewithmode_key_argument():
+    scanner = _load_scanner_module()
+    key = bytes(range(32))
+
+    candidates = _hook_candidates(
+        scanner,
+        "CCCryptorCreateWithMode",
+        {"x5": 0x5000, "x6": 32},
+        {0x5000: key},
+    )
+
+    assert candidates == [key]

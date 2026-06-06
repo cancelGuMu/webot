@@ -47,6 +47,32 @@ WeChat 17947 user 101r REG 1,16 565248 /Users/me/Library/Containers/com.tencent.
 
             self.assertEqual(setup.count_valid_keys(path), 2)
 
+    def test_normalize_key_entries_converts_supported_formats(self):
+        setup = _load_setup_module()
+        key = "A" * 64
+
+        entries = setup.normalize_key_entries({
+            "message/message_0.db": key,
+            "session/session.db": {"enc_key": key.lower()},
+            "__salts__": ["ignored"],
+            "bad.db": {"enc_key": "not-a-key"},
+        })
+
+        self.assertEqual(entries, {
+            "message/message_0.db": {"enc_key": key.lower()},
+            "session/session.db": {"enc_key": key.lower()},
+        })
+
+    def test_write_all_keys_uses_chatlog_alpha_format(self):
+        setup = _load_setup_module()
+        key = "a" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            path = setup.write_all_keys(tmp, {"message/message_0.db": {"enc_key": key}})
+            saved = json.loads(path.read_text(encoding="utf-8"))
+
+            self.assertEqual(saved, {"message/message_0.db": {"enc_key": key}})
+            self.assertEqual(setup.count_valid_keys(path), 1)
+
     def test_detect_data_dir_from_filesystem_uses_latest_session_db(self):
         setup = _load_setup_module()
 

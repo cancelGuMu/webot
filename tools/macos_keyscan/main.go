@@ -8,7 +8,8 @@ package main
 #include <stdlib.h>
 #include <string.h>
 
-#define HEX_PATTERN_LEN 96
+#define MIN_HEX_PATTERN_LEN 64
+#define MAX_HEX_PATTERN_LEN 192
 #define CHUNK_SIZE (2 * 1024 * 1024)
 #define MAX_REGION_SIZE (50ULL * 1024ULL * 1024ULL)
 #define MAX_MATCHES 8192
@@ -64,36 +65,43 @@ static int scan_key_salt_pairs(int pid, char* out_buf, int out_cap, int* out_reg
 				vm_offset_t data = 0;
 				mach_msg_type_number_t data_count = 0;
 				kr = mach_vm_read(task, cur, chunk, &data, &data_count);
-				if (kr == KERN_SUCCESS && data != 0 && data_count > HEX_PATTERN_LEN + 3) {
+				if (kr == KERN_SUCCESS && data != 0 && data_count > MIN_HEX_PATTERN_LEN + 3) {
 					unsigned char* buf = (unsigned char*)data;
-					for (mach_msg_type_number_t i = 0; i + HEX_PATTERN_LEN + 3 < data_count; i++) {
+					for (mach_msg_type_number_t i = 0; i + MIN_HEX_PATTERN_LEN + 3 < data_count; i++) {
 						if (buf[i] != 'x' || buf[i+1] != '\'') continue;
-						int valid = 1;
-						for (int j = 0; j < HEX_PATTERN_LEN; j++) {
-							if (!is_hex_char(buf[i+2+j])) {
-								valid = 0;
-								break;
-							}
+						int hex_len = 0;
+						while (hex_len < MAX_HEX_PATTERN_LEN &&
+						       i + 2 + hex_len < data_count &&
+						       is_hex_char(buf[i+2+hex_len])) {
+							hex_len++;
 						}
-						if (!valid || buf[i+2+HEX_PATTERN_LEN] != '\'') continue;
+						if (hex_len < MIN_HEX_PATTERN_LEN ||
+						    hex_len % 2 != 0 ||
+						    i + 2 + hex_len >= data_count ||
+						    buf[i+2+hex_len] != '\'') continue;
+						if (hex_len != 64 && hex_len < 96) continue;
 
 						char key_hex[65];
 						char salt_hex[33];
 						memcpy(key_hex, buf+i+2, 64);
 						key_hex[64] = '\0';
-						memcpy(salt_hex, buf+i+2+64, 32);
-						salt_hex[32] = '\0';
+						if (hex_len >= 96) {
+							memcpy(salt_hex, buf+i+2+hex_len-32, 32);
+							salt_hex[32] = '\0';
+						} else {
+							salt_hex[0] = '\0';
+						}
 						lower_hex(key_hex, 64);
-						lower_hex(salt_hex, 32);
+						if (salt_hex[0] != '\0') lower_hex(salt_hex, 32);
 
 						char uniq[98];
+						memset(uniq, 0, sizeof(uniq));
 						memcpy(uniq, key_hex, 64);
 						uniq[64] = ',';
-						memcpy(uniq+65, salt_hex, 32);
-						uniq[97] = '\0';
+						if (salt_hex[0] != '\0') memcpy(uniq+65, salt_hex, 32);
 						int dup = 0;
 						for (int k = 0; k < seen_count; k++) {
-							if (memcmp(seen[k], uniq, 98) == 0) {
+							if (strcmp(seen[k], uniq) == 0) {
 								dup = 1;
 								break;
 							}
@@ -104,7 +112,8 @@ static int scan_key_salt_pairs(int pid, char* out_buf, int out_cap, int* out_reg
 							seen_count++;
 						}
 
-						int need = 64 + 1 + 32 + 1;
+						int salt_len = salt_hex[0] == '\0' ? 0 : 32;
+						int need = 64 + 1 + salt_len + 1;
 						if (out_len + need + 1 >= out_cap) {
 							mach_vm_deallocate(mach_task_self(), data, data_count);
 							return seen_count;
@@ -112,15 +121,17 @@ static int scan_key_salt_pairs(int pid, char* out_buf, int out_cap, int* out_reg
 						memcpy(out_buf+out_len, key_hex, 64);
 						out_len += 64;
 						out_buf[out_len++] = ',';
-						memcpy(out_buf+out_len, salt_hex, 32);
-						out_len += 32;
+						if (salt_len > 0) {
+							memcpy(out_buf+out_len, salt_hex, 32);
+							out_len += 32;
+						}
 						out_buf[out_len++] = '\n';
 						out_buf[out_len] = '\0';
 					}
 					mach_vm_deallocate(mach_task_self(), data, data_count);
 				}
-				if (chunk > HEX_PATTERN_LEN + 3) {
-					cur += chunk - (HEX_PATTERN_LEN + 3);
+				if (chunk > MAX_HEX_PATTERN_LEN + 3) {
+					cur += chunk - (MAX_HEX_PATTERN_LEN + 3);
 				} else {
 					cur += chunk;
 				}
@@ -207,19 +218,20 @@ func main() {
 	pairs := parsePairs(C.GoString((*C.char)(out)))
 	fmt.Fprintf(os.Stderr, "regions=%d pairs=%d\n", int(regions), len(pairs))
 
-	result := map[string]keyEntry{}
+	keySet := map[string]struct{}{}
 	for _, pair := range pairs {
-		dbList := saltToDBs[pair.salt]
-		if len(dbList) == 0 {
-			continue
-		}
-		keyBytes, err := hex.DecodeString(pair.key)
+		keySet[pair.key] = struct{}{}
+	}
+
+	result := map[string]keyEntry{}
+	for keyHex := range keySet {
+		keyBytes, err := hex.DecodeString(keyHex)
 		if err != nil || len(keyBytes) != keySize {
 			continue
 		}
-		for _, db := range dbList {
+		for _, db := range dbs {
 			if verifyKey(keyBytes, db.page1) {
-				result[db.rel] = keyEntry{EncKey: pair.key}
+				result[db.rel] = keyEntry{EncKey: keyHex}
 			}
 		}
 	}
@@ -251,7 +263,10 @@ func parsePairs(raw string) []pair {
 	out := make([]pair, 0, len(lines))
 	for _, line := range lines {
 		parts := strings.Split(strings.TrimSpace(line), ",")
-		if len(parts) != 2 || len(parts[0]) != 64 || len(parts[1]) != 32 {
+		if len(parts) != 2 || len(parts[0]) != 64 {
+			continue
+		}
+		if len(parts[1]) != 0 && len(parts[1]) != 32 {
 			continue
 		}
 		out = append(out, pair{key: parts[0], salt: parts[1]})

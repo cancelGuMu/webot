@@ -133,6 +133,7 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertIn("WECHAT_BACKEND=mac_hybrid", text)
         self.assertIn("all_keys.json", text)
         self.assertIn("tools/macos_chatlog_setup.py extract-keys", text)
+        self.assertIn("tools/macos_chatlog_setup.py import-keys", text)
         self.assertIn("tools/macos_chatlog_setup.py diagnose", text)
         self.assertIn("tools/macos_chatlog_setup.py build-chatlog", text)
         self.assertIn("tools/macos_chatlog_setup.py start-chatlog", text)

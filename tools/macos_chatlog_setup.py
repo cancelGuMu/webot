@@ -118,6 +118,40 @@ def count_valid_keys(path: Path) -> int:
     return count
 
 
+def normalize_key_entries(data: dict) -> dict[str, dict[str, str]]:
+    result = {}
+    for rel_path, value in data.items():
+        rel = str(rel_path).strip()
+        if not rel or rel.startswith("__"):
+            continue
+        key = ""
+        if isinstance(value, str):
+            key = value
+        elif isinstance(value, dict):
+            key = str(value.get("enc_key", ""))
+        key = key.strip().lower()
+        if not HEX_KEY_RE.fullmatch(key):
+            continue
+        result[rel] = {"enc_key": key}
+    return result
+
+
+def write_all_keys(data_dir: str, entries: dict[str, dict[str, str]]) -> Path:
+    if not entries:
+        raise RuntimeError("no valid key entries")
+    clean_dir = Path(data_dir).expanduser()
+    path = clean_dir / "all_keys.json"
+    encoded = json.dumps(entries, indent=2, ensure_ascii=False)
+    path.write_text(encoded, encoding="utf-8")
+    path.chmod(0o600)
+    try:
+        stat = clean_dir.stat()
+        os.chown(path, stat.st_uid, stat.st_gid)
+    except (AttributeError, OSError):
+        pass
+    return path
+
+
 def build_extract_command(scanner: str, pid: int, data_dir: str) -> list[str]:
     return ["sudo", scanner, "--pid", str(pid), "--data-dir", data_dir]
 
@@ -424,6 +458,41 @@ def extract_keys() -> int:
     return 0
 
 
+def import_keys(keys_file: str) -> int:
+    path = Path(keys_file).expanduser()
+    if not path.exists():
+        print(f"Key file not found: {path}", file=sys.stderr)
+        return 1
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"Could not read key file: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(data, dict):
+        print("Key file must contain a JSON object.", file=sys.stderr)
+        return 1
+
+    entries = normalize_key_entries(data)
+    if not entries:
+        print("No valid key entries found in key file.", file=sys.stderr)
+        return 1
+
+    pid = detect_wechat_pid()
+    data_dir = detect_data_dir(pid) or detect_data_dir_from_filesystem()
+    if not data_dir:
+        print("Could not detect the active WeChat account data dir.", file=sys.stderr)
+        return 1
+
+    try:
+        out = write_all_keys(data_dir, entries)
+    except Exception as exc:
+        print(f"Could not write all_keys.json: {exc}", file=sys.stderr)
+        return 1
+    print(f"all_keys={out}")
+    print(f"valid_key_entries={count_valid_keys(out)}")
+    return 0
+
+
 def print_build_chatlog() -> int:
     try:
         print(build_chatlog())
@@ -532,6 +601,7 @@ def main(argv: list[str] | None = None) -> int:
             "diagnose",
             "build-scanner",
             "extract-keys",
+            "import-keys",
             "build-chatlog",
             "start-chatlog",
             "stop-chatlog",
@@ -542,6 +612,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--chatlog-base-url", default=DEFAULT_CHATLOG_BASE_URL)
     parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--keys-file", default="wechat_keys.json")
     args = parser.parse_args(argv)
 
     if args.command == "diagnose":
@@ -551,6 +622,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "extract-keys":
         return extract_keys()
+    if args.command == "import-keys":
+        return import_keys(args.keys_file)
     if args.command == "build-chatlog":
         return print_build_chatlog()
     if args.command == "start-chatlog":

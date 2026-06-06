@@ -142,6 +142,9 @@ python3 tools/macos_chatlog_setup.py diagnose
 # 2. 提取当前账号的 all_keys.json（会触发 sudo 密码输入，不会打印 key 明文）
 python3 tools/macos_chatlog_setup.py extract-keys
 
+# 如果你已用 wechat-db-decrypt-macos 得到 wechat_keys.json，可导入为 all_keys.json
+python3 tools/macos_chatlog_setup.py import-keys --keys-file /path/to/wechat_keys.json
+
 # 3. 再次确认 valid_key_entries > 0
 python3 tools/macos_chatlog_setup.py diagnose
 

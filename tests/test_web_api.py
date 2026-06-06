@@ -1158,6 +1158,50 @@ class ApiConfigEndpointTests(unittest.TestCase):
                 f.unlink(missing_ok=True)
             tmp_dir.rmdir()
 
+    def test_save_config_updates_process_environment(self):
+        """Saved config is available to bot threads started in this process."""
+        tmp_dir = Path(tempfile.mkdtemp())
+        tmp_env = tmp_dir / ".env"
+        tmp_env.write_text(
+            "AI_BACKEND=deepseek\n"
+            "DEEPSEEK_API_KEY=old-key\n"
+            "DEEPSEEK_BASE_URL=https://api.deepseek.com\n"
+            "DEEPSEEK_MODEL=old-model\n",
+            encoding="utf-8",
+        )
+        save_body = json.dumps({
+            "ai_backend": "deepseek",
+            "deepseek_api_key": "new-key",
+            "deepseek_base_url": "https://proxy.example.com/v1",
+            "deepseek_model": "new-model",
+        }).encode()
+        try:
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("src.web.server._find_or_create_env",
+                      return_value=tmp_env),
+            ):
+                handler, sock = _build_handler(
+                    "/api/config", method="POST",
+                    body=save_body,
+                    headers={"Content-Type": "application/json",
+                             "Content-Length": str(len(save_body))},
+                )
+                parts = sock.get_response_text().split("\r\n\r\n", 1)
+                result = json.loads(parts[1])
+                self.assertTrue(result["ok"])
+                self.assertEqual(os.environ["DEEPSEEK_API_KEY"], "new-key")
+                self.assertEqual(
+                    os.environ["DEEPSEEK_BASE_URL"],
+                    "https://proxy.example.com/v1",
+                )
+                self.assertEqual(os.environ["DEEPSEEK_MODEL"], "new-model")
+        finally:
+            tmp_env.unlink(missing_ok=True)
+            for f in tmp_dir.glob("*"):
+                f.unlink(missing_ok=True)
+            tmp_dir.rmdir()
+
     def test_save_config_invalid_json_returns_error(self):
         """POST /api/config with malformed JSON returns error."""
         handler, sock = _build_handler(

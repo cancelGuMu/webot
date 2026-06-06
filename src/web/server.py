@@ -906,6 +906,9 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     tmp_path = env_path.with_suffix(".tmp")
                     tmp_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
                     os.replace(tmp_path, env_path)
+                    for key, val in updates.items():
+                        if val is not None:
+                            os.environ[key] = str(val)
                     self.send_json({
                         "ok": True,
                         "saved": list(seen),

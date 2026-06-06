@@ -30,6 +30,6 @@ if "%PYTHON%"=="" (
 )
 
 :: Launch the Python launcher
-%PYTHON% launcher.py %*
+%PYTHON% desktop.py %*
 pause
 exit /b 0

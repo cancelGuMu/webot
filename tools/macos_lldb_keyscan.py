@@ -169,12 +169,32 @@ def iter_hex_candidates(data: bytes):
             yield decoded
 
 
+def add_lldb_python_path(path: str = "") -> bool:
+    candidates = []
+    if path.strip():
+        candidates.append(path.strip())
+    try:
+        discovered = subprocess.check_output(["lldb", "-P"], text=True, timeout=5).strip()
+        if discovered:
+            candidates.append(discovered)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    changed = False
+    for candidate in candidates:
+        if candidate and candidate not in sys.path:
+            sys.path.insert(0, candidate)
+            changed = True
+    return changed
+
+
 def import_lldb():
+    add_lldb_python_path(os.getenv("LLDB_PYTHONPATH", ""))
     try:
         import lldb  # type: ignore
     except Exception as exc:
         print(f"lldb_import=error: {exc}", file=sys.stderr)
-        print("hint=Run with: PYTHONPATH=$(lldb -P) sudo -E /usr/bin/python3 tools/macos_lldb_keyscan.py", file=sys.stderr)
+        print("hint=Run with: sudo env PYTHONPATH=$(lldb -P) /usr/bin/python3 tools/macos_lldb_keyscan.py", file=sys.stderr)
         raise SystemExit(1) from exc
     return lldb
 

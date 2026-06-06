@@ -151,9 +151,11 @@ WeChat 123 me 80r REG 1,16 1 /tmp/other.db
             python_bin="/usr/bin/python3",
             pid=123,
             data_dir="/Users/me/xwechat_files/wxid_abc",
+            lldb_python_path="/Applications/Xcode.app/LLDB/Python",
         )
 
-        self.assertEqual(cmd[:3], ["sudo", "-E", "/usr/bin/python3"])
+        self.assertEqual(cmd[:3], ["sudo", "env", "PYTHONPATH=/Applications/Xcode.app/LLDB/Python"])
+        self.assertEqual(cmd[3], "/usr/bin/python3")
         self.assertIn("/tmp/macos_lldb_keyscan.py", cmd)
         self.assertIn("--pid", cmd)
         self.assertIn("123", cmd)
@@ -173,6 +175,32 @@ WeChat 123 me 80r REG 1,16 1 /tmp/other.db
             env["PYTHONPATH"],
             "/Applications/Xcode.app/LLDB/Python:/existing",
         )
+
+    def test_run_lldb_keyscan_invokes_sudo_env_pythonpath(self):
+        setup = _load_setup_module()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "macos_lldb_keyscan.py"
+            script.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            with (
+                patch.object(setup, "LLDB_SCANNER_SCRIPT", script),
+                patch.object(setup, "detect_wechat_pid", return_value=123),
+                patch.object(setup, "detect_data_dir", return_value="/Users/me/xwechat_files/wxid_abc"),
+                patch.object(setup, "detect_lldb_python_path", return_value="/Applications/Xcode.app/LLDB/Python"),
+                patch.object(setup, "resolve_lldb_python_bin", return_value="/usr/bin/python3"),
+                patch.object(setup, "count_valid_keys", return_value=0),
+                patch.object(setup.subprocess, "run") as run,
+            ):
+                run.return_value.returncode = 0
+
+                self.assertEqual(setup.run_lldb_keyscan(mode="aes-hook", duration=120), 0)
+
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[:3], ["sudo", "env", "PYTHONPATH=/Applications/Xcode.app/LLDB/Python"])
+        self.assertIn("--mode", cmd)
+        self.assertIn("aes-hook", cmd)
+        self.assertIn("--duration", cmd)
+        self.assertIn("120", cmd)
 
     def test_extract_keys_falls_back_to_lldb_when_mach_scanner_finds_no_keys(self):
         setup = _load_setup_module()

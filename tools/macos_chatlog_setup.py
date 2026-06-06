@@ -169,17 +169,19 @@ def build_lldb_extract_command(
     data_dir: str,
     mode: str = "scan",
     duration: int = 45,
+    lldb_python_path: str = "",
 ) -> list[str]:
-    cmd = [
-        "sudo",
-        "-E",
+    cmd = ["sudo", "env"]
+    if lldb_python_path.strip():
+        cmd.append(f"PYTHONPATH={lldb_python_path.strip()}")
+    cmd.extend([
         python_bin,
         str(script),
         "--pid",
         str(pid),
         "--data-dir",
         data_dir,
-    ]
+    ])
     if mode != "scan":
         cmd.extend(["--mode", mode])
     if mode == "aes-hook":
@@ -618,6 +620,7 @@ def run_lldb_keyscan(
         return 1
 
     python_bin = resolve_lldb_python_bin()
+    env = build_lldb_env(lldb_python_path)
     cmd = build_lldb_extract_command(
         LLDB_SCANNER_SCRIPT,
         python_bin,
@@ -625,8 +628,8 @@ def run_lldb_keyscan(
         data_dir,
         mode=mode,
         duration=duration,
+        lldb_python_path=env.get("PYTHONPATH", lldb_python_path),
     )
-    env = build_lldb_env(lldb_python_path)
     print(f"Running lldb key scanner ({mode}) with sudo. It will not print key material.")
     print("Command:", " ".join(cmd))
     result = subprocess.run(cmd, env=env, check=False)

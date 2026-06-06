@@ -1,6 +1,7 @@
 """Tests for the macOS LLDB key scanner's pure parsing helpers."""
 
 import importlib.util
+import sys
 from pathlib import Path
 
 
@@ -83,3 +84,19 @@ def test_first_register_value_supports_arm64_and_x86_64_names():
     assert scanner.first_register_value(FakeFrame({"x0": 17}), ["x0", "rdi"]) == 17
     assert scanner.first_register_value(FakeFrame({"rdi": 23}), ["x0", "rdi"]) == 23
     assert scanner.first_register_value(FakeFrame({}), ["x0", "rdi"]) == 0
+
+
+def test_add_lldb_python_path_discovers_lldb_p_path(monkeypatch):
+    scanner = _load_scanner_module()
+    original_path = list(sys.path)
+
+    def fake_check_output(cmd, text=True, timeout=5):
+        assert cmd == ["lldb", "-P"]
+        return "/tmp/lldb-python\n"
+
+    monkeypatch.setattr(scanner.subprocess, "check_output", fake_check_output)
+    try:
+        assert scanner.add_lldb_python_path("") is True
+        assert sys.path[0] == "/tmp/lldb-python"
+    finally:
+        sys.path[:] = original_path

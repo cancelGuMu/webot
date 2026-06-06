@@ -202,7 +202,7 @@ class DeepSeekSummarizer(AbstractSummarizer):
 
         def call():
             response = self.client.chat.completions.create(
-                model=self.MODEL_FLASH,  # Flash for chunk extraction (fast/cheap)
+                model=self.model,
                 max_tokens=1024,
                 messages=[
                     {"role": "system", "content": CHUNK_SYSTEM_PROMPT},
@@ -252,7 +252,7 @@ class DeepSeekSummarizer(AbstractSummarizer):
 
         def call():
             response = self.client.chat.completions.create(
-                model=self.MODEL_FLASH,
+                model=self.model,
                 max_tokens=2048,
                 messages=[
                     {"role": "system", "content": system_prompt},

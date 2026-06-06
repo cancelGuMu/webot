@@ -664,7 +664,8 @@ class _UIHandler(SimpleHTTPRequestHandler):
                          "/api/nicknames",
                          "/api/onboarding/reset",
                          "/api/onboarding/step1", "/api/onboarding/step2",
-                         "/api/onboarding/step3", "/api/onboarding/step4"):
+                         "/api/onboarding/step3", "/api/onboarding/step4",
+                         "/api/sandbox/test"):
             self.do_GET()
         else:
             self.send_response(405)
@@ -959,6 +960,68 @@ class _UIHandler(SimpleHTTPRequestHandler):
             except Exception as e:
                 logger.exception("Failed to save nickname")
                 self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Test AI prompt sandbox ──────────────────────────────
+        if self.path == "/api/sandbox/test":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len else b"{}"
+            try:
+                data = json.loads(body)
+                message = data.get("message", "").strip()
+                sender_name = data.get("sender_name", "张三").strip()
+                group_name = data.get("group_name", "技术交流群").strip()
+                group_memory = data.get("group_memory", "").strip()
+                context_messages = data.get("context_messages", [])
+
+                # Load config
+                from dotenv import load_dotenv
+                from src.config import find_env_file, load_config
+                from src.summarize import create_summarizer
+
+                env_path = find_env_file()
+                if env_path:
+                    load_dotenv(env_path, override=True)
+                else:
+                    load_dotenv(override=True)
+
+                config = load_config()
+
+                # Allow overrides from frontend sandbox inputs
+                if data.get("ai_backend"):
+                    config.ai_backend = data["ai_backend"]
+                if data.get("deepseek_api_key"):
+                    config.deepseek_api_key = data["deepseek_api_key"]
+                if data.get("deepseek_model"):
+                    config.deepseek_model = data["deepseek_model"]
+                if data.get("anthropic_api_key"):
+                    config.anthropic_api_key = data["anthropic_api_key"]
+                if data.get("summarize_model"):
+                    config.summarize_model = data["summarize_model"]
+
+                # Create summarizer
+                summarizer = create_summarizer(config)
+
+                # Call chat
+                reply = summarizer.chat(
+                    message=message,
+                    context_messages=context_messages,
+                    requester_name=sender_name,
+                    bot_name=config.bot_display_name or "群聊小助手",
+                    group_name=group_name,
+                    group_memory=group_memory,
+                )
+
+                self.send_json({
+                    "ok": True,
+                    "reply": reply,
+                })
+            except Exception as e:
+                logger.exception("Failed to run sandbox test")
+                self.send_json({
+                    "ok": False,
+                    "error": str(e),
+                })
             return
 
         # ── API: Get status ───────────────────────────────────────────

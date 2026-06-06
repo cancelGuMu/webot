@@ -45,6 +45,7 @@ def create_summarizer(config) -> AbstractSummarizer:
         return DeepSeekSummarizer(
             api_key=config.deepseek_api_key,
             model=config.deepseek_model,
+            base_url=config.deepseek_base_url,
             chunk_size=config.chunk_size,
         )
 

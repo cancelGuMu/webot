@@ -131,6 +131,7 @@ class BotConfig:
     # === DeepSeek ===
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-v4-flash"
+    deepseek_base_url: str = "https://api.deepseek.com"
 
     # === WeChat Backend ===
     wechat_backend: str = "wcdb"
@@ -309,6 +310,7 @@ def load_config() -> BotConfig:
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", "").strip(),
         "summarize_model": os.getenv("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001").strip(),
         "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
+        "deepseek_base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip(),
         # deepseek_model handled conditionally below (dataclass default)
         "wechat_backend": os.getenv("WECHAT_BACKEND", "wcdb").strip(),
         "wechat_groups": _decode_wechat_groups(os.getenv("WECHAT_GROUPS", "*")),

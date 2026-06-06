@@ -1202,11 +1202,16 @@ class _UIHandler(SimpleHTTPRequestHandler):
             wx_report = _platform_wechat_report()
 
             # 4. .env check
-            from src.config import find_env_file
-            project_root = Path(__file__).resolve().parent.parent.parent
-            env_path = find_env_file()
-            env_ok = bool(env_path and env_path.exists())
-            env_val = f"{env_path.name} 配置文件已存在" if env_ok else ".env 配置文件尚未创建"
+            # In frozen mode, __file__ is inside the read-only _MEIPASS
+            # extraction directory. Use PROJECT_ROOT from config.py which
+            # correctly resolves to the EXE directory when frozen.
+            if getattr(sys, "frozen", False):
+                project_root = Path(sys.executable).resolve().parent
+            else:
+                project_root = Path(__file__).resolve().parent.parent.parent
+            env_path = project_root / ".env"
+            env_ok = env_path.exists()
+            env_val = ".env 配置文件已存在" if env_ok else ".env 配置文件尚未创建"
 
             # 5. DB permissions check
             data_dir = project_root / "data"

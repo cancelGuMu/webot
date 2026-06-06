@@ -1,6 +1,6 @@
 # webot
 
-> 微信群聊 AI 助手 —— 原生读取微信数据库，零 Hook 零注入，安全不封号。
+> 微信群聊 AI 助手 —— 直读微信加密数据库 + 键盘模拟发送，支持 Windows 微信 4.x。
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue?style=flat-square&logo=windows" alt="Platform" />
@@ -90,6 +90,20 @@ AI 连续多次判断"不应该插话"时，会自动延长沉默时间（最高
 - **提示词沙箱**：模拟群聊场景测试 AI 回复，支持自定义上下文变量
 - **群友昵称**：管理群友的显示名称映射
 - **运行日志**：实时查看、按级别筛选（DEBUG/INFO/WARNING/ERROR）、关键词搜索高亮
+
+---
+
+## 支持的微信版本
+
+- **Windows**：微信 4.x（DRM 补丁偏移 `0x6e1f6`，微信更新后可能失效）
+- **macOS**：实验性支持（`mac_hybrid` / `mac_ui`，需本地 chatlog 服务）
+
+微信版本更新后，DRM 补丁偏移可能变化。如遇数据库无法打开，可通过环境变量覆盖：
+
+```env
+WCDB_PATCH_RVA=0x6e1f6    # 16 进制，补丁地址的相对虚拟地址
+WCDB_PATCH_BYTE=0x02      # 16 进制，补丁前该位置的期望字节值
+```
 
 ---
 
@@ -369,7 +383,13 @@ python tests/test_functional.py
 <details>
 <summary><strong>会被封号吗？</strong></summary>
 
-webot 只读取微信本地的加密数据库文件，通过键盘模拟发送消息。不注入进程、不 Hook 函数、不模拟网络协议。这是一种非常安全的只读方式，目前没有已知的封号案例。但任何第三方工具都有理论风险，请自行评估。
+webot 通过以下方式工作：
+
+1. **密钥提取**：使用 `wx_key.dll` 注入微信进程，在内存中捕获数据库解密密钥（仅首次配置时需要，之后密钥持久化到 `.env`）。
+2. **消息读取**：通过 `wcdb_api.dll` 配合 DRM 内存补丁，直接解密并读取微信本地的 `session.db`。
+3. **消息发送**：通过 Win32 `keybd_event` 键盘模拟操作微信窗口（Ctrl+F 搜索 → Ctrl+V 粘贴 → Enter 发送）。
+
+⚠️ **风险提示**：密钥提取涉及进程注入，DRM 补丁涉及绕过微信反篡改保护。这些操作属于微信用户协议中的灰色地带，理论上存在封号风险。目前尚无已知封号案例，但请自行评估。如果你的微信账号非常重要，建议谨慎使用。
 
 </details>
 

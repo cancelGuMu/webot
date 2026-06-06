@@ -45,12 +45,23 @@ class FakeMacAutomation:
         self.activated += 1
         return True
 
-    def open_chat(self, chat_name, prefer_group=False, sidebar_index=None):
+    def open_chat(
+        self,
+        chat_name,
+        prefer_group=False,
+        sidebar_index=None,
+        expected_title=None,
+        expected_is_group=False,
+        require_group_marker=False,
+    ):
         self.opened.append(chat_name)
         self.open_options.append({
             "chat_name": chat_name,
             "prefer_group": prefer_group,
             "sidebar_index": sidebar_index,
+            "expected_title": expected_title,
+            "expected_is_group": expected_is_group,
+            "require_group_marker": require_group_marker,
         })
         return True
 
@@ -296,6 +307,51 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertEqual(clicker.points, [(327, 378)])
         self.assertFalse(any(call["cmd"] == ["pbcopy"] for call in runner.calls))
 
+    def test_mac_ui_automation_open_chat_rejects_mismatched_ocr_title(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+        ])
+        clicker = FakeClicker()
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=clicker,
+            title_reader=lambda: ["honker233粉丝微信纯享版（31）"],
+        )
+
+        self.assertFalse(automation.open_chat(
+            "honker",
+            sidebar_index=0,
+            expected_title="honker",
+            expected_is_group=True,
+            require_group_marker=True,
+        ))
+
+        self.assertEqual(clicker.points, [(327, 310)])
+
+    def test_mac_ui_automation_open_chat_accepts_group_title_marker(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+        ])
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=FakeClicker(),
+            title_reader=lambda: ["honker (2)"],
+        )
+
+        self.assertTrue(automation.open_chat(
+            "honker",
+            sidebar_index=1,
+            expected_title="honker",
+            expected_is_group=True,
+            require_group_marker=True,
+        ))
+
     def test_mac_ui_automation_read_visible_texts_parses_json(self):
         runner = FakeRunner([
             FakeCompletedProcess(stdout='["Alice: hi", "", "Bob: ok"]')
@@ -457,6 +513,9 @@ class MacOSAdaptationTests(unittest.TestCase):
             "chat_name": "honker",
             "prefer_group": True,
             "sidebar_index": 1,
+            "expected_title": "honker",
+            "expected_is_group": True,
+            "require_group_marker": True,
         }])
         self.assertEqual(automation.sent, ["收到"])
 

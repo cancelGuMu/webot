@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import subprocess
+import tempfile
 import time
 import ctypes
 from ctypes import c_double, c_int64, c_void_p, Structure
@@ -30,10 +31,17 @@ class MacUIAutomation:
     backend free of Windows imports.
     """
 
-    def __init__(self, app_name: str | None = None, runner=None, clicker=None):
+    def __init__(
+        self,
+        app_name: str | None = None,
+        runner=None,
+        clicker=None,
+        title_reader=None,
+    ):
         self._app_name = app_name or os.getenv("MAC_WECHAT_APP_NAME", "WeChat")
         self._runner = runner or self._default_runner
         self._clicker = clicker or self._core_graphics_click
+        self._title_reader = title_reader or self._read_current_header_texts
 
     @staticmethod
     def _default_runner(cmd, input_text=None, timeout=5):
@@ -54,13 +62,23 @@ class MacUIAutomation:
         chat_name: str,
         prefer_group: bool = False,
         sidebar_index: int | None = None,
+        expected_title: str | None = None,
+        expected_is_group: bool = False,
+        require_group_marker: bool = False,
     ) -> bool:
         if not chat_name:
             return False
         if not self._bring_wechat_frontmost():
             return False
         if sidebar_index is not None:
-            return self._open_sidebar_chat(sidebar_index)
+            opened = self._open_sidebar_chat(sidebar_index)
+            if opened and expected_title:
+                return self._verify_current_chat_title(
+                    expected_title,
+                    expected_is_group=expected_is_group,
+                    require_group_marker=require_group_marker,
+                )
+            return opened
         if not self._open_start_chat_sheet():
             return False
         time.sleep(0.2)
@@ -80,6 +98,12 @@ class MacUIAutomation:
         if not self._click_screen(sheet["x"] + sheet["w"] - 54, sheet["y"] + sheet["h"] - 40):
             return False
         time.sleep(0.25)
+        if expected_title:
+            return self._verify_current_chat_title(
+                expected_title,
+                expected_is_group=expected_is_group,
+                require_group_marker=require_group_marker,
+            )
         return True
 
     def _open_sidebar_chat(self, sidebar_index: int) -> bool:
@@ -204,6 +228,120 @@ tell application "System Events"
 end tell
 '''
         return self._run_osascript(script, timeout=8)
+
+    def _verify_current_chat_title(
+        self,
+        expected_title: str,
+        expected_is_group: bool = False,
+        require_group_marker: bool = False,
+    ) -> bool:
+        texts = self._title_reader()
+        if self._texts_match_chat_title(
+            texts,
+            expected_title,
+            expected_is_group=expected_is_group,
+            require_group_marker=require_group_marker,
+        ):
+            return True
+        logger.warning(
+            "macOS WeChat title verification failed: expected=%r group=%s marker=%s texts=%s",
+            expected_title,
+            expected_is_group,
+            require_group_marker,
+            texts[:10],
+        )
+        return False
+
+    def _read_current_header_texts(self) -> list[str]:
+        geometry = self._get_wechat_geometry()
+        window = self._window_rect(geometry)
+        if not window:
+            return []
+
+        x = int(window["x"])
+        y = int(window["y"])
+        w = int(window["w"])
+        h = 140
+        tmp = tempfile.NamedTemporaryFile(prefix="webot_wechat_header_", suffix=".png", delete=False)
+        path = tmp.name
+        tmp.close()
+        try:
+            if not self._run(["screencapture", "-x", f"-R{x},{y},{w},{h}", path], timeout=5):
+                return []
+            script = '''
+import Foundation
+import Vision
+import AppKit
+
+let path = CommandLine.arguments[1]
+guard let image = NSImage(contentsOfFile: path),
+      let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+    print("[]")
+    exit(0)
+}
+
+var texts: [String] = []
+let request = VNRecognizeTextRequest { request, error in
+    let observations = request.results as? [VNRecognizedTextObservation] ?? []
+    for obs in observations {
+        guard let top = obs.topCandidates(1).first else { continue }
+        let text = top.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty {
+            texts.append(text)
+        }
+    }
+}
+request.recognitionLanguages = ["zh-Hans", "en-US"]
+request.recognitionLevel = .accurate
+try? VNImageRequestHandler(cgImage: cg, options: [:]).perform([request])
+let data = try! JSONSerialization.data(withJSONObject: texts, options: [])
+print(String(data: data, encoding: .utf8)!)
+'''
+            result = self._runner(["swift", "-", path], input_text=script, timeout=20)
+            if result.returncode != 0:
+                logger.warning("macOS title OCR failed: %s", result.stderr)
+                return []
+            data = json.loads(result.stdout or "[]")
+            return [str(item).strip() for item in data if str(item).strip()]
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("macOS title OCR failed: %s", exc)
+            return []
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+    @classmethod
+    def _texts_match_chat_title(
+        cls,
+        texts: list[str],
+        expected_title: str,
+        expected_is_group: bool = False,
+        require_group_marker: bool = False,
+    ) -> bool:
+        expected = cls._normalize_title(expected_title)
+        if not expected:
+            return False
+        for text in texts:
+            actual = cls._normalize_title(text)
+            if not actual:
+                continue
+            if require_group_marker:
+                if actual.startswith(expected + "(") or actual.startswith(expected + "（"):
+                    return True
+                continue
+            if expected_is_group:
+                if actual == expected or actual.startswith(expected + "(") or actual.startswith(expected + "（"):
+                    return True
+                continue
+            if actual == expected:
+                return True
+        return False
+
+    @staticmethod
+    def _normalize_title(value: str) -> str:
+        return "".join(str(value or "").strip().split())
 
     def _bring_wechat_frontmost(self) -> bool:
         if not self._run(["open", "-a", self._app_name], timeout=8):

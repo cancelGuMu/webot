@@ -118,12 +118,16 @@ class MacHybridBackend(AbstractWeChatBackend):
         target = self._chat_titles.get(chat_id, chat_id)
         if _looks_internal_chat_id(target):
             target = self._resolve_chat_title(chat_id) or target
+        is_group = self._chat_is_group.get(chat_id, str(chat_id).endswith("@chatroom"))
         prefer_group = self._should_prefer_group_result(chat_id, target)
         sidebar_index = self._session_order.get(chat_id)
         if target and not self._automation.open_chat(
             target,
             prefer_group=prefer_group,
             sidebar_index=sidebar_index,
+            expected_title=target,
+            expected_is_group=is_group,
+            require_group_marker=prefer_group,
         ):
             logger.warning("Failed to open macOS WeChat chat for send: %s", target)
             return False

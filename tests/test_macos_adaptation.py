@@ -288,6 +288,7 @@ class MacOSAdaptationTests(unittest.TestCase):
             runner=runner,
             clicker=clicker,
             title_reader=lambda: next(titles, []),
+            screen_text_reader=lambda rect: [],
         )
 
         self.assertTrue(automation.open_chat(
@@ -354,9 +355,41 @@ class MacOSAdaptationTests(unittest.TestCase):
         clicker = FakeClicker()
         automation = MacUIAutomation(app_name="WeChat", runner=runner, clicker=clicker)
 
+        automation._screen_text_reader = lambda rect: []
+
         self.assertTrue(automation.open_chat("honker", prefer_group=True))
 
         self.assertEqual(clicker.points, [(260, 228), (340, 228), (260, 510)])
+
+    def test_mac_ui_search_result_picker_prefers_group_section(self):
+        entries = [
+            {"text": "搜索网络结果", "x": 200, "y": 300, "w": 160, "h": 24},
+            {"text": "honker233粉丝微信纯享版", "x": 220, "y": 370, "w": 260, "h": 28},
+            {"text": "群聊", "x": 180, "y": 430, "w": 80, "h": 24},
+            {"text": "honker233粉丝微信纯享版", "x": 250, "y": 520, "w": 280, "h": 34},
+        ]
+
+        point = MacUIAutomation._search_result_click_point(
+            entries,
+            "honker233粉丝微信纯享版",
+            expected_is_group=True,
+        )
+
+        self.assertEqual(point, {"x": 390.0, "y": 537.0})
+
+    def test_mac_ui_search_result_picker_refuses_network_only_result(self):
+        entries = [
+            {"text": "搜索网络结果", "x": 200, "y": 300, "w": 160, "h": 24},
+            {"text": "honker233粉丝微信纯享版", "x": 220, "y": 370, "w": 260, "h": 28},
+        ]
+
+        point = MacUIAutomation._search_result_click_point(
+            entries,
+            "honker233粉丝微信纯享版",
+            expected_is_group=True,
+        )
+
+        self.assertIsNone(point)
 
     def test_mac_ui_automation_open_chat_retries_group_result_after_top_mismatch(self):
         runner = FakeRunner([
@@ -376,6 +409,7 @@ class MacOSAdaptationTests(unittest.TestCase):
             runner=runner,
             clicker=clicker,
             title_reader=lambda: next(titles, []),
+            screen_text_reader=lambda rect: [],
         )
 
         self.assertTrue(automation.open_chat(

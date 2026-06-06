@@ -42,11 +42,13 @@ class MacUIAutomation:
         runner=None,
         clicker=None,
         title_reader=None,
+        screen_text_reader=None,
     ):
         self._app_name = app_name or os.getenv("MAC_WECHAT_APP_NAME", "WeChat")
         self._runner = runner or self._default_runner
         self._clicker = clicker or self._core_graphics_click
         self._title_reader = title_reader or self._read_current_header_texts
+        self._screen_text_reader = screen_text_reader or self._recognize_screen_texts
 
     @staticmethod
     def _default_runner(cmd, input_text=None, timeout=5):
@@ -93,7 +95,11 @@ class MacUIAutomation:
                     require_group_marker=require_group_marker,
                 )
             return opened
-        if not self._open_existing_chat_from_search(chat_name, prefer_group=prefer_group):
+        if not self._open_existing_chat_from_search(
+            chat_name,
+            prefer_group=prefer_group,
+            expected_is_group=expected_is_group,
+        ):
             return False
         if expected_title:
             if self._verify_current_chat_title(
@@ -107,7 +113,11 @@ class MacUIAutomation:
                     "Retrying macOS WeChat search in group result section: %s",
                     chat_name,
                 )
-                if self._open_existing_chat_from_search(chat_name, prefer_group=True):
+                if self._open_existing_chat_from_search(
+                    chat_name,
+                    prefer_group=True,
+                    expected_is_group=expected_is_group,
+                ):
                     return self._verify_current_chat_title(
                         expected_title,
                         expected_is_group=expected_is_group,
@@ -132,8 +142,16 @@ class MacUIAutomation:
         time.sleep(0.25)
         return True
 
-    def _open_existing_chat_from_search(self, chat_name: str, prefer_group: bool = False) -> bool:
+    def _open_existing_chat_from_search(
+        self,
+        chat_name: str,
+        prefer_group: bool = False,
+        expected_is_group: bool = False,
+    ) -> bool:
         geometry = self._get_wechat_geometry()
+        if int(geometry.get("closed_aux_windows", 0) or 0) > 0:
+            time.sleep(0.2)
+            geometry = self._get_wechat_geometry()
         if self._modal_sheet_rect(geometry):
             if not self._press_escape():
                 return False
@@ -160,15 +178,133 @@ class MacUIAutomation:
         if not self._paste_clipboard(send=False):
             return False
         time.sleep(0.4)
-        if not self._click_screen(window["x"] + 160, self._existing_search_result_y(window, prefer_group)):
+
+        point = self._find_existing_chat_search_result(
+            window,
+            chat_name,
+            prefer_group=prefer_group,
+            expected_is_group=expected_is_group,
+        )
+        if not point:
+            return False
+        if not self._click_screen(point["x"], point["y"]):
             return False
         time.sleep(0.25)
         return True
 
-    @staticmethod
-    def _existing_search_result_y(window: dict, prefer_group: bool) -> float:
+    def _find_existing_chat_search_result(
+        self,
+        window: dict,
+        chat_name: str,
+        prefer_group: bool = False,
+        expected_is_group: bool = False,
+    ) -> dict | None:
+        rect = self._search_results_capture_rect(window)
+        entries = self._screen_text_reader(rect)
+        point = self._search_result_click_point(
+            entries,
+            chat_name,
+            prefer_group=prefer_group,
+            expected_is_group=expected_is_group,
+        )
+        if point:
+            return point
+
+        if self._has_search_network_result(entries):
+            logger.warning(
+                "Refusing to click macOS WeChat network search result for chat: %s",
+                chat_name,
+            )
+            return None
+
         offset = GROUP_CHAT_RESULT_Y_OFFSET if prefer_group else TOP_CHAT_RESULT_Y_OFFSET
-        return window["y"] + offset
+        return {"x": window["x"] + SEARCH_FIELD_X_OFFSET, "y": window["y"] + offset}
+
+    @staticmethod
+    def _search_results_capture_rect(window: dict) -> dict:
+        return {
+            "x": window["x"] + 120,
+            "y": window["y"] + 80,
+            "w": min(max(window["w"] - 120, 1), 560),
+            "h": min(max(window["h"] - 80, 1), 500),
+        }
+
+    @classmethod
+    def _search_result_click_point(
+        cls,
+        entries: list[dict],
+        chat_name: str,
+        prefer_group: bool = False,
+        expected_is_group: bool = False,
+    ) -> dict | None:
+        target = cls._normalize_title(chat_name)
+        if not target:
+            return None
+
+        labels = []
+        candidates = []
+        for entry in entries or []:
+            text = str(entry.get("text") or "").strip()
+            normalized = cls._normalize_title(text)
+            if not normalized:
+                continue
+            y = float(entry.get("y", 0))
+            item = {**entry, "text": text, "normalized": normalized, "y": y}
+            if normalized in {"群聊", "最常使用", "搜索网络结果"}:
+                labels.append(item)
+            if normalized == target:
+                candidates.append(item)
+
+        if not candidates:
+            return None
+
+        group_y = cls._label_y(labels, "群聊")
+        frequent_y = cls._label_y(labels, "最常使用")
+        network_y = cls._label_y(labels, "搜索网络结果")
+
+        if expected_is_group and group_y is not None:
+            group_candidates = [c for c in candidates if c["y"] > group_y]
+            if group_candidates:
+                return cls._entry_center(min(group_candidates, key=lambda c: c["y"]))
+
+        if prefer_group:
+            return None
+
+        if frequent_y is not None:
+            frequent_candidates = [
+                c for c in candidates
+                if c["y"] > frequent_y and (network_y is None or c["y"] < network_y)
+            ]
+            if frequent_candidates:
+                return cls._entry_center(min(frequent_candidates, key=lambda c: c["y"]))
+
+        if network_y is not None:
+            safe_candidates = [c for c in candidates if c["y"] < network_y]
+            if safe_candidates:
+                return cls._entry_center(min(safe_candidates, key=lambda c: c["y"]))
+            return None
+
+        return cls._entry_center(min(candidates, key=lambda c: c["y"]))
+
+    @classmethod
+    def _has_search_network_result(cls, entries: list[dict]) -> bool:
+        return any(
+            cls._normalize_title(str(entry.get("text") or "")) == "搜索网络结果"
+            for entry in entries or []
+        )
+
+    @classmethod
+    def _label_y(cls, entries: list[dict], label: str) -> float | None:
+        normalized = cls._normalize_title(label)
+        values = [float(entry["y"]) for entry in entries if entry.get("normalized") == normalized]
+        return min(values) if values else None
+
+    @staticmethod
+    def _entry_center(entry: dict) -> dict:
+        return {
+            "x": float(entry.get("x", 0)) + (float(entry.get("w", 0)) / 2),
+            "y": float(entry.get("y", 0)) + (float(entry.get("h", 0)) / 2),
+        }
 
     def read_visible_texts(self) -> list[str]:
         app = self._escape_jxa(self._app_name)
@@ -355,6 +491,88 @@ print(String(data: data, encoding: .utf8)!)
             except OSError:
                 pass
 
+    def _recognize_screen_texts(self, rect: dict) -> list[dict]:
+        valid = self._valid_rect(rect)
+        if not valid:
+            return []
+
+        x = int(valid["x"])
+        y = int(valid["y"])
+        w = int(valid["w"])
+        h = int(valid["h"])
+        tmp = tempfile.NamedTemporaryFile(prefix="webot_wechat_search_", suffix=".png", delete=False)
+        path = tmp.name
+        tmp.close()
+        try:
+            if not self._run(["screencapture", "-x", f"-R{x},{y},{w},{h}", path], timeout=5):
+                return []
+            script = '''
+import Foundation
+import Vision
+import AppKit
+
+let path = CommandLine.arguments[1]
+guard let image = NSImage(contentsOfFile: path),
+      let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+    print("[]")
+    exit(0)
+}
+
+var items: [[String: Any]] = []
+let request = VNRecognizeTextRequest { request, error in
+    let observations = request.results as? [VNRecognizedTextObservation] ?? []
+    for obs in observations {
+        guard let top = obs.topCandidates(1).first else { continue }
+        let text = top.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { continue }
+        let box = obs.boundingBox
+        items.append([
+            "text": text,
+            "x": Double(box.minX),
+            "y": Double(1.0 - box.maxY),
+            "w": Double(box.width),
+            "h": Double(box.height),
+        ])
+    }
+}
+request.recognitionLanguages = ["zh-Hans", "en-US"]
+request.recognitionLevel = .accurate
+try? VNImageRequestHandler(cgImage: cg, options: [:]).perform([request])
+let data = try! JSONSerialization.data(withJSONObject: items, options: [])
+print(String(data: data, encoding: .utf8)!)
+'''
+            result = self._runner(["swift", "-", path], input_text=script, timeout=20)
+            if result.returncode != 0:
+                logger.warning("macOS search OCR failed: %s", result.stderr)
+                return []
+            data = json.loads(result.stdout or "[]")
+            items = []
+            for item in data if isinstance(data, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text") or "").strip()
+                if not text:
+                    continue
+                try:
+                    items.append({
+                        "text": text,
+                        "x": valid["x"] + (float(item.get("x", 0)) * valid["w"]),
+                        "y": valid["y"] + (float(item.get("y", 0)) * valid["h"]),
+                        "w": float(item.get("w", 0)) * valid["w"],
+                        "h": float(item.get("h", 0)) * valid["h"],
+                    })
+                except (TypeError, ValueError):
+                    continue
+            return items
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("macOS search OCR failed: %s", exc)
+            return []
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
     @classmethod
     def _texts_match_chat_title(
         cls,
@@ -468,17 +686,34 @@ let result = {{}};
 try {{
   const windows = proc.windows();
   let mainWindow = null;
+  let closedAuxWindows = 0;
   for (let i = 0; i < windows.length; i += 1) {{
     try {{
-      if (windows[i].name() === "微信") {{
+      const name = String(windows[i].name() || "");
+      if (name === "微信") {{
         mainWindow = windows[i];
         break;
       }}
     }} catch (e) {{}}
   }}
+  if (mainWindow) {{
+    for (let i = 0; i < windows.length; i += 1) {{
+      try {{
+        const name = String(windows[i].name() || "");
+        if (name === "微信 (窗口)" || name.indexOf("搜一搜") >= 0 || name.endsWith(" - 搜一搜")) {{
+          const buttons = windows[i].buttons();
+          if (buttons.length > 0) {{
+            buttons[0].click();
+            closedAuxWindows += 1;
+          }}
+        }}
+      }} catch (e) {{}}
+    }}
+  }}
   if (!mainWindow && windows.length > 0) mainWindow = windows[0];
   if (mainWindow) {{
     result.window = rect(mainWindow);
+    result.closed_aux_windows = closedAuxWindows;
     try {{
       const sheets = mainWindow.sheets();
       if (sheets.length > 0) result.sheet = rect(sheets[0]);

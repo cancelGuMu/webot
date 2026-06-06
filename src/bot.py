@@ -348,8 +348,17 @@ class Bot:
                 store=store,
             )
 
+        if config.wechat_backend == "mac_hybrid":
+            from .wechat.mac_hybrid_backend import MacHybridBackend
+            return MacHybridBackend(
+                bot_display_name=config.bot_display_name,
+                groups=groups,
+                poll_sec=config.poll_interval_sec,
+                store=store,
+            )
+
         else:
             raise ValueError(
                 f"Unknown WECHAT_BACKEND: '{config.wechat_backend}'. "
-                f"Supported: wcdb, mac_ui."
+                f"Supported: wcdb, mac_ui, mac_hybrid."
             )

@@ -58,6 +58,18 @@ class FakeMacAutomation:
         return True
 
 
+class FakeChatlogClient:
+    def __init__(self, batches=None):
+        self.batches = list(batches or [])
+        self.calls = []
+
+    def get_new_messages(self, state=None, limit=200):
+        self.calls.append({"state": dict(state or {}), "limit": limit})
+        if self.batches:
+            return self.batches.pop(0)
+        return {"count": 0, "messages": [], "new_state": state or {}}
+
+
 class MacOSAdaptationTests(unittest.TestCase):
     def test_find_env_file_honors_explicit_env_file_override(self):
         from src.config import find_env_file
@@ -81,6 +93,19 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertEqual(backend.__class__.__name__, "MacUIBackend")
 
+    def test_bot_selects_mac_hybrid_backend_without_importing_wcdb(self):
+        cfg = BotConfig(
+            ai_backend="deepseek",
+            deepseek_api_key="sk-test",
+            wechat_backend="mac_hybrid",
+            wechat_groups="*",
+            bot_display_name="群聊小助手",
+        )
+
+        backend = Bot(cfg)._create_wechat_backend(store=None)
+
+        self.assertEqual(backend.__class__.__name__, "MacHybridBackend")
+
     def test_requirements_macos_omits_windows_only_packages(self):
         text = Path("requirements-macos.txt").read_text(encoding="utf-8")
         lowered = text.lower()
@@ -94,7 +119,9 @@ class MacOSAdaptationTests(unittest.TestCase):
         dashboard = Path("ui/src/components/Dashboard.jsx").read_text(encoding="utf-8")
 
         self.assertIn("value: 'mac_ui'", config_panel)
+        self.assertIn("value: 'mac_hybrid'", config_panel)
         self.assertIn("mac_ui", dashboard)
+        self.assertIn("mac_hybrid", dashboard)
         self.assertIn("macOS", config_panel)
 
     def test_readme_documents_macos_experimental_start(self):
@@ -103,6 +130,8 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertIn("requirements-macos.txt", text)
         self.assertIn("desktop_mac.py", text)
         self.assertIn("WECHAT_BACKEND=mac_ui", text)
+        self.assertIn("WECHAT_BACKEND=mac_hybrid", text)
+        self.assertIn("all_keys.json", text)
 
     def test_platform_dependency_report_for_macos_excludes_windows_deps(self):
         from src.web.server import _platform_dependency_report
@@ -183,6 +212,68 @@ class MacOSAdaptationTests(unittest.TestCase):
             automation.read_visible_texts(),
             ["Alice: hi", "Bob: ok"],
         )
+
+    def test_mac_hybrid_poll_once_reads_chatlog_messages_and_sends_reply(self):
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        client = FakeChatlogClient([
+            {
+                "count": 1,
+                "new_state": {"room1@chatroom": 1780727000},
+                "messages": [
+                    {
+                        "timestamp": 1780726999,
+                        "time": "06-06 14:30",
+                        "sender": "Alice",
+                        "type": "text",
+                        "content": "@群聊小助手 总结一下",
+                        "local_id": 42,
+                        "chat": "摸鱼群",
+                        "username": "room1@chatroom",
+                        "is_group": True,
+                        "chat_type": "group",
+                    }
+                ],
+            },
+            {
+                "count": 1,
+                "new_state": {"room1@chatroom": 1780727000},
+                "messages": [
+                    {
+                        "timestamp": 1780726999,
+                        "sender": "Alice",
+                        "type": "text",
+                        "content": "@群聊小助手 总结一下",
+                        "local_id": 42,
+                        "chat": "摸鱼群",
+                        "username": "room1@chatroom",
+                        "is_group": True,
+                    }
+                ],
+            },
+        ])
+        automation = FakeMacAutomation()
+        backend = MacHybridBackend(
+            bot_display_name="群聊小助手",
+            groups=["摸鱼群"],
+            poll_sec=0.01,
+            client=client,
+            automation=automation,
+        )
+        seen = []
+
+        backend.poll_once(lambda msg: seen.append(msg) or "收到")
+        backend.poll_once(lambda msg: seen.append(msg) or "不应发送")
+
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0]["message_id"], "mac-chatlog-room1@chatroom-42")
+        self.assertEqual(seen[0]["chat_id"], "room1@chatroom")
+        self.assertEqual(seen[0]["group_name"], "摸鱼群")
+        self.assertEqual(seen[0]["sender_name"], "Alice")
+        self.assertEqual(seen[0]["content"], "@群聊小助手 总结一下")
+        self.assertTrue(seen[0]["is_at_mentioned"])
+        self.assertEqual(automation.opened, ["摸鱼群"])
+        self.assertEqual(automation.sent, ["收到"])
 
 
 if __name__ == "__main__":

@@ -131,7 +131,29 @@ cd ui && npm install && npm run build && cd ..
 python desktop_mac.py
 ```
 
-macOS 路径会使用独立的 `.env.macos`，默认设置 `WECHAT_BACKEND=mac_ui`，不会覆盖 Windows 使用的 `.env`。首次发送或读取微信界面时，需要在系统设置中给终端或 Python 授权“辅助功能”权限。`mac_ui` 通过可见微信窗口自动化读取和发送消息，稳定性低于 Windows 的 WCDB 数据库直读模式。
+macOS 路径会使用独立的 `.env.macos`，默认设置 `WECHAT_BACKEND=mac_hybrid`，不会覆盖 Windows 使用的 `.env`。`mac_hybrid` 通过本地 chatlog 服务读取 macOS 微信数据库，再通过辅助功能发送消息；`mac_ui` 仍可作为只走界面自动化的兜底模式。
+
+macOS 读消息前需要先准备本地 chatlog 服务：
+
+```bash
+# 1. 确认微信已登录，SIP 已关闭；首次提取 key 需要管理员权限
+# 2. 参考 chatlog_alpha / wechat-db-decrypt-macos 提取当前账号的 all_keys.json
+# 3. 启动 chatlog HTTP 服务，默认监听 127.0.0.1:5030
+```
+
+`.env.macos` 中可显式配置：
+
+```env
+WECHAT_BACKEND=mac_hybrid
+CHATLOG_BASE_URL=http://127.0.0.1:5030
+```
+
+首次发送消息时，需要在系统设置中给终端或 Python 授权“辅助功能”权限。
+
+参考实现：
+[teest114514/chatlog_alpha](https://github.com/teest114514/chatlog_alpha)、
+[wechat-db-decrypt-macos](https://github.com/Thearas/wechat-db-decrypt-macos)、
+[macOS 微信自动化调研](https://blog.ax0x.ai/wechat-automation-macos)。
 
 ---
 
@@ -320,7 +342,7 @@ webot 只读取微信本地的加密数据库文件，通过键盘模拟发送�
 <details>
 <summary><strong>支持 macOS 吗？</strong></summary>
 
-Windows 仍是正式推荐平台。macOS 提供实验性的 `WECHAT_BACKEND=mac_ui` 路径，通过辅助功能和界面自动化操作微信窗口，不读取 macOS 微信数据库。它需要微信窗口可见，并且需要系统辅助功能授权，稳定性弱于 Windows 的 WCDB 数据库直读模式。
+Windows 仍是正式推荐平台。macOS 推荐实验性的 `WECHAT_BACKEND=mac_hybrid` 路径：读取由 chatlog 服务解密后的本地微信数据库，发送消息时再通过辅助功能操作微信窗口。它需要当前微信账号目录中存在 `all_keys.json`，并需要本地 chatlog HTTP 服务运行在 `CHATLOG_BASE_URL`。`WECHAT_BACKEND=mac_ui` 仍保留为界面自动化兜底，但不适合稳定读取聊天消息。
 
 </details>
 

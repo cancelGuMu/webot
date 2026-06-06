@@ -1,54 +1,61 @@
 import { useState, useRef, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Warning } from '@phosphor-icons/react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Warning, Eye, EyeSlash } from '@phosphor-icons/react'
 
 export const spring = { type: 'spring', stiffness: 200, damping: 25 }
 
 export function Field({ label, hint, error, children }) {
   return (
-    <div style={{ marginBottom: 24 }}>
-      <label className="block text-[15px] font-medium text-[#1F1F1F] mb-1.5">{label}</label>
+    <div style={{ marginBottom: 20 }}>
+      <label className="block text-[14px] font-semibold text-text-main mb-1.5">{label}</label>
       {children}
-      {hint && !error && <p className="text-xs text-[#B8B8B6] mt-1.5">{hint}</p>}
-      {error && <p className="text-xs text-[#9F2F2D] flex items-center gap-1 mt-1.5"><Warning size={12} />{error}</p>}
+      <AnimatePresence initial={false} mode="wait">
+        {error ? (
+          <motion.p
+            key="error"
+            initial={{ opacity: 0, height: 0, y: -4 }}
+            animate={{ opacity: 1, height: 'auto', y: 0 }}
+            exit={{ opacity: 0, height: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="text-xs text-[#d45656] flex items-center gap-1 mt-1.5 overflow-hidden"
+          >
+            <Warning size={12} />{error}
+          </motion.p>
+        ) : hint ? (
+          <motion.p
+            key="hint"
+            initial={{ opacity: 0, height: 0, y: -4 }}
+            animate={{ opacity: 1, height: 'auto', y: 0 }}
+            exit={{ opacity: 0, height: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="text-xs text-text-muted mt-1.5 overflow-hidden"
+          >
+            {hint}
+          </motion.p>
+        ) : null}
+      </AnimatePresence>
     </div>
   )
 }
 
 export function Toggle({ enabled, onChange }) {
-  const w = 64, d = 24, mx = 5, my = 3
-  const travel = w - d - mx * 2
-
   return (
-    <motion.button
-      whileTap={{ scale: 0.96 }}
+    <button
+      type="button"
       onClick={() => onChange(!enabled)}
-      className="relative rounded-full shrink-0 transition-colors duration-300"
-      style={{
-        width: w, height: d + my * 2,
-        backgroundColor: enabled ? 'rgb(52 101 56 / 0.12)' : '#EBEBE9',
-        border: enabled ? '1px solid rgb(52 101 56 / 0.28)' : '1px solid #D4D4D2',
-      }}
+      className={`relative w-11 h-6 rounded-full shrink-0 transition-colors duration-200 border cursor-pointer outline-none focus:ring-2 focus:ring-brand-green/20
+        ${enabled ? 'bg-brand-green-light border-brand-green/30' : 'bg-bg-raised border-border-main'}`}
     >
-      <span
-        className="absolute text-[11px] font-semibold select-none pointer-events-none"
-        style={{ left: mx + 2, top: '50%', transform: 'translateY(-50%)', color: '#346538', opacity: enabled ? 1 : 0, transition: 'opacity 0.15s' }}
-      >ON</span>
-      <span
-        className="absolute text-[11px] font-semibold select-none pointer-events-none"
-        style={{ right: mx + 2, top: '50%', transform: 'translateY(-50%)', color: '#B0B0AE', opacity: enabled ? 0 : 1, transition: 'opacity 0.15s' }}
-      >OFF</span>
-      <motion.div
-        animate={{ x: enabled ? travel : 0 }}
-        transition={spring}
-        className="absolute rounded-full"
-        style={{
-          top: my, left: mx,
-          width: d, height: d,
-          backgroundColor: enabled ? '#346538' : '#B0B0AE',
+      <motion.span
+        layout
+        transition={{ type: 'spring', stiffness: 500, damping: 28 }}
+        className="absolute top-0.5 left-0.5 w-4.5 h-4.5 rounded-full shadow-sm"
+        animate={{
+          x: enabled ? 20 : 0,
+          backgroundColor: enabled ? '#18E299' : 'rgba(136, 136, 136, 0.6)',
         }}
       />
-    </motion.button>
+    </button>
   )
 }
 
@@ -69,15 +76,15 @@ export function Select({ value, onChange, options }) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full bg-[#F9F9F8] border border-[#E0E0DE] rounded-lg pl-4 pr-10 py-2.5 text-[15px] text-[#1F1F1F]
-                   focus:outline-none focus:border-[#C5DAC2] focus:ring-1 focus:ring-[#346538]/15
+        className="w-full bg-bg-raised border border-border-main rounded-full px-5 py-2.5 text-[14px] text-text-main
+                   focus:outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/15
                    transition-all duration-200 cursor-pointer text-left
-                   hover:border-[#D0D0CE]"
+                   hover:border-text-muted/30 dark:hover:border-text-muted/40"
       >
         {selected ? `${selected.value}  ·  ${selected.desc}` : value}
       </button>
       <span
-        className="absolute right-3 top-1/2 pointer-events-none select-none text-[#B8B8B6] text-lg font-mono transition-all duration-200"
+        className="absolute right-5 top-1/2 pointer-events-none select-none text-text-muted text-lg font-mono transition-all duration-200"
         style={{ transform: open ? 'translateY(-55%) rotate(90deg)' : 'translateY(-55%) rotate(0deg)' }}
       >&#8250;</span>
 
@@ -85,21 +92,21 @@ export function Select({ value, onChange, options }) {
         <motion.div
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="absolute z-50 left-0 right-0 mt-1 bg-white border border-[#EAEAEA] rounded-lg shadow-[0_4px_16px_rgba(0,0,0,0.06)] overflow-hidden"
+          className="absolute z-50 left-0 right-0 mt-1.5 bg-bg-card border border-border-main rounded-2xl shadow-xl overflow-hidden"
         >
           {options.map(opt => (
             <button
               key={opt.value}
               type="button"
               onClick={() => { onChange(opt.value); setOpen(false) }}
-              className={`w-full text-left px-4 py-2.5 text-[15px] transition-colors flex items-center gap-3 font-mono
-                ${value === opt.value ? 'bg-[#EDF3EC] text-[#346538]' : 'text-[#1F1F1F] hover:bg-[#F7F6F3]'}`}
+              className={`w-full text-left px-5 py-2.5 text-[14px] transition-colors flex items-center gap-3 font-mono cursor-pointer
+                ${value === opt.value ? 'bg-brand-green-light text-brand-green-hover dark:text-brand-green font-semibold' : 'text-text-main hover:bg-bg-raised'}`}
             >
               <span className="w-[72px] shrink-0 font-semibold">{opt.value}</span>
-              <span className="w-[4px] shrink-0 text-[#D0D0CE]">·</span>
+              <span className="w-[4px] shrink-0 opacity-40 text-text-muted">·</span>
               <span className="w-[80px] shrink-0">{opt.desc}</span>
-              <span className="w-[4px] shrink-0 text-[#D0D0CE]">·</span>
-              <span className="text-[#787774] truncate">{opt.hint}</span>
+              <span className="w-[4px] shrink-0 opacity-40 text-text-muted">·</span>
+              <span className="text-text-muted truncate">{opt.hint}</span>
             </button>
           ))}
         </motion.div>
@@ -109,18 +116,32 @@ export function Select({ value, onChange, options }) {
 }
 
 export function Input({ type = 'text', value, onChange, placeholder }) {
+  const [showPassword, setShowPassword] = useState(false)
+  const isPassword = type === 'password'
+
   return (
-    <motion.input
-      whileFocus={{ scale: 1.003 }}
-      type={type}
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="w-full bg-[#F9F9F8] border border-[#E0E0DE] rounded-lg px-4 py-2.5 text-[15px] text-[#1F1F1F]
-                 placeholder:text-[#C8C8C6] font-mono tabular-nums
-                 focus:outline-none focus:border-[#C5DAC2] focus:ring-1 focus:ring-[#346538]/15
-                 transition-all duration-200
-                 hover:border-[#D0D0CE]"
-    />
+    <div className="relative w-full flex items-center">
+      <motion.input
+        whileFocus={{ scale: 1.001 }}
+        type={isPassword ? (showPassword ? 'text' : 'password') : type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`w-full bg-bg-raised border border-border-main rounded-full pl-5 ${isPassword ? 'pr-12' : 'pr-5'} py-2.5 text-[14px] text-text-main
+                   placeholder:text-text-muted/65 font-mono tabular-nums
+                   focus:outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/15
+                   transition-all duration-200
+                   hover:border-text-muted/30 dark:hover:border-text-muted/40`}
+      />
+      {isPassword && (
+        <button
+          type="button"
+          onClick={() => setShowPassword(!showPassword)}
+          className="absolute right-4 text-text-muted hover:text-text-main focus:outline-none transition-colors cursor-pointer"
+        >
+          {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
+        </button>
+      )}
+    </div>
   )
 }

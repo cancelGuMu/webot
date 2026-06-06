@@ -1,18 +1,58 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Expose custom theme variables to Tailwind */
+  --color-bg-main: var(--bg-main);
+  --color-bg-card: var(--bg-card);
+  --color-bg-raised: var(--bg-raised);
+  --color-text-main: var(--text-main);
+  --color-text-muted: var(--text-muted);
+  --color-border-main: var(--border-main);
+  --color-brand-green: #18E299;
+  --color-brand-green-hover: #0fa76e;
+  --color-brand-green-light: var(--brand-green-light);
+}
+
+:root {
+  /* Light Mode (正常模式 - 浅色 - Mintlify Pure White Paper) */
+  --bg-main: #ffffff;
+  --bg-card: #ffffff;
+  --bg-raised: #fafafa;
+  --text-main: #0d0d0d;
+  --text-muted: #666666;
+  --border-main: rgba(0, 0, 0, 0.05); /* Mintlify Signature 5% Opacity Border */
+  --brand-green-light: #d4fae8;
+}
+
+.dark {
+  /* Dark Mode (夜航控制台 - 深色 - Mintlify Near Black) */
+  --bg-main: #0d0d0d;
+  --bg-card: #141414;
+  --bg-raised: #1c1c1c;
+  --text-main: #ededed;
+  --text-muted: #a0a0a0;
+  --border-main: rgba(255, 255, 255, 0.08); /* Mintlify Dark 8% Opacity Border */
+  --brand-green-light: rgba(24, 226, 153, 0.15);
 }
 
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #F7F6F3;
-  color: #1F1F1F;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+/* Customized sleek scrollbar responsive to theme */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #E0E0DE; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #C8C8C6; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-main);
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover { background: #18E299; }

@@ -21,6 +21,11 @@ from .base import AbstractWeChatBackend, MessageCallback
 logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_SEC = 1.0
+SEARCH_FIELD_X_OFFSET = 160
+SEARCH_FIELD_Y_OFFSET = 28
+SEARCH_CLEAR_X_OFFSET = 240
+TOP_CHAT_RESULT_Y_OFFSET = 108
+GROUP_CHAT_RESULT_Y_OFFSET = 310
 
 
 class MacUIAutomation:
@@ -91,11 +96,24 @@ class MacUIAutomation:
         if not self._open_existing_chat_from_search(chat_name, prefer_group=prefer_group):
             return False
         if expected_title:
-            return self._verify_current_chat_title(
+            if self._verify_current_chat_title(
                 expected_title,
                 expected_is_group=expected_is_group,
                 require_group_marker=require_group_marker,
-            )
+            ):
+                return True
+            if not prefer_group and expected_is_group:
+                logger.info(
+                    "Retrying macOS WeChat search in group result section: %s",
+                    chat_name,
+                )
+                if self._open_existing_chat_from_search(chat_name, prefer_group=True):
+                    return self._verify_current_chat_title(
+                        expected_title,
+                        expected_is_group=expected_is_group,
+                        require_group_marker=require_group_marker,
+                    )
+            return False
         return True
 
     def _open_sidebar_chat(self, sidebar_index: int) -> bool:
@@ -125,7 +143,16 @@ class MacUIAutomation:
         if not window:
             logger.warning("Could not locate WeChat main window for existing chat search")
             return False
-        if not self._click_screen(window["x"] + 160, window["y"] + 56):
+        if not self._click_screen(
+            window["x"] + SEARCH_FIELD_X_OFFSET,
+            window["y"] + SEARCH_FIELD_Y_OFFSET,
+        ):
+            return False
+        time.sleep(0.1)
+        if not self._click_screen(
+            window["x"] + SEARCH_CLEAR_X_OFFSET,
+            window["y"] + SEARCH_FIELD_Y_OFFSET,
+        ):
             return False
         time.sleep(0.1)
         if not self._run(["pbcopy"], input_text=chat_name):
@@ -140,7 +167,8 @@ class MacUIAutomation:
 
     @staticmethod
     def _existing_search_result_y(window: dict, prefer_group: bool) -> float:
-        return window["y"] + (244 if prefer_group else 176)
+        offset = GROUP_CHAT_RESULT_Y_OFFSET if prefer_group else TOP_CHAT_RESULT_Y_OFFSET
+        return window["y"] + offset
 
     def read_visible_texts(self) -> list[str]:
         app = self._escape_jxa(self._app_name)
@@ -205,6 +233,9 @@ JSON.stringify([...new Set(values)]);
         if not self._click_screen(window["x"] + (window["w"] * 0.68), window["y"] + window["h"] - 44):
             return False
         time.sleep(0.1)
+        if not self._select_focused_text():
+            return False
+        time.sleep(0.05)
         if not self._run(["pbcopy"], input_text=content):
             return False
         return self._paste_clipboard(send=True)
@@ -400,6 +431,16 @@ JSON.stringify({front: name});
             '''
 tell application "System Events"
   key code 53
+end tell
+''',
+            timeout=3,
+        )
+
+    def _select_focused_text(self) -> bool:
+        return self._run_osascript(
+            '''
+tell application "System Events"
+  keystroke "a" using command down
 end tell
 ''',
             timeout=3,

@@ -31,5 +31,6 @@ if "%PYTHON%"=="" (
 
 :: Launch the desktop application
 %PYTHON% desktop.py %*
+set EXITCODE=%ERRORLEVEL%
 pause
-exit /b 0
+exit /b %EXITCODE%

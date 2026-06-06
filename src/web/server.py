@@ -1052,6 +1052,115 @@ class _UIHandler(SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "onboarding_done": done, "steps": steps})
             return
 
+        # ── API: Onboarding diagnostics check ─────────────────────────
+        if self.path == "/api/onboarding/diagnose":
+            import sys
+            from pathlib import Path
+
+            # 1. Python check
+            python_ok = sys.version_info >= (3, 8)
+            python_val = f"Python {sys.version.split()[0]}"
+
+            # 2. Requirements check
+            missing_reqs = []
+            req_mapping = {
+                "dotenv": "python-dotenv",
+                "anthropic": "anthropic",
+                "openai": "openai",
+                "pydantic": "pydantic",
+                "uiautomation": "uiautomation",
+                "win32api": "pywin32",
+                "comtypes": "comtypes",
+                "webview": "pywebview",
+                "PIL": "Pillow",
+                "psutil": "psutil",
+                "pyperclip": "pyperclip"
+            }
+
+            ddgs_ok = False
+            try:
+                from ddgs import DDGS
+                ddgs_ok = True
+            except ImportError:
+                try:
+                    from duckduckgo_search import DDGS
+                    ddgs_ok = True
+                except ImportError:
+                    pass
+            if not ddgs_ok:
+                missing_reqs.append("ddgs")
+
+            for mod, pkg in req_mapping.items():
+                try:
+                    __import__(mod)
+                except ImportError:
+                    missing_reqs.append(pkg)
+
+            reqs_ok = len(missing_reqs) == 0
+            reqs_val = "所有依赖已安装" if reqs_ok else f"缺少依赖: {', '.join(missing_reqs)}"
+
+            # 3. WeChat PID check
+            try:
+                from src.wechat.native.injector import _find_wechat_pid
+                wx_pid, wx_name = _find_wechat_pid()
+                wx_ok = wx_pid is not None
+                wx_val = f"微信运行中 (PID {wx_pid})" if wx_ok else "微信未运行"
+            except Exception as e:
+                wx_ok = False
+                wx_val = f"微信检测出错: {e}"
+
+            # 4. .env check
+            project_root = Path(__file__).resolve().parent.parent.parent
+            env_path = project_root / ".env"
+            env_ok = env_path.exists()
+            env_val = ".env 配置文件已存在" if env_ok else ".env 配置文件尚未创建"
+
+            # 5. DB permissions check
+            data_dir = project_root / "data"
+            db_perm_ok = True
+            db_perm_err = None
+            try:
+                data_dir.mkdir(parents=True, exist_ok=True)
+                test_file = data_dir / ".write_test"
+                test_file.write_text("test", encoding="utf-8")
+                test_file.unlink()
+            except Exception as e:
+                db_perm_ok = False
+                db_perm_err = str(e)
+
+            # Check read permission to WeChat db path if it's set/detected
+            db_path = None
+            with _onboarding_lock:
+                db_path = _onboarding_data.get("db_path")
+            if not db_path:
+                _, detected_db = _detect_wxid_and_db_path()
+                if detected_db:
+                    db_path = detected_db
+
+            if db_path:
+                db_path_obj = Path(db_path)
+                if db_path_obj.exists():
+                    try:
+                        with open(db_path_obj, "rb") as f:
+                            f.read(100)
+                    except Exception as e:
+                        db_perm_ok = False
+                        db_perm_err = f"微信数据库读取失败: {e}"
+
+            db_perm_val = "数据库读写权限正常" if db_perm_ok else f"数据库权限错误: {db_perm_err}"
+
+            self.send_json({
+                "ok": True,
+                "diagnostics": {
+                    "python": {"ok": python_ok, "value": python_val, "error": None},
+                    "requirements": {"ok": reqs_ok, "value": reqs_val, "missing": missing_reqs},
+                    "wechat": {"ok": wx_ok, "value": wx_val, "error": None if wx_ok else "请登录微信电脑端"},
+                    "env": {"ok": env_ok, "value": env_val, "error": None},
+                    "db": {"ok": db_perm_ok, "value": db_perm_val, "error": db_perm_err}
+                }
+            })
+            return
+
         # ── API: Onboarding step 1 - start extraction (async) ─────────
         if self.path == "/api/onboarding/step1":
             with _step1_lock:

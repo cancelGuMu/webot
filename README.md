@@ -8,6 +8,7 @@
   <img src="https://img.shields.io/badge/AI-Claude%20%7C%20DeepSeek-purple?style=flat-square" alt="AI Backend" />
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/ui-React%20%2B%20Tailwind-cyan?style=flat-square&logo=react" alt="UI" />
+  <img src="https://img.shields.io/badge/tests-241%20passed-success?style=flat-square" alt="Tests" />
 </p>
 
 ---
@@ -20,7 +21,7 @@ webot 是一个运行在 Windows 上的微信群聊机器人。把它加入你�
 - **回应你的提问** —— **@机器人** 问任何问题，它会结合群聊上下文和联网搜索来回答。
 - **自然参与群聊** —— 感知聊天节奏，在合适的时候自动插话、接梗、吐槽，像个普通群友。
 
-内置 **Web 仪表盘**（React + Tailwind CSS），实时查看运行状态、处理消息量、AI 延迟。可打包为单个 EXE，双击即用。
+内置 **Web 仪表盘**（React + Tailwind CSS），实时查看运行状态、处理消息量、AI 延迟。内置暗色/亮色双主题，配置导入导出。可打包为单个 EXE，双击即用。
 
 ---
 
@@ -28,11 +29,11 @@ webot 是一个运行在 Windows 上的微信群聊机器人。把它加入你�
 
 ### 智能总结
 
-发送以下关键词即可触发总结：`总结一下`、`前面说了什么`、`聊天总结`、`说了啥`、`发生了什么`、`summarize` 等。
+发送以下关键词即可触发总结：`总结一下`、`前面说了什么`、`聊天总结`、`说了啥`、`发生了什么`、`summarize` 等（可在仪表盘自定义）。
 
 机器人会自动找到你上一条消息的位置，把之后所有群聊内容交给 AI，生成一份结构化摘要：谁说了什么、讨论了哪些话题、有什么决定和趣事。
 
-对话特别长（999+ 条消息）时，会自动分块处理，不会超出 AI 的上下文限制。
+对话特别长（999+ 条消息）时，会自动分块处理，不会超出 AI 的上下文限制。支持在仪表盘一键开关总结功能、调整回溯时长（1-72 小时）、增删触发关键词。
 
 ### AI 对话
 
@@ -40,6 +41,11 @@ webot 是一个运行在 Windows 上的微信群聊机器人。把它加入你�
 
 - 自动附上最近 10 分钟的群聊记录作为上下文，让回答更贴合当前话题。
 - 支持 **Claude** 和 **DeepSeek** 两种 AI 后端，随时切换。
+- **DeepSeek 自定义 API 地址**：支持配置 `DEEPSEEK_BASE_URL`，可使用代理、第三方 API 或私有部署。
+
+### 提示词沙箱
+
+内置 Prompt Sandbox，无需在真实群里发消息即可测试 AI 回复效果。支持自定义模拟发送人、群聊名称、长期群聊记忆，所见即所得的测试 AI 的表现和延迟。
 
 ### 主动发言（可开关）
 
@@ -65,19 +71,25 @@ AI 连续多次判断"不应该插话"时，会自动延长沉默时间（最高
 
 ### 昵称系统
 
-群友的微信号（wxid_xxx）自动替换为显示名。你也可以手动给群友设昵称（见下方管理命令）。
+群友的微信号（wxid_xxx）自动替换为显示名。你也可以手动给群友设昵称（见下方管理命令）。群名也会自动持久化，下拉框显示人类可读的群名称（如「摸鱼群」）而非 chat_id。
 
 ### 趣味功能
 
 对机器人说「**抽签**」，随机抽取一支运势签（大吉~凶，5 档加权），附带幽默解读。
 
+### 配置备份与导入
+
+仪表盘支持一键导出当前配置为 JSON 文件，也可以通过上传 JSON 备份恢复配置。方便迁移、分享配置、多环境切换。
+
 ### Web 仪表盘
 
-机器人启动后自动打开 `http://127.0.0.1:7327`，提供：
+机器人启动后自动打开 `http://127.0.0.1:7327`，包含五大模块：
 
-- **运行状态**：是否运行中、运行时长、已处理消息数、AI 后端延迟
-- **系统配置**：在线修改 AI 后端、API Key、机器人名称、功能开关等
-- **运行日志**：实时查看最近 500 条日志
+- **Dashboard 运行看板**：实时指标卡片（已处理消息、运行时长、API 延迟）、SVG 动态波形图、一键诊断（Python 环境 / 依赖 / 微信进程 / DLL 文件 / 数据库连接）
+- **系统配置**：在线修改 AI 后端、API Key、机器人身份、功能开关、触发关键词等
+- **提示词沙箱**：模拟群聊场景测试 AI 回复，支持自定义上下文变量
+- **群友昵称**：管理群友的显示名称映射
+- **运行日志**：实时查看、按级别筛选（DEBUG/INFO/WARNING/ERROR）、关键词搜索高亮
 
 ---
 
@@ -109,7 +121,7 @@ python desktop.py
 
 ## 配置说明
 
-所有配置在项目根目录的 `.env` 文件中设置。首次运行会自动创建模板。
+所有配置在项目根目录的 `.env` 文件中设置。首次运行会自动创建模板。大部分配置也可以在仪表盘中在线修改。
 
 ### 必填项
 
@@ -128,6 +140,10 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
 ### AI 模型选择
 
 ```env
+# DeepSeek 自定义 API 地址（可选，默认官方地址）
+# 可用于代理转发、第三方 API、私有部署
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+
 # DeepSeek 模型
 DEEPSEEK_MODEL=deepseek-v4-flash     # v4-flash（推荐）：极速低价
                                       # v4-pro：1M 上下文旗舰
@@ -150,10 +166,16 @@ WECHAT_GROUPS=
 ADMIN_WXID=
 ```
 
-### 触发关键词
+### 总结功能
 
 ```env
-# 发送这些词触发总结（逗号分隔，不区分大小写）
+# 是否启用总结功能（true/false，也可在仪表盘一键开关）
+SUMMARIZE_ENABLED=true
+
+# 兜底总结窗口（小时），找不到请求者的上一条消息时，向前看多少小时
+FALLBACK_WINDOW_HOURS=8
+
+# 触发关键词（逗号分隔，不区分大小写，可在仪表盘在线增删）
 TRIGGER_KEYWORDS=总结一下,之前发了什么,错过了什么,summarize,what did i miss,聊天总结,帮我总结,前面说了什么,说了啥,发生了什么
 ```
 
@@ -201,9 +223,6 @@ MAX_MESSAGES_FOR_SUMMARY=5000
 
 # Map-Reduce 分块大小（每条消息约 3~4 字的中文文本）
 CHUNK_SIZE=400
-
-# 兜底总结窗口（小时），找不到请求者的上一条消息时，向前看多少小时
-FALLBACK_WINDOW_HOURS=8
 ```
 
 ### 日志
@@ -225,6 +244,25 @@ LOG_FILE=data/bot.log         # 留空则只输出到控制台
 | `删除昵称 wxid` | 删除已设昵称 | `删除昵称 wxid_abc` |
 | `刷新昵称` | 重新加载昵称缓存 | |
 | `帮助` / `help` | 查看全部命令 | |
+
+---
+
+## 测试
+
+项目包含完整的测试套件：
+
+```bash
+# 单元测试（37 个测试用例）
+python -m pytest tests/test_trigger.py tests/test_config.py -v
+
+# 全量测试（241 个测试用例，包含 Web API）
+python -m pytest tests/ -v
+
+# E2E 功能测试（需 Playwright + Chromium）
+python tests/test_functional.py
+```
+
+测试覆盖：配置加载、触发词检测、Web API 端点、WebSocket、前端浏览器自动化、消息路由、密钥提取。
 
 ---
 
@@ -252,7 +290,7 @@ webot 只读取微信本地的加密数据库文件，通过键盘模拟发送�
 - **Claude Haiku 4.5**：快速廉价，适合总结和简单对话。
 - **Claude Sonnet 4.6**：更高质量，适合复杂分析。
 
-切换模型只需改 `.env` 中的 `AI_BACKEND` 和对应 Model 配置，或直接在仪表盘的配置面板里修改。
+切换模型只需改 `.env` 中的 `AI_BACKEND` 和对应 Model 配置，或直接在仪表盘的配置面板里修改。支持自定义 DeepSeek API 地址，可用于代理转发或私有部署。
 
 </details>
 

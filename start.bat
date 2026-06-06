@@ -8,7 +8,7 @@ chcp 65001 > nul 2>&1
 
 echo ============================================
 echo   webot - One-Click Launcher
-echo   (WeFlow will auto-start in background)
+echo   (Bot auto-starts via WebView2 window)
 echo ============================================
 echo.
 
@@ -29,7 +29,7 @@ if "%PYTHON%"=="" (
     exit /b 1
 )
 
-:: Launch the Python launcher
+:: Launch the desktop application
 %PYTHON% desktop.py %*
 pause
 exit /b 0

@@ -1,8 +1,18 @@
 # Environment
 .env
 
-# Data — all runtime files
-data/
+# Data — runtime files only
+data/messages.db
+data/messages.db-shm
+data/messages.db-wal
+data/bot.log
+data/send_failures.log
+data/nicknames.json
+data/*.log
+data/nickname_reconcile_report.json
+data/ocr_result.txt
+data/test_results.json
+data/uia_dump.txt
 
 # Node.js (npm artifacts from WeFlow-main exploration)
 node_modules/
@@ -43,7 +53,8 @@ skill/**/*.safetensors
 # Runtime training artifacts
 TRAIN_DONE.flag
 
-# Runtime status (covered by data/ above)
+# Runtime status
+data/bot_status.json
 
 # Claude Code
 .claude/
@@ -75,6 +86,7 @@ src/wechat/native/*.dll
 tools/test_*
 tools/capture_*
 tools/extract_weflow*
+tools/find_weflow*
 tools/copy_dll*
 tools/debug_*
 tools/build_*.sh

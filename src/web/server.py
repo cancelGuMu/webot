@@ -1055,7 +1055,6 @@ class _UIHandler(SimpleHTTPRequestHandler):
         # ── API: Onboarding diagnostics check ─────────────────────────
         if self.path == "/api/onboarding/diagnose":
             import sys
-            from pathlib import Path
 
             # 1. Python check
             python_ok = sys.version_info >= (3, 8)

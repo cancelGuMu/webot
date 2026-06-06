@@ -54,6 +54,10 @@ skill/**/*.safetensors
 # Runtime training artifacts
 TRAIN_DONE.flag
 
+# macOS local key scanner build output
+tools/macos_keyscan/macscan-min
+tools/macos_chatlog/
+
 # Runtime status
 data/bot_status.json
 

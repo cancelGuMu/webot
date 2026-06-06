@@ -137,8 +137,23 @@ macOS 读消息前需要先准备本地 chatlog 服务：
 
 ```bash
 # 1. 确认微信已登录，SIP 已关闭；首次提取 key 需要管理员权限
-# 2. 参考 chatlog_alpha / wechat-db-decrypt-macos 提取当前账号的 all_keys.json
-# 3. 启动 chatlog HTTP 服务，默认监听 127.0.0.1:5030
+python3 tools/macos_chatlog_setup.py diagnose
+
+# 2. 提取当前账号的 all_keys.json（会触发 sudo 密码输入，不会打印 key 明文）
+python3 tools/macos_chatlog_setup.py extract-keys
+
+# 3. 再次确认 valid_key_entries > 0
+python3 tools/macos_chatlog_setup.py diagnose
+
+# 4. 构建并启动 chatlog_alpha HTTP 服务，默认监听 127.0.0.1:5030
+python3 tools/macos_chatlog_setup.py build-chatlog
+python3 tools/macos_chatlog_setup.py start-chatlog
+
+# 5. 验证能读取增量消息；输出只包含数量/字段，不打印聊天正文
+python3 tools/macos_chatlog_setup.py verify-read
+
+# 如果已启动服务后才重新提取 key，请重启 chatlog 服务
+python3 tools/macos_chatlog_setup.py restart-chatlog
 ```
 
 `.env.macos` 中可显式配置：
@@ -146,9 +161,16 @@ macOS 读消息前需要先准备本地 chatlog 服务：
 ```env
 WECHAT_BACKEND=mac_hybrid
 CHATLOG_BASE_URL=http://127.0.0.1:5030
+# 如已安装自己的 chatlog_alpha，可指定二进制路径
+# CHATLOG_BIN=/path/to/chatlog
 ```
 
 首次发送消息时，需要在系统设置中给终端或 Python 授权“辅助功能”权限。
+
+如果 `extract-keys` 返回 `scan failed code=-2`，说明当前终端没有权限读取
+WeChat 进程内存。请确认 SIP 已关闭，并在命令提示时输入本机管理员密码；
+Codex/脚本不会也不能代输这个密码。WeChat 重启或更新后，通常需要重新执行
+`extract-keys`。
 
 参考实现：
 [teest114514/chatlog_alpha](https://github.com/teest114514/chatlog_alpha)、

@@ -132,6 +132,11 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertIn("WECHAT_BACKEND=mac_ui", text)
         self.assertIn("WECHAT_BACKEND=mac_hybrid", text)
         self.assertIn("all_keys.json", text)
+        self.assertIn("tools/macos_chatlog_setup.py extract-keys", text)
+        self.assertIn("tools/macos_chatlog_setup.py diagnose", text)
+        self.assertIn("tools/macos_chatlog_setup.py build-chatlog", text)
+        self.assertIn("tools/macos_chatlog_setup.py start-chatlog", text)
+        self.assertIn("tools/macos_chatlog_setup.py verify-read", text)
 
     def test_platform_dependency_report_for_macos_excludes_windows_deps(self):
         from src.web.server import _platform_dependency_report

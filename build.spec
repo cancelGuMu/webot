@@ -53,7 +53,7 @@ a = Analysis(
     datas=[
         ('ui/dist', 'ui/dist'),
         ('.env.example', '.'),
-        ('data', 'data'),
+        # data/ is runtime-generated — do NOT bundle into read-only _MEIPASS
     ],
     hiddenimports=[
         'src', 'src.bot', 'src.config', 'src.main',

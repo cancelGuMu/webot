@@ -18,6 +18,9 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+if getattr(sys, "frozen", False):
+    PROJECT_ROOT = Path(sys.executable).resolve().parent
+
 
 def _write_crash_log(exc_info: str) -> None:
     """Write crash details to a file for windowed-mode debugging."""
@@ -71,6 +74,16 @@ def start_bot():
 
 
 def main():
+    # ── Set CWD to app home directory ──────────────────────────────
+    # Regardless of how the app is launched (double-click EXE / CLI /
+    # shortcut), fix the current working directory to the application
+    # directory so all relative paths (data/, .env, etc.) resolve
+    # correctly and data survives across sessions.
+    if getattr(sys, "frozen", False):
+        os.chdir(str(Path(sys.executable).resolve().parent))
+    else:
+        os.chdir(str(PROJECT_ROOT))
+
     # Check if onboarding is needed
     from src.config import is_onboarding_done
     onboarding_needed = not is_onboarding_done()
@@ -82,15 +95,16 @@ def main():
     # Bot starts STOPPED — user must click "启动机器人" in the UI.
     # This prevents auto-startup races with WeChat login / key availability.
 
-    # Wait for web server
+    # Wait for web server (raw TCP — bypasses Windows system proxy)
+    import socket as _socket
     ready = False
     for _ in range(30):
         try:
-            from urllib.request import urlopen
-            urlopen("http://127.0.0.1:7327", timeout=1)
+            s = _socket.create_connection(("127.0.0.1", 7327), timeout=1)
+            s.close()
             ready = True
             break
-        except Exception:
+        except (OSError, _socket.timeout):
             time.sleep(0.5)
 
     if not ready:

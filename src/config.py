@@ -65,10 +65,12 @@ def _sanitize_display_name(name: str) -> str:
 
     return name
 
-# Load .env from the project root directory.
 # In a PyInstaller EXE, __file__ resolves inside the temp extraction dir.
-# We search multiple locations so the EXE finds .env placed next to it.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# We want writable data (.env, data/*) in the EXE directory, not in the temp dir.
+if getattr(sys, "frozen", False):
+    PROJECT_ROOT = Path(sys.executable).resolve().parent
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def find_env_file() -> Path | None:
@@ -157,6 +159,10 @@ class BotConfig:
         "说了啥", "发生了什么",
     ])
 
+    # === Summarization ===
+    summarize_enabled: bool = True
+    fallback_window_hours: int = 8
+
     # === Database ===
     db_path: str = "data/messages.db"
 
@@ -188,7 +194,6 @@ class BotConfig:
     dedup_window_sec: int = 60
     max_messages_for_summary: int = 5000
     chunk_size: int = 400
-    fallback_window_hours: int = 8
 
     # === Logging ===
     log_level: str = "INFO"
@@ -331,6 +336,7 @@ def load_config() -> BotConfig:
         "chunk_size": int(os.getenv("CHUNK_SIZE", "400")),
         "fallback_window_hours": int(os.getenv("FALLBACK_WINDOW_HOURS", "8")),
         "fun_enabled": os.getenv("FUN_ENABLED", "true").strip().lower() == "true",
+        "summarize_enabled": os.getenv("SUMMARIZE_ENABLED", "true").strip().lower() == "true",
         "proactive_enabled": os.getenv("PROACTIVE_ENABLED", "false").strip().lower() == "true",
         # proactive_rate_window_sec handled conditionally below (dataclass default)
         "proactive_rate_quiet": float(os.getenv("PROACTIVE_RATE_QUIET", "1.5")),

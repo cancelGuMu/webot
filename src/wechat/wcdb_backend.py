@@ -276,28 +276,51 @@ class WcdbBackend(AbstractWeChatBackend):
                 len(self._talker_ids), list(self._talker_ids.keys()),
             )
             self._groups = list(self._talker_ids.keys())
-            return
 
-        # Manual mode: match configured names against resolved display names
-        for group_name in self._groups:
-            found = None
-            for username, display in all_chatrooms.items():
-                if group_name.lower() in display.lower() or display.lower() in group_name.lower():
-                    found = username
-                    break
-            if found:
-                self._talker_ids[group_name] = found
-                logger.info("Resolved '%s' -> %s (display='%s')", group_name, found, all_chatrooms.get(found, ""))
-            else:
-                # Direct lookup: maybe group_name IS a username like 20968749111@chatroom
-                if group_name in all_chatrooms:
-                    self._talker_ids[group_name] = group_name
-                    logger.info("Resolved '%s' as direct username", group_name)
+        else:
+            # Manual mode: match configured names against resolved display names
+            for group_name in self._groups:
+                found = None
+                for username, display in all_chatrooms.items():
+                    if group_name.lower() in display.lower() or display.lower() in group_name.lower():
+                        found = username
+                        break
+                if found:
+                    self._talker_ids[group_name] = found
+                    logger.info("Resolved '%s' -> %s (display='%s')", group_name, found, all_chatrooms.get(found, ""))
                 else:
-                    logger.warning(
-                        "Could not resolve group '%s'. Available: %s",
-                        group_name, list(all_chatrooms.keys()),
-                    )
+                    # Direct lookup: maybe group_name IS a username like 20968749111@chatroom
+                    if group_name in all_chatrooms:
+                        self._talker_ids[group_name] = group_name
+                        logger.info("Resolved '%s' as direct username", group_name)
+                    else:
+                        logger.warning(
+                            "Could not resolve group '%s'. Available: %s",
+                            group_name, list(all_chatrooms.keys()),
+                        )
+
+        # Persist chat_id -> display_name so the web UI can show
+        # human-readable group names in the nickname dropdown.
+        if all_chatrooms:
+            self._save_group_names(all_chatrooms)
+
+    @staticmethod
+    def _save_group_names(chatrooms: dict[str, str]) -> None:
+        """Persist chat_id -> display_name to data/group_names.json atomically."""
+        import os as _os
+        path = Path("data/group_names.json")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = path.with_suffix(".tmp")
+            data = json.dumps(chatrooms, ensure_ascii=False, indent=2)
+            tmp_path.write_text(data, encoding="utf-8")
+            _os.replace(tmp_path, path)
+            logger.info(
+                "Saved %d group-name mappings to %s",
+                len(chatrooms), path,
+            )
+        except Exception as e:
+            logger.warning("Failed to persist group_names.json: %s", e)
 
     def _talker_to_name(self, talker_id: str) -> str:
         for name, tid in self._talker_ids.items():

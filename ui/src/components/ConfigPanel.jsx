@@ -221,6 +221,82 @@ function ParamRow({ label, hint, children }) {
 function FeaturesSection({ form, update }) {
   return (
     <div>
+      {/* ── Summarization ── */}
+      <div className="py-4 border-b border-border-main/50">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 mr-8">
+            <p className="text-[15px] text-text-main font-medium">总结功能</p>
+            <p className="text-sm text-text-muted mt-1.5">@机器人 或 触发关键词时自动总结群聊内容</p>
+          </div>
+          <Toggle enabled={form.summarize_enabled} onChange={v => update('summarize_enabled', v)} />
+        </div>
+        <AnimatePresence>
+          {form.summarize_enabled && (
+            <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
+              className="mt-3 p-4 bg-bg-raised rounded-lg space-y-4">
+              <ParamRow label="回溯时长" hint={"触发总结时，至少拉取最近 N 小时的消息（默认 8，范围 1-72）"}>
+                <Input type="number" value={String(form.fallback_window_hours || 8)}
+                  onChange={v => update('fallback_window_hours', Math.max(1, Math.min(72, parseInt(v) || 8)))} />
+              </ParamRow>
+
+              {/* ── Trigger Keywords (chip input) ── */}
+              <div>
+                <p className="text-[14px] text-text-main font-medium">触发关键词</p>
+                <p className="text-xs text-text-muted mt-0.5 mb-2">
+                  群成员发送包含任一关键词的消息时触发总结。至少保留 1 个关键词。
+                </p>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {(form.trigger_keywords || []).map((kw, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green">
+                      {kw}
+                      <button type="button"
+                        disabled={(form.trigger_keywords || []).length <= 1}
+                        onClick={() => {
+                          const next = (form.trigger_keywords || []).filter((_, idx) => idx !== i)
+                          update('trigger_keywords', next)
+                        }}
+                        className={`ml-0.5 leading-none text-base transition-colors ${
+                          (form.trigger_keywords || []).length <= 1
+                            ? 'text-text-muted cursor-not-allowed'
+                            : 'text-brand-green-hover/60 hover:text-[#d45656] cursor-pointer'
+                        }`}>&times;</button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input type="text" id="new-keyword-input"
+                    placeholder="输入新关键词，回车添加"
+                    className="flex-1 bg-bg-raised border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all duration-200"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const val = e.target.value.trim()
+                        if (val && !(form.trigger_keywords || []).includes(val)) {
+                          update('trigger_keywords', [...(form.trigger_keywords || []), val])
+                          e.target.value = ''
+                        }
+                      }
+                    }} />
+                  <button type="button"
+                    onClick={() => {
+                      const input = document.getElementById('new-keyword-input')
+                      if (!input) return
+                      const val = input.value.trim()
+                      if (val && !(form.trigger_keywords || []).includes(val)) {
+                        update('trigger_keywords', [...(form.trigger_keywords || []), val])
+                        input.value = ''
+                      }
+                    }}
+                    className="px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer">
+                    添加
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* ── Fun: Draw Lots ── */}
       <div className="py-4 border-b border-border-main/50">
         <div className="flex items-center justify-between">
@@ -489,6 +565,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     proactive_rate_quiet: 1.5, proactive_rate_casual: 4.0,
     proactive_rate_lively: 6.5, proactive_rate_burst: 8.5,
     sticky_mention_enabled: true, sticky_mention_ttl_sec: 60,
+    summarize_enabled: true, fallback_window_hours: 8, trigger_keywords: [],
     log_level: 'INFO',
   })
 
@@ -578,6 +655,9 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           proactive_rate_burst: form.proactive_rate_burst,
           sticky_mention_enabled: form.sticky_mention_enabled,
           sticky_mention_ttl_sec: form.sticky_mention_ttl_sec,
+          summarize_enabled: form.summarize_enabled,
+          fallback_window_hours: form.fallback_window_hours,
+          trigger_keywords: form.trigger_keywords,
           log_level: form.log_level,
         }),
       })

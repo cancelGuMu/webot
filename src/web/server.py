@@ -27,7 +27,11 @@ from src.config import _decode_wechat_groups
 
 logger = logging.getLogger(__name__)
 
-UI_DIR = (Path(__file__).resolve().parent.parent.parent / "ui" / "dist").resolve()
+import sys as _sys
+if getattr(_sys, "frozen", False):
+    UI_DIR = (Path(_sys._MEIPASS) / "ui" / "dist").resolve()
+else:
+    UI_DIR = (Path(__file__).resolve().parent.parent.parent / "ui" / "dist").resolve()
 WEBSOCKET_GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -52,26 +56,21 @@ def _find_or_create_env() -> Path:
         return existing
 
     # 2. Not found — try to create from .env.example
-    project_root = Path(__file__).resolve().parent.parent.parent
-    env_example = project_root / ".env.example"
-    if not env_example.exists():
-        env_example = Path.cwd() / ".env.example"
-        if not env_example.exists():
-            # Also search in EXE dir (frozen mode)
-            if getattr(sys, "frozen", False):
-                exe_candidate = Path(sys.executable).resolve().parent / ".env.example"
-                if exe_candidate.exists():
-                    env_example = exe_candidate
+    # .env.example is bundled into _MEIPASS in frozen mode.
+    if getattr(sys, "frozen", False):
+        env_example = Path(sys._MEIPASS) / ".env.example"
+    else:
+        env_example = Path(__file__).resolve().parent.parent.parent / ".env.example"
 
     if env_example.exists():
-        # Create .env in CWD (most accessible to user)
-        env_path = Path.cwd() / ".env"
+        # Create .env in app home (CWD already set to EXE dir / project root)
+        env_path = Path(".env")
         env_path.write_text(env_example.read_text(encoding="utf-8"), encoding="utf-8")
-        logger.info("Created .env from .env.example at %s", env_path)
+        logger.info("Created .env from .env.example at %s", env_path.resolve())
         return env_path
 
-    # 3. Last resort: create minimal .env in CWD
-    env_path = Path.cwd() / ".env"
+    # 3. Last resort: create minimal .env in app home
+    env_path = Path(".env")
     env_path.write_text(
         "AI_BACKEND=deepseek\n"
         "DEEPSEEK_API_KEY=\n"
@@ -80,7 +79,7 @@ def _find_or_create_env() -> Path:
         "WECHAT_GROUPS=\n",
         encoding="utf-8",
     )
-    logger.info("Created minimal .env at %s", env_path)
+    logger.info("Created minimal .env at %s", env_path.resolve())
     return env_path
 
 
@@ -244,8 +243,9 @@ def _read_recent_logs():
     (configured in src/utils/logging_config.py).
     """
     import re
-    project_root = Path(__file__).resolve().parent.parent.parent
-    log_path = project_root / "data" / "bot.log"
+    # CWD is set to app home by desktop.py; relative path works for both
+    # frozen (EXE dir) and dev (project root) modes.
+    log_path = Path("data/bot.log")
     if not log_path.exists():
         return {"ok": True, "logs": [], "message": "日志文件尚未创建"}
     try:
@@ -615,11 +615,10 @@ def _start_bot_in_thread():
         return {"ok": False, "error": "Bot is already running"}
 
     import sys
-    from pathlib import Path as _Path
+    from src.config import PROJECT_ROOT
 
-    project_root = _Path(__file__).resolve().parent.parent.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
 
     def _run():
         try:
@@ -852,6 +851,12 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
                     "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
                     "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
+                    "summarize_enabled": raw.get("SUMMARIZE_ENABLED", "true").lower() == "true",
+                    "fallback_window_hours": int(raw.get("FALLBACK_WINDOW_HOURS", "8")),
+                    "trigger_keywords": [
+                        kw.strip() for kw in raw.get("TRIGGER_KEYWORDS", "").split(",")
+                        if kw.strip()
+                    ],
                     "log_level": raw.get("LOG_LEVEL", "INFO"),
                 },
             })
@@ -887,6 +892,9 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         "PROACTIVE_RATE_BURST": str(config.get("proactive_rate_burst", 8.5)),
                         "STICKY_MENTION_ENABLED": str(config.get("sticky_mention_enabled", True)).lower(),
                         "STICKY_MENTION_TTL_SEC": str(config.get("sticky_mention_ttl_sec", 60)),
+                        "SUMMARIZE_ENABLED": str(config.get("summarize_enabled", True)).lower(),
+                        "FALLBACK_WINDOW_HOURS": str(config.get("fallback_window_hours", 8)),
+                        "TRIGGER_KEYWORDS": ",".join(config.get("trigger_keywords", [])) if config.get("trigger_keywords") else None,
                         "LOG_LEVEL": config.get("log_level"),
                     }
                     seen = set()
@@ -945,6 +953,20 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 conn = sqlite3.connect(db_path)
                 conn.row_factory = sqlite3.Row
 
+                # ── Load persisted chat_id -> group display names ────────
+                # Written by WcdbBackend._save_group_names() when the bot
+                # resolves group names from WeChat's session DB via WCDB DLL.
+                group_names_path = Path("data/group_names.json")
+                group_names: dict[str, str] = {}
+                if group_names_path.exists():
+                    try:
+                        group_names = json.loads(
+                            group_names_path.read_text(encoding="utf-8")
+                        )
+                    except (json.JSONDecodeError, OSError):
+                        pass
+                # ──────────────────────────────────────────────────────────
+
                 groups = []
                 if not _messages_table_exists(conn):
                     conn.close()
@@ -963,7 +985,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         ).fetchone()
                         groups.append({
                             "chat_id": chat_id,
-                            "group_name": chat_id,
+                            "group_name": group_names.get(chat_id, chat_id),
                             "member_count": cnt_row["cnt"] if cnt_row else 0,
                         })
                 else:
@@ -985,9 +1007,11 @@ class _UIHandler(SimpleHTTPRequestHandler):
                             "SELECT COUNT(DISTINCT sender_id) as cnt FROM messages WHERE chat_id=?",
                             (chat_id,),
                         ).fetchone()
+                        # Resolve display name from persisted mapping, fallback to configured name
+                        display_name = group_names.get(chat_id) or name
                         groups.append({
                             "chat_id": chat_id,
-                            "group_name": name,
+                            "group_name": display_name,
                             "member_count": cnt_row["cnt"] if cnt_row else 0,
                         })
 

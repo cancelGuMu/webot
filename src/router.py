@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 CHAT_CONTEXT_WINDOW_SEC = 600      # fetch last N seconds of chat as context for @mentions
 MAX_CONTENT_LENGTH = 997           # max chars per message sent to AI (997 + "..." = 1000)
 MAX_CONTENT_LINES = 20             # max context lines fed to AI chat prompt
-AT_MENTION_COOLDOWN_SEC = 15       # minimum seconds between @mention AI calls per chat
 
 # Markdown patterns to strip before sending to WeChat.
 # These regexes may miss edge cases like nested formatting or asterisks at
@@ -75,8 +74,6 @@ class MessageRouter:
         self._memory = MemoryConsolidator(store, summarizer)
         # Health monitoring: count unique messages processed (post-dedup)
         self.messages_processed: int = 0
-        # Rate limiting: per-chat cooldown for @mention AI calls
-        self._last_ai_call: dict[str, float] = {}
 
     @staticmethod
     def _strip_markdown(text: str) -> str:
@@ -128,11 +125,21 @@ class MessageRouter:
 
             clean_content = msg["content"]
             if self._config.bot_display_name:
-                at_pattern = f"@{self._config.bot_display_name}"
-                clean_content = clean_content.replace(at_pattern, "").strip()
-                clean_content = clean_content.replace(
-                    f"@{self._config.bot_display_name} ", "",
+                # WeChat @mentions use @wxid<invisible_separator>text format.
+                # The separator (U+2005, U+200B, U+FEFF, etc.) is not removed
+                # by str.strip().  Use a regex to strip @bot_name + any
+                # trailing non-word chars in one pass.
+                clean_content = re.sub(
+                    re.escape(f"@{self._config.bot_display_name}") + r"[^\w]*",
+                    "", msg["content"]
                 ).strip()
+
+            # Strip WeChat reply-quote prefix: wxid_xxx:\n
+            # When a user replies to a message then @mentions the bot,
+            # WeChat prepends "wxid_<replied_user_id>:\n" to the content.
+            clean_content = re.sub(
+                r'^\s*wxid_[a-zA-Z0-9]+:\s*', '', clean_content,
+            )
 
             reply: Optional[str] = None
 
@@ -146,18 +153,6 @@ class MessageRouter:
                     msg["sender_name"], msg["chat_id"][:20],
                     self._config.sticky_mention_ttl_sec,
                 )
-
-            # ── Rate limiting: prevent cost explosion from burst @mentions ──
-            chat_id = msg["chat_id"]
-            now = time.time()
-            last_call = self._last_ai_call.get(chat_id, 0)
-            cooldown_remaining = AT_MENTION_COOLDOWN_SEC - (now - last_call)
-            if cooldown_remaining > 0 and clean_content.strip():
-                logger.info(
-                    "Rate limit: @mention cooldown for %s (%.1fs remaining)",
-                    chat_id[:20], cooldown_remaining,
-                )
-                return f"@{msg['sender_name']} 稍等 {int(cooldown_remaining) + 1} 秒再叫我～"
 
             if clean_content.strip() in ("帮助", "help", "命令"):
                 reply = self._admin.handle(clean_content, msg["sender_name"])
@@ -178,13 +173,9 @@ class MessageRouter:
                 sender_name=msg["sender_name"],
             ):
                 reply = self._handle_summary(msg)
-                if reply is not None:
-                    self._last_ai_call[chat_id] = now
 
             if reply is None and clean_content:
                 reply = self._handle_chat(msg, clean_content)
-                if reply is not None:
-                    self._last_ai_call[chat_id] = now
 
         else:
             # ── Proactive path (rate-based ambient participation) ─
@@ -211,6 +202,9 @@ class MessageRouter:
 
         Summary range: from requester's last message to @bot trigger message.
         Requester's own messages are excluded from the summary."""
+        if not self._config.summarize_enabled:
+            return None
+
         trigger_ts = msg.get("timestamp", int(time.time()))
         sender_id = msg["sender_id"]
         sender_name = msg["sender_name"]

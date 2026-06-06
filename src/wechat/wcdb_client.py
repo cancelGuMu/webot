@@ -102,8 +102,9 @@ def _apply_drm_patch(dll_handle, dll_path):
 def _read_gbk_string(ptr):
     """Read null-terminated string from a raw pointer.
 
-    WCDB DLL returns data in GBK (WeChat's native encoding on Chinese Windows).
-    We decode as GBK, then re-encode as UTF-8 for Python's native string handling.
+    The WCDB DLL may return GBK or UTF-8 depending on the data source.
+    Since all DLL inputs are UTF-8, try UTF-8 first, then fall back to GBK.
+    Validates with JSON parse to confirm the correct encoding was chosen.
     """
     if not ptr or ptr.value == 0:
         return ""
@@ -115,20 +116,19 @@ def _read_gbk_string(ptr):
             break
         raw.append(b)
         addr += 1
-    # WCDB stores data in GBK (WeChat's native encoding on Chinese Windows).
-    # The DLL may or may not convert to UTF-8 before returning.  Try GBK
-    # FIRST, validate with JSON parse, and only fall back to UTF-8 if GBK
-    # produces invalid JSON.  This avoids the common mojibake where GBK
-    # bytes happen to be valid (but wrong) UTF-8 (e.g. 兔子→鍏斿瓙).
+    # Try UTF-8 first (DLL inputs are always UTF-8), fall back to GBK.
+    # GBK decode of UTF-8 bytes can produce valid JSON with garbled Chinese
+    # (JSON structural chars are ASCII, identical in both encodings), so the
+    # old GBK-first heuristic silently returned mojibake.
     import json as _json
-    for enc in ("gbk", "utf-8"):
+    for enc in ("utf-8", "gbk"):
         try:
             text = raw.decode(enc)
             _json.loads(text)
             return text
         except (UnicodeDecodeError, _json.JSONDecodeError):
             continue
-    return raw.decode("gbk", errors="replace")
+    return raw.decode("utf-8", errors="replace")
 
 
 # ── Filesystem auto-detection ─────────────────────────────────────────
@@ -391,20 +391,13 @@ class WcdbNativeClient:
     @staticmethod
     def _save_key_to_env(key: str):
         """Persist a working WCDB key to .env for next cold start."""
-        import os as _os, sys as _sys
-        from pathlib import Path as _Path
-
-        # Find .env next to EXE (packaged) or project root (dev)
-        env_path = None
-        if getattr(_sys, "frozen", False):
-            exe_dir = _Path(_sys.executable).resolve().parent
-            candidate = exe_dir / ".env"
-            if candidate.exists():
-                env_path = candidate
-        if not env_path:
-            candidate = _Path(__file__).resolve().parent.parent.parent / ".env"
-            if candidate.exists():
-                env_path = candidate
+        # Find .env — use PROJECT_ROOT which resolves to EXE dir (frozen)
+        # or project root (dev).  No __file__-based fallback because that
+        # would point to the temp extraction dir in frozen mode.
+        from src.config import PROJECT_ROOT
+        env_path = PROJECT_ROOT / ".env"
+        if not env_path.exists():
+            env_path = None
         if not env_path:
             logger.debug("No .env found for key persistence — key in memory only")
             return
@@ -455,15 +448,15 @@ class WcdbNativeClient:
         sessions = self.get_sessions()
         for s in sessions:
             username = s.get("username", "")
-            display = s.get("displayName", s.get("nickname", ""))
+            display = (s.get("displayName") or s.get("nickname") or "").strip()
             if username and display:
                 self._nicknames[username] = display
 
         # Load contacts
         contacts = self.get_contacts()
         for c in contacts:
-            username = c.get("userName", c.get("username", ""))
-            nick = c.get("nickName") or c.get("remark") or c.get("displayName") or ""
+            username = c.get("userName") or c.get("username") or ""
+            nick = (c.get("nickName") or c.get("remark") or c.get("displayName") or "").strip()
             if username and nick:
                 self._nicknames[username] = nick
 
@@ -542,7 +535,7 @@ class WcdbNativeClient:
         """Resolve wxids to display names."""
         if not self._handle or not usernames:
             return {}
-        username_json = json.dumps(usernames).encode("utf-8")
+        username_json = json.dumps(usernames, ensure_ascii=False).encode("utf-8")
         result = self._call_json(
             self._dll.wcdb_get_display_names,
             self._handle,
@@ -559,7 +552,7 @@ class WcdbNativeClient:
         result = self._call_json(
             self._dll.wcdb_get_contacts_compact,
             self._handle,
-            json.dumps([keyword]).encode("utf-8"),
+            json.dumps([keyword], ensure_ascii=False).encode("utf-8"),
         )
         if isinstance(result, list):
             return result

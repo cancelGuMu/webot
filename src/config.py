@@ -74,9 +74,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 def find_env_file() -> Path | None:
     """Find the .env file using a consistent search order.
 
-    Order: EXE directory (frozen) → project root → current working directory.
+    Order: WEBOT_ENV_FILE override → EXE directory (frozen) → project root → current working directory.
     Returns the Path if found, or None if no .env exists anywhere.
     """
+    explicit_env = os.getenv("WEBOT_ENV_FILE", "").strip()
+    if explicit_env:
+        explicit_path = Path(explicit_env).expanduser()
+        if explicit_path.exists():
+            return explicit_path
+
     locations = [
         PROJECT_ROOT / ".env",
         Path.cwd() / ".env",

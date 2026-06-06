@@ -271,6 +271,93 @@ def _read_recent_logs():
         return {"ok": False, "logs": [], "error": str(e)}
 
 
+def _can_import(module_name: str) -> bool:
+    try:
+        __import__(module_name)
+        return True
+    except ImportError:
+        return False
+
+
+def _platform_dependency_report(system_name=None, import_checker=None, command_checker=None):
+    """Return platform-aware dependency diagnostics for onboarding."""
+    import platform
+    import shutil
+
+    system = system_name or platform.system()
+    import_checker = import_checker or _can_import
+    command_checker = command_checker or shutil.which
+
+    req_mapping = {
+        "dotenv": "python-dotenv",
+        "anthropic": "anthropic",
+        "openai": "openai",
+        "pydantic": "pydantic",
+        "webview": "pywebview",
+        "PIL": "Pillow",
+        "psutil": "psutil",
+        "pyperclip": "pyperclip",
+    }
+    if system == "Windows":
+        req_mapping.update({
+            "uiautomation": "uiautomation",
+            "win32api": "pywin32",
+            "comtypes": "comtypes",
+        })
+
+    missing_reqs = []
+    ddgs_ok = import_checker("ddgs") or import_checker("duckduckgo_search")
+    if not ddgs_ok:
+        missing_reqs.append("ddgs")
+
+    for mod, pkg in req_mapping.items():
+        if not import_checker(mod):
+            missing_reqs.append(pkg)
+
+    if system == "Darwin":
+        for command in ("osascript", "pbcopy"):
+            if not command_checker(command):
+                missing_reqs.append(command)
+
+    ok = len(missing_reqs) == 0
+    value = "所有依赖已安装" if ok else f"缺少依赖: {', '.join(missing_reqs)}"
+    return {"ok": ok, "value": value, "missing": missing_reqs}
+
+
+def _platform_wechat_report(system_name=None):
+    """Return a platform-aware WeChat process status."""
+    import os as _os
+    import platform
+    import subprocess
+
+    system = system_name or platform.system()
+    if system == "Darwin":
+        app_name = _os.getenv("MAC_WECHAT_APP_NAME", "WeChat")
+        try:
+            result = subprocess.run(
+                ["pgrep", "-x", app_name],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                pid = result.stdout.strip().splitlines()[0]
+                return {"ok": True, "value": f"微信运行中 (PID {pid})", "error": None}
+            return {"ok": False, "value": "微信未运行", "error": "请启动 macOS 微信并授权辅助功能权限"}
+        except Exception as e:
+            return {"ok": False, "value": f"微信检测出错: {e}", "error": str(e)}
+
+    try:
+        from src.wechat.native.injector import _find_wechat_pid
+        wx_pid, wx_name = _find_wechat_pid()
+        wx_ok = wx_pid is not None
+        wx_val = f"微信运行中 (PID {wx_pid})" if wx_ok else "微信未运行"
+        return {"ok": wx_ok, "value": wx_val, "error": None if wx_ok else "请登录微信电脑端"}
+    except Exception as e:
+        return {"ok": False, "value": f"微信检测出错: {e}", "error": str(e)}
+
+
 # ── Thread-safe server state classes ────────────────────────────────────
 
 
@@ -1057,62 +1144,21 @@ class _UIHandler(SimpleHTTPRequestHandler):
             import sys
 
             # 1. Python check
-            python_ok = sys.version_info >= (3, 8)
+            python_ok = sys.version_info >= (3, 10)
             python_val = f"Python {sys.version.split()[0]}"
 
             # 2. Requirements check
-            missing_reqs = []
-            req_mapping = {
-                "dotenv": "python-dotenv",
-                "anthropic": "anthropic",
-                "openai": "openai",
-                "pydantic": "pydantic",
-                "uiautomation": "uiautomation",
-                "win32api": "pywin32",
-                "comtypes": "comtypes",
-                "webview": "pywebview",
-                "PIL": "Pillow",
-                "psutil": "psutil",
-                "pyperclip": "pyperclip"
-            }
-
-            ddgs_ok = False
-            try:
-                from ddgs import DDGS
-                ddgs_ok = True
-            except ImportError:
-                try:
-                    from duckduckgo_search import DDGS
-                    ddgs_ok = True
-                except ImportError:
-                    pass
-            if not ddgs_ok:
-                missing_reqs.append("ddgs")
-
-            for mod, pkg in req_mapping.items():
-                try:
-                    __import__(mod)
-                except ImportError:
-                    missing_reqs.append(pkg)
-
-            reqs_ok = len(missing_reqs) == 0
-            reqs_val = "所有依赖已安装" if reqs_ok else f"缺少依赖: {', '.join(missing_reqs)}"
+            req_report = _platform_dependency_report()
 
             # 3. WeChat PID check
-            try:
-                from src.wechat.native.injector import _find_wechat_pid
-                wx_pid, wx_name = _find_wechat_pid()
-                wx_ok = wx_pid is not None
-                wx_val = f"微信运行中 (PID {wx_pid})" if wx_ok else "微信未运行"
-            except Exception as e:
-                wx_ok = False
-                wx_val = f"微信检测出错: {e}"
+            wx_report = _platform_wechat_report()
 
             # 4. .env check
+            from src.config import find_env_file
             project_root = Path(__file__).resolve().parent.parent.parent
-            env_path = project_root / ".env"
-            env_ok = env_path.exists()
-            env_val = ".env 配置文件已存在" if env_ok else ".env 配置文件尚未创建"
+            env_path = find_env_file()
+            env_ok = bool(env_path and env_path.exists())
+            env_val = f"{env_path.name} 配置文件已存在" if env_ok else ".env 配置文件尚未创建"
 
             # 5. DB permissions check
             data_dir = project_root / "data"
@@ -1152,8 +1198,8 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 "ok": True,
                 "diagnostics": {
                     "python": {"ok": python_ok, "value": python_val, "error": None},
-                    "requirements": {"ok": reqs_ok, "value": reqs_val, "missing": missing_reqs},
-                    "wechat": {"ok": wx_ok, "value": wx_val, "error": None if wx_ok else "请登录微信电脑端"},
+                    "requirements": req_report,
+                    "wechat": wx_report,
                     "env": {"ok": env_ok, "value": env_val, "error": None},
                     "db": {"ok": db_perm_ok, "value": db_perm_val, "error": db_perm_err}
                 }

@@ -185,9 +185,10 @@ function IdentitySection({ form, update }) {
         )}
       </Field>
 
-      <Field label="微信后端" hint="当前使用本地数据库直读模式（无需外部进程）">
+      <Field label="微信后端" hint="Windows 推荐 WCDB；macOS 可使用实验性的界面自动化模式">
         <Select value={form.wechat_backend} onChange={v => update('wechat_backend', v)} options={[
           { value: 'wcdb', desc: 'WCDB', hint: '推荐 · 原生数据库直读' },
+          { value: 'mac_ui', desc: 'macOS UI', hint: '实验性 · 辅助功能自动化' },
         ]} />
       </Field>
     </div>

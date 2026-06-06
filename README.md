@@ -110,12 +110,28 @@ AI 连续多次判断"不应该插话"时，会自动延长沉默时间（最高
 
 ### 方式二：从源码运行
 
+Windows：
+
 ```bash
 git clone https://github.com/cancelGuMu/webot.git
 cd webot
 pip install -r requirements.txt
 python desktop.py
 ```
+
+macOS 实验版：
+
+```bash
+git clone https://github.com/cancelGuMu/webot.git
+cd webot
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-macos.txt
+cd ui && npm install && npm run build && cd ..
+python desktop_mac.py
+```
+
+macOS 路径会使用独立的 `.env.macos`，默认设置 `WECHAT_BACKEND=mac_ui`，不会覆盖 Windows 使用的 `.env`。首次发送或读取微信界面时，需要在系统设置中给终端或 Python 授权“辅助功能”权限。`mac_ui` 通过可见微信窗口自动化读取和发送消息，稳定性低于 Windows 的 WCDB 数据库直读模式。
 
 ---
 
@@ -304,7 +320,7 @@ webot 只读取微信本地的加密数据库文件，通过键盘模拟发送�
 <details>
 <summary><strong>支持 macOS 吗？</strong></summary>
 
-目前仅支持 Windows。macOS 版微信使用了不同的数据库加密方案，暂无支持计划。
+Windows 仍是正式推荐平台。macOS 提供实验性的 `WECHAT_BACKEND=mac_ui` 路径，通过辅助功能和界面自动化操作微信窗口，不读取 macOS 微信数据库。它需要微信窗口可见，并且需要系统辅助功能授权，稳定性弱于 Windows 的 WCDB 数据库直读模式。
 
 </details>
 

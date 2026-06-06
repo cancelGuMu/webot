@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 CHAT_CONTEXT_WINDOW_SEC = 600      # fetch last N seconds of chat as context for @mentions
 MAX_CONTENT_LENGTH = 997           # max chars per message sent to AI (997 + "..." = 1000)
 MAX_CONTENT_LINES = 20             # max context lines fed to AI chat prompt
+AT_MENTION_MAX_AGE_SEC = 300       # ignore @mentions older than 5 minutes (startup safety)
 
 # Markdown patterns to strip before sending to WeChat.
 # These regexes may miss edge cases like nested formatting or asterisks at
@@ -118,6 +119,18 @@ class MessageRouter:
 
         if is_at:
             # ── @mention path (existing logic) ───────────────────
+
+            # Guard: ignore stale @mentions, e.g. historical messages
+            # replayed on startup when the dedup cache is cold.
+            # WeChat message timestamps are Unix seconds.
+            msg_age_sec = int(time.time()) - msg.get("timestamp", 0)
+            if msg_age_sec > AT_MENTION_MAX_AGE_SEC:
+                logger.info(
+                    "Ignoring stale @mention from '%s' (age=%ds, max=%ds)",
+                    msg["sender_name"], msg_age_sec, AT_MENTION_MAX_AGE_SEC,
+                )
+                return None
+
             logger.info(
                 "Trigger in %s by '%s': %s",
                 msg["chat_id"], msg["sender_name"], msg["content"][:80],

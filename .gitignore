@@ -97,4 +97,7 @@ skill/gumu-persona/
 skill/server_download/
 skill/gemma4-usage/
 skill/孤慕-SKILL.md
-image/
+image/*
+!image/logo_assets/
+image/logo_assets/*
+!image/logo_assets/logo.ico

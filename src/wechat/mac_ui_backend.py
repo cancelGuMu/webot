@@ -11,6 +11,8 @@ import json
 import os
 import subprocess
 import time
+import ctypes
+from ctypes import c_double, c_int64, c_void_p, Structure
 from typing import Optional
 
 from .base import AbstractWeChatBackend, MessageCallback
@@ -28,9 +30,10 @@ class MacUIAutomation:
     backend free of Windows imports.
     """
 
-    def __init__(self, app_name: str | None = None, runner=None):
+    def __init__(self, app_name: str | None = None, runner=None, clicker=None):
         self._app_name = app_name or os.getenv("MAC_WECHAT_APP_NAME", "WeChat")
         self._runner = runner or self._default_runner
+        self._clicker = clicker or self._core_graphics_click
 
     @staticmethod
     def _default_runner(cmd, input_text=None, timeout=5):
@@ -51,35 +54,48 @@ class MacUIAutomation:
             return False
         if not self._bring_wechat_frontmost():
             return False
-        copied = self._run(["pbcopy"], input_text=chat_name)
-        if not copied:
+        if not self._open_start_chat_sheet():
             return False
+        time.sleep(0.2)
+        if not self._run(["pbcopy"], input_text=chat_name):
+            return False
+        if not self._paste_clipboard(send=False):
+            return False
+        time.sleep(0.4)
+        geometry = self._get_wechat_geometry()
+        sheet = self._sheet_rect(geometry)
+        if not sheet:
+            logger.warning("Could not locate WeChat start-chat sheet")
+            return False
+        if not self._click_screen(sheet["x"] + 64, sheet["y"] + 124):
+            return False
+        time.sleep(0.15)
+        if not self._click_screen(sheet["x"] + sheet["w"] - 54, sheet["y"] + sheet["h"] - 40):
+            return False
+        time.sleep(0.25)
+        return True
+
+    def _open_start_chat_sheet(self) -> bool:
         script = '''
 tell application "System Events"
   tell process "WeChat"
-    repeat with w in windows
-      try
-        if (name of w) ends with "聊天记录" then click button 1 of w
-      end try
-    end repeat
-    set mainWindow to missing value
-    repeat with w in windows
-      if name of w is "微信" then
-        set mainWindow to w
-        exit repeat
-      end if
-    end repeat
-    if mainWindow is missing value then set mainWindow to window 1
-    set {winX, winY} to position of mainWindow
-    set {winW, winH} to size of mainWindow
+    set frontmost to true
+    tell menu bar 1
+      tell menu bar item "文件"
+        tell menu "文件"
+          if exists menu item "发起会话" then
+            click menu item "发起会话"
+          else if exists menu item "发起群聊" then
+            click menu item "发起群聊"
+          else if exists menu item "New Chat" then
+            click menu item "New Chat"
+          else
+            error "Cannot find WeChat start-chat menu item"
+          end if
+        end tell
+      end tell
+    end tell
   end tell
-  click at {winX + 150, winY + 36}
-  delay 0.2
-  keystroke "a" using command down
-  delay 0.05
-  keystroke "v" using command down
-  delay 0.5
-  key code 36
 end tell
 '''
         return self._run_osascript(script, timeout=8)
@@ -139,28 +155,25 @@ JSON.stringify([...new Set(values)]);
             return False
         if not self._bring_wechat_frontmost():
             return False
-        copied = self._run(["pbcopy"], input_text=content)
-        if not copied:
+        geometry = self._get_wechat_geometry()
+        window = self._window_rect(geometry)
+        if not window:
+            logger.warning("Could not locate WeChat main window for send")
             return False
-        script = '''
+        if not self._click_screen(window["x"] + (window["w"] * 0.68), window["y"] + window["h"] - 44):
+            return False
+        time.sleep(0.1)
+        if not self._run(["pbcopy"], input_text=content):
+            return False
+        return self._paste_clipboard(send=True)
+
+    def _paste_clipboard(self, send: bool = False) -> bool:
+        send_line = '  key code 36' if send else ''
+        script = f'''
 tell application "System Events"
-  tell process "WeChat"
-    set mainWindow to missing value
-    repeat with w in windows
-      if name of w is "微信" then
-        set mainWindow to w
-        exit repeat
-      end if
-    end repeat
-    if mainWindow is missing value then set mainWindow to window 1
-    set {winX, winY} to position of mainWindow
-    set {winW, winH} to size of mainWindow
-  end tell
-  click at {winX + (winW * 0.68), winY + winH - 44}
-  delay 0.1
   keystroke "v" using command down
   delay 0.1
-  key code 36
+{send_line}
 end tell
 '''
         return self._run_osascript(script, timeout=8)
@@ -204,6 +217,124 @@ JSON.stringify({front: name});
 
     def _run_osascript(self, script: str, timeout=5) -> bool:
         return self._run(["osascript", "-e", script], timeout=timeout)
+
+    def _get_wechat_geometry(self) -> dict:
+        app = self._escape_jxa(self._app_name)
+        script = f'''
+const appName = "{app}";
+const se = Application("System Events");
+const proc = se.processes.byName(appName);
+
+function rect(node) {{
+  const pos = node.position();
+  const size = node.size();
+  return {{
+    x: Number(pos[0]),
+    y: Number(pos[1]),
+    w: Number(size[0]),
+    h: Number(size[1]),
+  }};
+}}
+
+let result = {{}};
+try {{
+  const windows = proc.windows();
+  let mainWindow = null;
+  for (let i = 0; i < windows.length; i += 1) {{
+    try {{
+      if (windows[i].name() === "微信") {{
+        mainWindow = windows[i];
+        break;
+      }}
+    }} catch (e) {{}}
+  }}
+  if (!mainWindow && windows.length > 0) mainWindow = windows[0];
+  if (mainWindow) {{
+    result.window = rect(mainWindow);
+    try {{
+      const sheets = mainWindow.sheets();
+      if (sheets.length > 0) result.sheet = rect(sheets[0]);
+    }} catch (e) {{}}
+  }}
+}} catch (e) {{}}
+
+JSON.stringify(result);
+'''
+        result = self._runner(
+            ["osascript", "-l", "JavaScript", "-e", script],
+            timeout=5,
+        )
+        if result.returncode != 0:
+            logger.warning("macOS WeChat geometry read failed: %s", result.stderr)
+            return {}
+        try:
+            data = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError:
+            logger.warning("macOS WeChat geometry returned non-JSON output")
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _window_rect(self, geometry: dict) -> dict | None:
+        return self._valid_rect(geometry.get("window") if isinstance(geometry, dict) else None)
+
+    def _sheet_rect(self, geometry: dict) -> dict | None:
+        sheet = self._valid_rect(geometry.get("sheet") if isinstance(geometry, dict) else None)
+        if sheet:
+            return sheet
+        window = self._window_rect(geometry)
+        if not window:
+            return None
+        return {
+            "x": window["x"] + (window["w"] * 0.30),
+            "y": window["y"] + 80,
+            "w": window["w"] * 0.65,
+            "h": window["h"] * 0.75,
+        }
+
+    @staticmethod
+    def _valid_rect(value) -> dict | None:
+        if not isinstance(value, dict):
+            return None
+        try:
+            rect = {
+                "x": float(value["x"]),
+                "y": float(value["y"]),
+                "w": float(value["w"]),
+                "h": float(value["h"]),
+            }
+        except (KeyError, TypeError, ValueError):
+            return None
+        if rect["w"] <= 0 or rect["h"] <= 0:
+            return None
+        return rect
+
+    def _click_screen(self, x: float, y: float) -> bool:
+        try:
+            return bool(self._clicker(x, y))
+        except Exception as exc:
+            logger.warning("macOS CoreGraphics click failed: %s", exc)
+            return False
+
+    @staticmethod
+    def _core_graphics_click(x: float, y: float) -> bool:
+        class CGPoint(Structure):
+            _fields_ = [("x", c_double), ("y", c_double)]
+
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        cg.CGEventCreateMouseEvent.argtypes = [c_void_p, c_int64, CGPoint, c_int64]
+        cg.CGEventCreateMouseEvent.restype = c_void_p
+        cg.CGEventPost.argtypes = [c_int64, c_void_p]
+        cg.CFRelease.argtypes = [c_void_p]
+
+        point = CGPoint(float(x), float(y))
+        for event_type in (1, 2):
+            event = cg.CGEventCreateMouseEvent(None, event_type, point, 0)
+            if not event:
+                return False
+            cg.CGEventPost(0, event)
+            cg.CFRelease(event)
+            time.sleep(0.05)
+        return True
 
     @staticmethod
     def _escape_applescript(value: str) -> str:

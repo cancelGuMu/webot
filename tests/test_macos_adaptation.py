@@ -77,6 +77,15 @@ class FakeChatlogClient:
         return True
 
 
+class FakeClicker:
+    def __init__(self):
+        self.points = []
+
+    def __call__(self, x, y):
+        self.points.append((x, y))
+        return True
+
+
 class MacOSAdaptationTests(unittest.TestCase):
     def test_find_env_file_honors_explicit_env_file_override(self):
         from src.config import find_env_file
@@ -204,44 +213,52 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertEqual(automation.sent, ["pong"])
 
-    def test_mac_ui_automation_send_text_uses_clipboard_and_osascript(self):
+    def test_mac_ui_automation_send_text_uses_core_graphics_click_before_paste(self):
         runner = FakeRunner([
             FakeCompletedProcess(),
             FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
             FakeCompletedProcess(),
             FakeCompletedProcess(),
         ])
-        automation = MacUIAutomation(app_name="WeChat", runner=runner)
+        clicker = FakeClicker()
+        automation = MacUIAutomation(app_name="WeChat", runner=runner, clicker=clicker)
 
         self.assertTrue(automation.send_text("hello"))
 
         self.assertEqual(runner.calls[0]["cmd"], ["open", "-a", "WeChat"])
         self.assertIn("frontmost", runner.calls[1]["cmd"][-1])
-        self.assertEqual(runner.calls[2]["cmd"], ["pbcopy"])
-        self.assertEqual(runner.calls[2]["input_text"], "hello")
-        self.assertIn("osascript", runner.calls[3]["cmd"][0])
-        self.assertIn("click at", runner.calls[3]["cmd"][-1])
-        self.assertIn("keystroke \"v\"", runner.calls[3]["cmd"][-1])
-        self.assertIn("key code 36", runner.calls[3]["cmd"][-1])
+        self.assertEqual(clicker.points, [(644, 756)])
+        self.assertEqual(runner.calls[3]["cmd"], ["pbcopy"])
+        self.assertEqual(runner.calls[3]["input_text"], "hello")
+        self.assertIn("osascript", runner.calls[4]["cmd"][0])
+        self.assertNotIn("click at", runner.calls[4]["cmd"][-1])
+        self.assertIn("keystroke \"v\"", runner.calls[4]["cmd"][-1])
+        self.assertIn("key code 36", runner.calls[4]["cmd"][-1])
 
-    def test_mac_ui_automation_open_chat_uses_main_window_search_not_cmd_f(self):
+    def test_mac_ui_automation_open_chat_uses_core_graphics_sheet_selection_not_cmd_f(self):
         runner = FakeRunner([
             FakeCompletedProcess(),
             FakeCompletedProcess(stdout='{"front":"WeChat"}'),
             FakeCompletedProcess(),
             FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600},"sheet":{"x":200,"y":250,"w":640,"h":520}}'),
         ])
-        automation = MacUIAutomation(app_name="WeChat", runner=runner)
+        clicker = FakeClicker()
+        automation = MacUIAutomation(app_name="WeChat", runner=runner, clicker=clicker)
 
         self.assertTrue(automation.open_chat("honker"))
 
         self.assertEqual(runner.calls[0]["cmd"], ["open", "-a", "WeChat"])
-        self.assertEqual(runner.calls[2]["cmd"], ["pbcopy"])
-        self.assertEqual(runner.calls[2]["input_text"], "honker")
-        script = runner.calls[3]["cmd"][-1]
-        self.assertIn("click at", script)
-        self.assertNotIn('keystroke "f"', script)
-        self.assertIn("key code 36", script)
+        self.assertEqual(runner.calls[3]["cmd"], ["pbcopy"])
+        self.assertEqual(runner.calls[3]["input_text"], "honker")
+        scripts = "\n".join(call["cmd"][-1] for call in runner.calls if call["cmd"][0] == "osascript")
+        self.assertNotIn("click at", scripts)
+        self.assertNotIn('keystroke "f"', scripts)
+        self.assertIn("发起会话", scripts)
+        self.assertIn('keystroke "v"', scripts)
+        self.assertEqual(clicker.points, [(264, 374), (786, 730)])
 
     def test_mac_ui_automation_read_visible_texts_parses_json(self):
         runner = FakeRunner([
@@ -354,6 +371,59 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertEqual(automation.opened, ["honker"])
         self.assertEqual(automation.sent, ["收到"])
+
+    def test_mac_hybrid_start_primes_chatlog_state_without_replying_to_history(self):
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        client = FakeChatlogClient([
+            {
+                "count": 1,
+                "new_state": {"room1@chatroom": 100},
+                "messages": [{
+                    "timestamp": 99,
+                    "sender": "Alice",
+                    "type": "text",
+                    "content": "@群聊小助手 旧消息",
+                    "local_id": 1,
+                    "chat": "摸鱼群",
+                    "username": "room1@chatroom",
+                    "is_group": True,
+                }],
+            },
+            {
+                "count": 1,
+                "new_state": {"room1@chatroom": 101},
+                "messages": [{
+                    "timestamp": 101,
+                    "sender": "Alice",
+                    "type": "text",
+                    "content": "@群聊小助手 新消息",
+                    "local_id": 2,
+                    "chat": "摸鱼群",
+                    "username": "room1@chatroom",
+                    "is_group": True,
+                }],
+            },
+        ])
+        automation = FakeMacAutomation()
+        backend = MacHybridBackend(
+            bot_display_name="群聊小助手",
+            groups=["*"],
+            poll_sec=0,
+            client=client,
+            automation=automation,
+        )
+        seen = []
+
+        def callback(msg):
+            seen.append(msg)
+            backend.stop()
+            return "收到新消息"
+
+        backend.start(callback)
+
+        self.assertEqual([msg["content"] for msg in seen], ["@群聊小助手 新消息"])
+        self.assertEqual(automation.sent, ["收到新消息"])
 
     def test_health_monitor_uses_mac_backend_health_status_without_window(self):
         from src.bot import HealthMonitor

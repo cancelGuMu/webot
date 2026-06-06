@@ -102,6 +102,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             self._groups, self._poll_sec, self._bot_name,
         )
         self._automation.activate_wechat()
+        self._prime_chatlog_state()
         while self._running:
             self.poll_once(callback)
             time.sleep(self._poll_sec)
@@ -135,13 +136,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             logger.warning("Failed to poll chatlog messages: %s", exc)
             return
 
-        new_state = payload.get("new_state")
-        if isinstance(new_state, dict):
-            self._state = {
-                str(k): int(v)
-                for k, v in new_state.items()
-                if _can_int(v)
-            }
+        self._apply_new_state(payload.get("new_state"))
 
         messages = payload.get("messages") or []
         if not isinstance(messages, list):
@@ -164,6 +159,38 @@ class MacHybridBackend(AbstractWeChatBackend):
             reply = callback(msg)
             if reply:
                 self.send_text(msg["chat_id"], reply)
+
+    def _prime_chatlog_state(self) -> None:
+        try:
+            payload = self._client.get_new_messages(self._state, limit=self._limit)
+        except Exception as exc:
+            logger.warning("Failed to prime chatlog state: %s", exc)
+            return
+
+        self._apply_new_state(payload.get("new_state"))
+
+        messages = payload.get("messages") or []
+        if not isinstance(messages, list):
+            return
+
+        primed = 0
+        for raw in messages:
+            if not isinstance(raw, dict):
+                continue
+            msg = self._message_from_chatlog(raw)
+            if not msg:
+                continue
+            self._seen_ids.add(msg["message_id"])
+            primed += 1
+        logger.info("Primed macOS chatlog state (%s historical messages skipped)", primed)
+
+    def _apply_new_state(self, new_state) -> None:
+        if isinstance(new_state, dict):
+            self._state = {
+                str(k): int(v)
+                for k, v in new_state.items()
+                if _can_int(v)
+            }
 
     def _message_from_chatlog(self, raw: dict) -> dict | None:
         content = str(raw.get("content") or "").strip()

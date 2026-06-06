@@ -518,6 +518,7 @@ export function Step3AIConfig({ data, updateData, onDone }) {
           deepseek_base_url: data.deepseek_base_url || 'https://api.deepseek.com',
           deepseek_model: data.deepseek_model || 'deepseek-v4-flash',
           anthropic_api_key: data.anthropic_api_key || '',
+          anthropic_base_url: data.anthropic_base_url || 'https://api.anthropic.com',
           summarize_model: data.summarize_model || 'claude-haiku-4-5-20251001',
         }),
       })
@@ -546,7 +547,7 @@ export function Step3AIConfig({ data, updateData, onDone }) {
             <Field label="DeepSeek API Key" hint="在 platform.deepseek.com/api_keys 注册获取">
               <Input type="password" value={data.deepseek_api_key || ''} onChange={v => updateData({ deepseek_api_key: v })} placeholder="sk-xxxxxxxxxxxxxxxx" />
             </Field>
-            <Field label="DeepSeek Base URL" hint="兼容 OpenAI 的转发地址；留默认值使用官方 API">
+            <Field label="API Base URL" hint="兼容 OpenAI 的转发地址；留默认值使用官方 API">
               <Input value={data.deepseek_base_url || 'https://api.deepseek.com'} onChange={v => updateData({ deepseek_base_url: v })} placeholder="https://api.deepseek.com" />
             </Field>
             <Field label="模型选择">
@@ -560,6 +561,9 @@ export function Step3AIConfig({ data, updateData, onDone }) {
           <>
             <Field label="Anthropic API Key" hint="在 console.anthropic.com 获取">
               <Input type="password" value={data.anthropic_api_key || ''} onChange={v => updateData({ anthropic_api_key: v })} placeholder="sk-ant-xxxxxxxxxxxxxxxx" />
+            </Field>
+            <Field label="API Base URL" hint="Anthropic API 地址；可填兼容代理或中转服务">
+              <Input value={data.anthropic_base_url || 'https://api.anthropic.com'} onChange={v => updateData({ anthropic_base_url: v })} placeholder="https://api.anthropic.com" />
             </Field>
             <Field label="模型选择">
               <Select value={data.summarize_model || 'claude-haiku-4-5-20251001'} onChange={v => updateData({ summarize_model: v })} options={[

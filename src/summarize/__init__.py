@@ -54,6 +54,7 @@ def create_summarizer(config) -> AbstractSummarizer:
         return ClaudeSummarizer(
             api_key=config.anthropic_api_key,
             model=config.summarize_model,
+            base_url=config.anthropic_base_url,
             chunk_size=config.chunk_size,
         )
 

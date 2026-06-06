@@ -41,7 +41,7 @@ webot 是一个运行在 Windows 上的微信群聊机器人。把它加入你�
 
 - 自动附上最近 10 分钟的群聊记录作为上下文，让回答更贴合当前话题。
 - 支持 **Claude** 和 **DeepSeek** 两种 AI 后端，随时切换。
-- **DeepSeek 自定义 API 地址**：支持配置 `DEEPSEEK_BASE_URL`，可使用代理、第三方 API 或私有部署。
+- **自定义 API 地址**：DeepSeek 和 Claude 都支持配置 Base URL，可使用代理、第三方 API 或私有部署。
 
 ### 提示词沙箱
 
@@ -227,12 +227,16 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
 
 ```env
 # DeepSeek 自定义 API 地址（可选，默认官方地址）
-# 可用于代理转发、第三方 API、私有部署
+# 可用于 OpenAI-compatible 代理转发、第三方 API、私有部署
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 
 # DeepSeek 模型
 DEEPSEEK_MODEL=deepseek-v4-flash     # v4-flash（推荐）：极速低价
                                       # v4-pro：1M 上下文旗舰
+
+# Claude 自定义 API 地址（可选，默认官方地址）
+# 可用于 Anthropic-compatible 代理转发、第三方 API、私有部署
+ANTHROPIC_BASE_URL=https://api.anthropic.com
 
 # Claude 模型
 SUMMARIZE_MODEL=claude-haiku-4-5-20251001  # haiku（推荐）：快速廉价

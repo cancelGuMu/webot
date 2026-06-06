@@ -166,6 +166,58 @@ class TestConfigDeepseekBaseUrl:
         assert config.deepseek_base_url == "https://custom-proxy.example.com"
 
 
+class TestConfigAnthropicBaseUrl:
+    """Verify anthropic_base_url is loaded and has a default."""
+
+    def test_default_value(self):
+        from src.config import BotConfig
+        assert BotConfig.anthropic_base_url == "https://api.anthropic.com"
+
+    def test_from_env(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://claude-proxy.example.com")
+        monkeypatch.setenv("AI_BACKEND", "claude")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        from src.config import load_config
+        config = load_config()
+        assert config.anthropic_base_url == "https://claude-proxy.example.com"
+
+
+class TestSummarizerBaseUrl:
+    """Verify AI factory forwards provider-specific Base URLs."""
+
+    def test_claude_factory_passes_anthropic_base_url(self, monkeypatch):
+        from src.config import BotConfig
+        import src.summarize as summarize
+
+        captured = {}
+
+        class FakeClaudeSummarizer:
+            def __init__(self, api_key, model, base_url, chunk_size):
+                captured.update({
+                    "api_key": api_key,
+                    "model": model,
+                    "base_url": base_url,
+                    "chunk_size": chunk_size,
+                })
+
+        monkeypatch.setattr(summarize, "ClaudeSummarizer", FakeClaudeSummarizer)
+
+        config = BotConfig(
+            ai_backend="claude",
+            anthropic_api_key="sk-ant-test",
+            anthropic_base_url="https://claude-proxy.example.com",
+            summarize_model="claude-test",
+            chunk_size=123,
+        )
+
+        summarize.create_summarizer(config)
+
+        assert captured["api_key"] == "sk-ant-test"
+        assert captured["model"] == "claude-test"
+        assert captured["base_url"] == "https://claude-proxy.example.com"
+        assert captured["chunk_size"] == 123
+
+
 class TestPostAllowlist:
     """Verify /api/sandbox/test is in POST allowlist (doesn't return 405)."""
 

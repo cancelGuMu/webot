@@ -132,6 +132,7 @@ class BotConfig:
 
     # === Claude (Anthropic) ===
     anthropic_api_key: str = ""
+    anthropic_base_url: str = "https://api.anthropic.com"
     summarize_model: str = "claude-haiku-4-5-20251001"
 
     # === DeepSeek ===
@@ -314,6 +315,7 @@ def load_config() -> BotConfig:
     kwargs: dict = {
         "ai_backend": ai_backend,
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        "anthropic_base_url": os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com").strip(),
         "summarize_model": os.getenv("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001").strip(),
         "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
         "deepseek_base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip(),

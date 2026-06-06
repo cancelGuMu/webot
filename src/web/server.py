@@ -142,6 +142,7 @@ def _write_onboarding_to_env(env_path):
         "DEEPSEEK_BASE_URL": _onboarding_data.get("deepseek_base_url", "https://api.deepseek.com"),
         "DEEPSEEK_MODEL": _onboarding_data.get("deepseek_model", "deepseek-v4-flash"),
         "ANTHROPIC_API_KEY": _onboarding_data.get("anthropic_api_key", ""),
+        "ANTHROPIC_BASE_URL": _onboarding_data.get("anthropic_base_url", "https://api.anthropic.com"),
         "SUMMARIZE_MODEL": _onboarding_data.get("summarize_model", "claude-haiku-4-5-20251001"),
         "WECHAT_BACKEND": _onboarding_data.get("wechat_backend", "wcdb"),
         "WECHAT_GROUPS": _onboarding_data.get("wechat_groups", "*"),
@@ -837,6 +838,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "deepseek_base_url": raw.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
                     "deepseek_model": raw.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
                     "anthropic_api_key": raw.get("ANTHROPIC_API_KEY", ""),
+                    "anthropic_base_url": raw.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
                     "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
                     "bot_display_name": raw.get("BOT_DISPLAY_NAME", ""),
                     "wechat_backend": raw.get("WECHAT_BACKEND", "wcdb"),
@@ -870,6 +872,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         "DEEPSEEK_BASE_URL": config.get("deepseek_base_url"),
                         "DEEPSEEK_MODEL": config.get("deepseek_model"),
                         "ANTHROPIC_API_KEY": config.get("anthropic_api_key"),
+                        "ANTHROPIC_BASE_URL": config.get("anthropic_base_url"),
                         "SUMMARIZE_MODEL": config.get("summarize_model"),
                         "AI_BACKEND": config.get("ai_backend"),
                         "BOT_DISPLAY_NAME": config.get("bot_display_name"),
@@ -1288,6 +1291,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     _onboarding_data["deepseek_base_url"] = data.get("deepseek_base_url", "https://api.deepseek.com")
                     _onboarding_data["deepseek_model"] = data.get("deepseek_model", "deepseek-v4-flash")
                     _onboarding_data["anthropic_api_key"] = data.get("anthropic_api_key", "")
+                    _onboarding_data["anthropic_base_url"] = data.get("anthropic_base_url", "https://api.anthropic.com")
                     _onboarding_data["summarize_model"] = data.get("summarize_model", "claude-haiku-4-5-20251001")
                 self.send_json({"ok": True})
             except Exception as e:

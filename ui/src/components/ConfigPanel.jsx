@@ -45,7 +45,7 @@ function AiSection({ form, update }) {
           <Field label="DeepSeek API Key" hint="在 platform.deepseek.com/api_keys 免费注册获取" error={!form.deepseek_api_key ? '请填写 API Key' : null}>
             <Input type="password" value={form.deepseek_api_key} onChange={v => update('deepseek_api_key', v)} placeholder="sk-xxxxxxxxxxxxxxxx" />
           </Field>
-          <Field label="DeepSeek Base URL" hint="兼容 OpenAI 的转发地址；留默认值使用官方 API">
+          <Field label="API Base URL" hint="兼容 OpenAI 的转发地址；留默认值使用官方 API">
             <Input value={form.deepseek_base_url} onChange={v => update('deepseek_base_url', v)} placeholder="https://api.deepseek.com" />
           </Field>
           <Field label="DeepSeek 模型选择">
@@ -59,6 +59,9 @@ function AiSection({ form, update }) {
         <>
           <Field label="Anthropic API Key" hint="在 console.anthropic.com 获取" error={!form.anthropic_api_key ? '请填写 API Key' : null}>
             <Input type="password" value={form.anthropic_api_key} onChange={v => update('anthropic_api_key', v)} placeholder="sk-ant-xxxxxxxxxxxxxxxx" />
+          </Field>
+          <Field label="API Base URL" hint="Anthropic API 地址；可填兼容代理或中转服务">
+            <Input value={form.anthropic_base_url} onChange={v => update('anthropic_base_url', v)} placeholder="https://api.anthropic.com" />
           </Field>
           <Field label="Claude 模型选择">
             <Select value={form.summarize_model} onChange={v => update('summarize_model', v)} options={[
@@ -478,7 +481,8 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
   const [form, setForm] = useState({
     ai_backend: 'deepseek', deepseek_api_key: '', deepseek_model: 'deepseek-v4-flash',
     deepseek_base_url: 'https://api.deepseek.com',
-    anthropic_api_key: '', summarize_model: 'claude-haiku-4-5-20251001',
+    anthropic_api_key: '', anthropic_base_url: 'https://api.anthropic.com',
+    summarize_model: 'claude-haiku-4-5-20251001',
     bot_display_name: '', wechat_backend: 'wcdb', wechat_groups: '*',
     fun_enabled: true,
     proactive_enabled: false, proactive_rate_window_sec: 120,
@@ -560,6 +564,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           deepseek_base_url: form.deepseek_base_url,
           deepseek_model: form.deepseek_model,
           anthropic_api_key: form.anthropic_api_key,
+          anthropic_base_url: form.anthropic_base_url,
           summarize_model: form.summarize_model,
           bot_display_name: form.bot_display_name,
           wechat_backend: form.wechat_backend,

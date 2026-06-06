@@ -45,9 +45,10 @@ class ClaudeSummarizer(AbstractSummarizer):
 
     def __init__(self, api_key: str,
                  model: str = MODEL_HAIKU,
+                 base_url: str = "https://api.anthropic.com",
                  chunk_size: int = 400,
                  max_retries: int = 3):
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self.client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
         self.model = model
         self.chunk_size = chunk_size
         self.max_retries = max_retries

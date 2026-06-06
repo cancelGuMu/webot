@@ -13,6 +13,7 @@ import os
 import time
 from typing import Optional
 from urllib.parse import urlencode
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from .base import AbstractWeChatBackend, MessageCallback
@@ -41,6 +42,15 @@ class ChatlogClient:
         if state:
             params["state"] = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
         return self._get_json("/api/v1/new_messages", params)
+
+    def health(self) -> bool:
+        req = Request(self.base_url + "/health", headers={"Accept": "application/json"})
+        try:
+            with urlopen(req, timeout=min(self.timeout, 2.0)) as resp:
+                body = resp.read(512).decode("utf-8", errors="replace")
+            return resp.status < 400 and ("ok" in body.lower() or bool(body.strip()))
+        except (OSError, URLError):
+            return False
 
     def _get_json(self, path: str, params: dict[str, str]) -> dict:
         url = f"{self.base_url}{path}?{urlencode(params)}"
@@ -100,6 +110,9 @@ class MacHybridBackend(AbstractWeChatBackend):
 
     def stop(self) -> None:
         self._running = False
+
+    def health_status(self) -> str:
+        return "chatlog_ok" if self._client.health() else "chatlog_down"
 
     def poll_once(self, callback: MessageCallback) -> None:
         try:

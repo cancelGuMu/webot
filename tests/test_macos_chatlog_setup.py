@@ -114,6 +114,19 @@ WeChat 17947 user 101r REG 1,16 565248 /Users/me/Library/Containers/com.tencent.
                     str(new_db.parent.parent.parent),
                 )
 
+    def test_count_open_db_files_counts_db_storage_handles(self):
+        setup = _load_setup_module()
+        data_dir = "/Users/me/xwechat_files/wxid_abc"
+        lsof = f"""
+WeChat 123 me 77r REG 1,16 1 {data_dir}/db_storage/session/session.db
+WeChat 123 me 78u REG 1,16 1 {data_dir}/db_storage/session/session.db-wal
+WeChat 123 me 79u REG 1,16 1 {data_dir}/db_storage/message/message_0.kvdb
+WeChat 123 me 80r REG 1,16 1 /tmp/other.db
+"""
+
+        with patch.object(setup, "run_text", return_value=lsof):
+            self.assertEqual(setup.count_open_db_files(123, data_dir), 3)
+
     def test_build_extract_command_uses_sudo_and_never_embeds_key_material(self):
         setup = _load_setup_module()
 
@@ -129,6 +142,154 @@ WeChat 17947 user 101r REG 1,16 565248 /Users/me/Library/Containers/com.tencent.
         self.assertIn("--data-dir", cmd)
         self.assertIn("/Users/me/xwechat_files/wxid_abc", cmd)
         self.assertNotIn("enc_key", " ".join(cmd))
+
+    def test_build_lldb_extract_command_uses_sudo_env_and_never_embeds_key_material(self):
+        setup = _load_setup_module()
+
+        cmd = setup.build_lldb_extract_command(
+            script=Path("/tmp/macos_lldb_keyscan.py"),
+            python_bin="/usr/bin/python3",
+            pid=123,
+            data_dir="/Users/me/xwechat_files/wxid_abc",
+        )
+
+        self.assertEqual(cmd[:3], ["sudo", "-E", "/usr/bin/python3"])
+        self.assertIn("/tmp/macos_lldb_keyscan.py", cmd)
+        self.assertIn("--pid", cmd)
+        self.assertIn("123", cmd)
+        self.assertIn("--data-dir", cmd)
+        self.assertIn("/Users/me/xwechat_files/wxid_abc", cmd)
+        self.assertNotIn("enc_key", " ".join(cmd))
+
+    def test_build_lldb_env_prepends_lldb_python_path(self):
+        setup = _load_setup_module()
+
+        env = setup.build_lldb_env(
+            lldb_python_path="/Applications/Xcode.app/LLDB/Python",
+            base_env={"PYTHONPATH": "/existing"},
+        )
+
+        self.assertEqual(
+            env["PYTHONPATH"],
+            "/Applications/Xcode.app/LLDB/Python:/existing",
+        )
+
+    def test_extract_keys_falls_back_to_lldb_when_mach_scanner_finds_no_keys(self):
+        setup = _load_setup_module()
+
+        with (
+            patch.object(setup, "detect_wechat_pid", return_value=123),
+            patch.object(setup, "detect_data_dir", return_value="/Users/me/xwechat_files/wxid_abc"),
+            patch.object(setup, "build_scanner", return_value=Path("/tmp/macscan")),
+            patch.object(setup, "count_valid_keys", return_value=0),
+            patch.object(setup, "run_lldb_keyscan", return_value=0) as lldb_scan,
+            patch.object(setup.subprocess, "run") as run,
+        ):
+            run.return_value.returncode = 1
+
+            self.assertEqual(setup.extract_keys(), 0)
+
+        lldb_scan.assert_called_once_with(123, "/Users/me/xwechat_files/wxid_abc")
+
+    def test_extract_keys_lldb_command_is_exposed(self):
+        setup = _load_setup_module()
+
+        with patch.object(setup, "run_lldb_keyscan", return_value=0) as lldb_scan:
+            self.assertEqual(setup.main(["extract-keys-lldb"]), 0)
+
+        lldb_scan.assert_called_once()
+
+    def test_extract_keys_hook_command_is_exposed(self):
+        setup = _load_setup_module()
+
+        with patch.object(setup, "run_lldb_keyscan", return_value=0) as lldb_scan:
+            self.assertEqual(setup.main(["extract-keys-hook"]), 0)
+
+        lldb_scan.assert_called_once_with(mode="aes-hook")
+
+    def test_extract_keys_hook_honors_duration_option(self):
+        setup = _load_setup_module()
+
+        with patch.object(setup, "run_lldb_keyscan", return_value=0) as lldb_scan:
+            self.assertEqual(setup.main(["extract-keys-hook", "--duration", "120"]), 0)
+
+        lldb_scan.assert_called_once_with(mode="aes-hook", duration=120)
+
+    def test_extract_keys_restart_hook_command_is_exposed(self):
+        setup = _load_setup_module()
+
+        with patch.object(setup, "restart_wechat_and_hook", return_value=0) as restart_hook:
+            rc = setup.main([
+                "extract-keys-restart-hook",
+                "--yes",
+                "--duration",
+                "120",
+                "--open-chat",
+                "文件传输助手",
+                "--skip-verify-read",
+            ])
+
+        self.assertEqual(rc, 0)
+        restart_hook.assert_called_once_with(
+            duration=120,
+            open_chats=["文件传输助手"],
+            assume_yes=True,
+            force=False,
+            verify_after=False,
+            base_url=setup.DEFAULT_CHATLOG_BASE_URL,
+        )
+
+    def test_restart_wechat_and_hook_refuses_without_confirmation(self):
+        setup = _load_setup_module()
+
+        with (
+            patch.object(setup, "confirm_restart_wechat", return_value=False),
+            patch.object(setup, "ensure_sudo_ticket") as sudo_ticket,
+            patch.object(setup, "quit_wechat_gracefully") as quit_wechat,
+        ):
+            rc = setup.restart_wechat_and_hook(assume_yes=False)
+
+        self.assertEqual(rc, 1)
+        sudo_ticket.assert_not_called()
+        quit_wechat.assert_not_called()
+
+    def test_restart_wechat_and_hook_orchestrates_early_hook_and_verify(self):
+        setup = _load_setup_module()
+
+        with (
+            patch.object(setup, "confirm_restart_wechat", return_value=True),
+            patch.object(setup, "detect_wechat_pid", return_value=111),
+            patch.object(setup, "detect_data_dir", return_value="/Users/me/xwechat_files/wxid_abc"),
+            patch.object(setup, "ensure_sudo_ticket", return_value=True),
+            patch.object(setup, "quit_wechat_gracefully", return_value=True) as quit_wechat,
+            patch.object(setup, "wait_for_wechat_exit", return_value=True),
+            patch.object(setup, "launch_wechat", return_value=True) as launch_wechat,
+            patch.object(setup, "wait_for_new_wechat_pid", return_value=222),
+            patch.object(setup, "start_chat_warmup") as warmup,
+            patch.object(setup, "run_lldb_keyscan", return_value=0) as lldb_scan,
+            patch.object(setup, "restart_chatlog", return_value=0) as chatlog_restart,
+            patch.object(setup, "verify_read", return_value=0) as verify_read,
+        ):
+            rc = setup.restart_wechat_and_hook(
+                duration=90,
+                open_chats=["文件传输助手"],
+                assume_yes=True,
+                verify_after=True,
+                base_url="http://127.0.0.1:5030",
+            )
+
+        self.assertEqual(rc, 0)
+        quit_wechat.assert_called_once_with(force=False)
+        launch_wechat.assert_called_once()
+        warmup.assert_called_once_with(["文件传输助手"], duration=90)
+        lldb_scan.assert_called_once_with(
+            222,
+            "/Users/me/xwechat_files/wxid_abc",
+            mode="aes-hook",
+            duration=90,
+        )
+        chatlog_restart.assert_called_once_with("http://127.0.0.1:5030")
+        verify_read.assert_called_once_with("http://127.0.0.1:5030", limit=5)
 
     def test_chatlog_build_command_targets_cmd_chatlog(self):
         setup = _load_setup_module()

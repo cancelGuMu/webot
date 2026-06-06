@@ -31,6 +31,13 @@ UI_DIR = (Path(__file__).resolve().parent.parent.parent / "ui" / "dist").resolve
 WEBSOCKET_GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
+def _messages_table_exists(conn) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='messages'"
+    ).fetchone()
+    return row is not None
+
+
 def _find_or_create_env() -> Path:
     """Find .env file, using the canonical search order from config.py.
 
@@ -930,6 +937,10 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 conn.row_factory = sqlite3.Row
 
                 groups = []
+                if not _messages_table_exists(conn):
+                    conn.close()
+                    self.send_json({"ok": True, "groups": groups})
+                    return
                 if groups_raw == "*" or not groups_raw:
                     # All groups: distinct chat_ids from messages
                     rows = conn.execute(
@@ -1001,6 +1012,10 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 config = load_config()
                 conn = sqlite3.connect(config.db_path)
                 conn.row_factory = sqlite3.Row
+                if not _messages_table_exists(conn):
+                    conn.close()
+                    self.send_json({"ok": True, "members": []})
+                    return
                 rows = conn.execute(
                     "SELECT DISTINCT sender_id, sender_name FROM messages WHERE chat_id=? ORDER BY sender_name",
                     (chat_id,),

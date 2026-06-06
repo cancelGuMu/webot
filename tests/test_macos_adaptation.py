@@ -69,6 +69,9 @@ class FakeChatlogClient:
             return self.batches.pop(0)
         return {"count": 0, "messages": [], "new_state": state or {}}
 
+    def health(self):
+        return True
+
 
 class MacOSAdaptationTests(unittest.TestCase):
     def test_find_env_file_honors_explicit_env_file_override(self):
@@ -135,6 +138,7 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertIn("tools/macos_chatlog_setup.py extract-keys", text)
         self.assertIn("tools/macos_chatlog_setup.py import-keys", text)
         self.assertIn("tools/macos_chatlog_setup.py diagnose", text)
+        self.assertIn("tools/macos_chatlog_setup.py extract-keys-restart-hook", text)
         self.assertIn("tools/macos_chatlog_setup.py build-chatlog", text)
         self.assertIn("tools/macos_chatlog_setup.py start-chatlog", text)
         self.assertIn("tools/macos_chatlog_setup.py verify-read", text)
@@ -280,6 +284,26 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertTrue(seen[0]["is_at_mentioned"])
         self.assertEqual(automation.opened, ["摸鱼群"])
         self.assertEqual(automation.sent, ["收到"])
+
+    def test_health_monitor_uses_mac_backend_health_status_without_window(self):
+        from src.bot import HealthMonitor
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        cfg = BotConfig(
+            ai_backend="deepseek",
+            deepseek_api_key="sk-test",
+            wechat_backend="mac_hybrid",
+        )
+        backend = MacHybridBackend(client=FakeChatlogClient(), automation=FakeMacAutomation())
+        monitor = HealthMonitor(
+            summarizer=type("S", (), {"last_api_call_time": 0})(),
+            router=type("R", (), {"messages_processed": 0})(),
+            conn=type("C", (), {"execute": lambda self, sql: None})(),
+            backend=backend,
+            config=cfg,
+        )
+
+        self.assertEqual(monitor._check_wechat_hwnd(), "chatlog_ok")
 
 
 if __name__ == "__main__":

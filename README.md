@@ -142,10 +142,25 @@ python3 tools/macos_chatlog_setup.py diagnose
 # 2. 提取当前账号的 all_keys.json（会触发 sudo 密码输入，不会打印 key 明文）
 python3 tools/macos_chatlog_setup.py extract-keys
 
+# 如果 Mach 扫描没有匹配到 key，可直接走 lldb 内存扫描
+python3 tools/macos_chatlog_setup.py extract-keys-lldb
+
+# 如果 lldb hex 扫描也没有 key，说明当前 WeChat 可能不保留 x'...' 形式；
+# 用 AES hook 模式，并在命令等待期间打开几个有历史消息的聊天。
+# 最稳的做法是在 WeChat 刚启动后运行该命令。
+python3 tools/macos_chatlog_setup.py extract-keys-hook
+
+# 也可以让脚本重启 WeChat 后立刻挂 AES hook，并自动打开“文件传输助手”触发数据库读取；
+# 成功提取后会自动重启 chatlog 并执行 verify-read。
+python3 tools/macos_chatlog_setup.py extract-keys-restart-hook --yes
+
+# 如需指定触发读取的聊天，可重复传 --open-chat：
+python3 tools/macos_chatlog_setup.py extract-keys-restart-hook --yes --open-chat "文件传输助手" --open-chat "群聊名"
+
 # 如果你已用 wechat-db-decrypt-macos 得到 wechat_keys.json，可导入为 all_keys.json
 python3 tools/macos_chatlog_setup.py import-keys --keys-file /path/to/wechat_keys.json
 
-# 3. 再次确认 valid_key_entries > 0
+# 3. 再次确认 valid_key_entries > 0；open_db_files 用于判断微信是否已加载数据库
 python3 tools/macos_chatlog_setup.py diagnose
 
 # 4. 构建并启动 chatlog_alpha HTTP 服务，默认监听 127.0.0.1:5030
@@ -172,8 +187,16 @@ CHATLOG_BASE_URL=http://127.0.0.1:5030
 
 如果 `extract-keys` 返回 `scan failed code=-2`，说明当前终端没有权限读取
 WeChat 进程内存。请确认 SIP 已关闭，并在命令提示时输入本机管理员密码；
-Codex/脚本不会也不能代输这个密码。WeChat 重启或更新后，通常需要重新执行
-`extract-keys`。
+Codex/脚本不会也不能代输这个密码。
+
+如果 `diagnose` 中 `open_db_files=0`，请先打开微信里任意几个有历史记录的会话，
+再重新提取 key；WeChat 4.1.x 会 lazy-open 数据库，刚启动时内存里可能还没有
+对应 key。若 `open_db_files>0` 但 lldb hex 扫描仍为 0，可使用
+`extract-keys-hook`，它会在 AES key schedule 处捕获 raw key 候选并校验后写入
+`all_keys.json`。如果手动 hook 仍然没有 `hook_hits`，用
+`extract-keys-restart-hook --yes` 让脚本先重启 WeChat 再立刻挂 hook；不加
+`--yes` 时脚本会拒绝重启，避免误关未发送的内容。WeChat 重启或更新后，通常需要
+重新执行 key 提取。
 
 参考实现：
 [teest114514/chatlog_alpha](https://github.com/teest114514/chatlog_alpha)、

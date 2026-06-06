@@ -8,6 +8,7 @@ No real DB or network -- all tests are fast and deterministic.
 import io
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -435,6 +436,16 @@ class TestConfig(unittest.TestCase):
         from src.config import _decode_wechat_groups
         result = _decode_wechat_groups("plain_group,%E6%B5%8B%E8%AF%95%E7%BE%A4")
         self.assertEqual(result, "plain_group,测试群")
+
+    def test_messages_table_exists_handles_empty_runtime_db(self):
+        """Nickname APIs should treat an initialized-empty sqlite file as no groups."""
+        from src.web.server import _messages_table_exists
+
+        conn = sqlite3.connect(":memory:")
+        self.assertFalse(_messages_table_exists(conn))
+
+        conn.execute("CREATE TABLE messages (chat_id TEXT, sender_id TEXT)")
+        self.assertTrue(_messages_table_exists(conn))
 
 
 # ======================================================================

@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlencode
@@ -29,6 +30,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCANNER_DIR = PROJECT_ROOT / "tools" / "macos_keyscan"
 SCANNER_SOURCE = SCANNER_DIR / "main.go"
 SCANNER_BINARY = SCANNER_DIR / "macscan-min"
+LLDB_SCANNER_SCRIPT = PROJECT_ROOT / "tools" / "macos_lldb_keyscan.py"
+DEFAULT_LLDB_PYTHON_BIN = "/usr/bin/python3"
 CHATLOG_DIR = PROJECT_ROOT / "tools" / "macos_chatlog"
 CHATLOG_SOURCE_DIR = CHATLOG_DIR / "chatlog_alpha-src"
 CHATLOG_BINARY = CHATLOG_DIR / "chatlog-alpha"
@@ -38,6 +41,9 @@ CHATLOG_ALPHA_ARCHIVE_URL = (
     "https://github.com/teest114514/chatlog_alpha/archive/refs/heads/main.tar.gz"
 )
 DEFAULT_CHATLOG_BASE_URL = "http://127.0.0.1:5030"
+DEFAULT_RESTART_HOOK_DURATION = 180
+DEFAULT_HOOK_OPEN_CHATS = ["文件传输助手"]
+WECHAT_BUNDLE_ID = "com.tencent.xinWeChat"
 HEX_KEY_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 SENSITIVE_MESSAGE_FIELDS = {
     "content",
@@ -156,6 +162,54 @@ def build_extract_command(scanner: str, pid: int, data_dir: str) -> list[str]:
     return ["sudo", scanner, "--pid", str(pid), "--data-dir", data_dir]
 
 
+def build_lldb_extract_command(
+    script: Path,
+    python_bin: str,
+    pid: int,
+    data_dir: str,
+    mode: str = "scan",
+    duration: int = 45,
+) -> list[str]:
+    cmd = [
+        "sudo",
+        "-E",
+        python_bin,
+        str(script),
+        "--pid",
+        str(pid),
+        "--data-dir",
+        data_dir,
+    ]
+    if mode != "scan":
+        cmd.extend(["--mode", mode])
+    if mode == "aes-hook":
+        cmd.extend(["--duration", str(duration)])
+    return cmd
+
+
+def build_lldb_env(
+    lldb_python_path: str,
+    base_env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    env = dict(base_env or os.environ)
+    existing = env.get("PYTHONPATH", "").strip()
+    lldb_path = lldb_python_path.strip()
+    if lldb_path and existing:
+        env["PYTHONPATH"] = f"{lldb_path}{os.pathsep}{existing}"
+    elif lldb_path:
+        env["PYTHONPATH"] = lldb_path
+    return env
+
+
+def resolve_lldb_python_bin() -> str:
+    env_bin = os.getenv("MACOS_LLDB_PYTHON", "").strip()
+    if env_bin:
+        return env_bin
+    if Path(DEFAULT_LLDB_PYTHON_BIN).exists():
+        return DEFAULT_LLDB_PYTHON_BIN
+    return sys.executable
+
+
 def build_chatlog_build_command(source_dir: Path, output: Path) -> list[str]:
     return ["go", "build", "-o", str(output), "./cmd/chatlog_server"]
 
@@ -236,6 +290,23 @@ def detect_data_dir(pid: int) -> str:
     if data_dir:
         return data_dir
     return detect_data_dir_from_filesystem()
+
+
+def count_open_db_files(pid: int, data_dir: str) -> int:
+    if not pid or not data_dir:
+        return 0
+    out = run_text(["lsof", "-n", "-P", "-p", str(pid)], timeout=20)
+    prefix = str(Path(data_dir).expanduser() / "db_storage")
+    seen = set()
+    for line in out.splitlines():
+        if prefix not in line:
+            continue
+        path = line.split()[-1]
+        if ".db" not in path and ".kvdb" not in path:
+            continue
+        if path.endswith((".db", ".db-wal", ".db-shm", ".kvdb", ".kvdb-wal", ".kvdb-shm")):
+            seen.add(path)
+    return len(seen)
 
 
 def detect_data_dir_from_filesystem() -> str:
@@ -484,6 +555,7 @@ def print_diagnose(base_url: str = DEFAULT_CHATLOG_BASE_URL) -> int:
     print(f"wechat_version={detect_wechat_version()}")
     print(f"wechat_pid={pid or ''}")
     print(f"data_dir={data_dir}")
+    print(f"open_db_files={count_open_db_files(pid, data_dir)}")
     print(f"all_keys={keys_path if keys_path else ''}")
     print(f"valid_key_entries={valid_keys}")
     print(f"chatlog_bin={chatlog_bin if chatlog_bin else ''}")
@@ -508,11 +580,258 @@ def extract_keys() -> int:
     print("Running key scanner with sudo. It will not print key material.")
     print("Command:", " ".join(cmd))
     result = subprocess.run(cmd, check=False)
+    keys_path = Path(data_dir) / "all_keys.json"
+    valid_keys = count_valid_keys(keys_path)
+    if result.returncode == 0 and valid_keys > 0:
+        print(f"valid_key_entries={valid_keys}")
+        return 0
+
     if result.returncode != 0:
-        return result.returncode
+        print("mach_scanner=failed_or_no_match")
+    else:
+        print(f"valid_key_entries={valid_keys}")
+    print("Trying lldb key scanner fallback. It will not print key material.")
+    return run_lldb_keyscan(pid, data_dir)
+
+
+def run_lldb_keyscan(
+    pid: int | None = None,
+    data_dir: str | None = None,
+    mode: str = "scan",
+    duration: int = 45,
+) -> int:
+    pid = pid or detect_wechat_pid()
+    if not pid:
+        print("WeChat is not running.", file=sys.stderr)
+        return 1
+    data_dir = data_dir or detect_data_dir(pid) or detect_data_dir_from_filesystem()
+    if not data_dir:
+        print("Could not detect the active WeChat account data dir.", file=sys.stderr)
+        return 1
+    if not LLDB_SCANNER_SCRIPT.exists():
+        print(f"LLDB scanner script not found: {LLDB_SCANNER_SCRIPT}", file=sys.stderr)
+        return 1
+
+    lldb_python_path = detect_lldb_python_path()
+    if not lldb_python_path:
+        print("Could not detect lldb Python path. Install Xcode Command Line Tools or llvm.", file=sys.stderr)
+        return 1
+
+    python_bin = resolve_lldb_python_bin()
+    cmd = build_lldb_extract_command(
+        LLDB_SCANNER_SCRIPT,
+        python_bin,
+        pid,
+        data_dir,
+        mode=mode,
+        duration=duration,
+    )
+    env = build_lldb_env(lldb_python_path)
+    print(f"Running lldb key scanner ({mode}) with sudo. It will not print key material.")
+    print("Command:", " ".join(cmd))
+    result = subprocess.run(cmd, env=env, check=False)
     keys_path = Path(data_dir) / "all_keys.json"
     print(f"valid_key_entries={count_valid_keys(keys_path)}")
+    return result.returncode
+
+
+def normalize_open_chats(open_chats: list[str] | None) -> list[str]:
+    chats = [chat.strip() for chat in (open_chats or []) if chat and chat.strip()]
+    return chats or list(DEFAULT_HOOK_OPEN_CHATS)
+
+
+def confirm_restart_wechat(assume_yes: bool = False) -> bool:
+    if assume_yes:
+        return True
+    message = (
+        "This will quit and reopen WeChat to attach the AES hook before DBs are "
+        "loaded. Save unsent drafts first. Continue? [y/N] "
+    )
+    if not sys.stdin.isatty():
+        print("Refusing to restart WeChat without confirmation. Re-run with --yes.", file=sys.stderr)
+        return False
+    answer = input(message).strip().lower()
+    return answer in {"y", "yes"}
+
+
+def ensure_sudo_ticket() -> bool:
+    print("Requesting sudo for lldb attach. No key material will be printed.")
+    result = subprocess.run(["sudo", "-v"], check=False)
+    if result.returncode != 0:
+        print("sudo authentication failed.", file=sys.stderr)
+        return False
+    return True
+
+
+def quit_wechat_gracefully(force: bool = False) -> bool:
+    scripts = [
+        f'tell application id "{WECHAT_BUNDLE_ID}" to quit',
+        'tell application "WeChat" to quit',
+    ]
+    for script in scripts:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return True
+
+    if force:
+        result = subprocess.run(
+            ["killall", "WeChat"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.returncode == 0
+
+    print("Could not ask WeChat to quit. Close WeChat manually or re-run with --force.", file=sys.stderr)
+    return False
+
+
+def wait_for_wechat_exit(pid: int, timeout: int = 20) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        result = subprocess.run(
+            ["kill", "-0", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode != 0:
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def launch_wechat() -> bool:
+    commands = [
+        ["open", "-a", "WeChat"],
+        ["open", "/Applications/WeChat.app"],
+    ]
+    for cmd in commands:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return True
+    print("Could not launch WeChat.", file=sys.stderr)
+    return False
+
+
+def detect_wechat_pids() -> list[int]:
+    out = run_text(["pgrep", "-x", "WeChat"])
+    pids = []
+    for line in out.strip().splitlines():
+        if line.strip().isdigit():
+            pids.append(int(line.strip()))
+    return pids
+
+
+def wait_for_new_wechat_pid(old_pid: int, timeout: int = 30) -> int:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        pids = detect_wechat_pids()
+        candidates = [pid for pid in pids if pid != old_pid]
+        if candidates:
+            return max(candidates)
+        if old_pid == 0 and pids:
+            return max(pids)
+        time.sleep(0.5)
     return 0
+
+
+def warm_wechat_chats(open_chats: list[str]) -> None:
+    try:
+        from src.wechat.mac_ui_backend import MacUIAutomation
+    except Exception as exc:
+        print(f"open_chat=unavailable error={exc}", file=sys.stderr)
+        return
+
+    automation = MacUIAutomation()
+    for chat in normalize_open_chats(open_chats):
+        ok = automation.open_chat(chat)
+        print(f"open_chat={chat} ok={'yes' if ok else 'no'}")
+        time.sleep(1)
+
+
+def start_chat_warmup(open_chats: list[str] | None, duration: int) -> threading.Thread:
+    chats = normalize_open_chats(open_chats)
+    deadline = time.monotonic() + max(10, duration)
+
+    def run() -> None:
+        time.sleep(5)
+        while time.monotonic() < deadline:
+            warm_wechat_chats(chats)
+            time.sleep(10)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread
+
+
+def restart_wechat_and_hook(
+    duration: int = DEFAULT_RESTART_HOOK_DURATION,
+    open_chats: list[str] | None = None,
+    assume_yes: bool = False,
+    force: bool = False,
+    verify_after: bool = True,
+    base_url: str = DEFAULT_CHATLOG_BASE_URL,
+) -> int:
+    duration = max(30, int(duration))
+    chats = normalize_open_chats(open_chats)
+
+    if not confirm_restart_wechat(assume_yes):
+        return 1
+
+    old_pid = detect_wechat_pid()
+    data_dir = detect_data_dir(old_pid) if old_pid else detect_data_dir_from_filesystem()
+
+    if not ensure_sudo_ticket():
+        return 1
+
+    if old_pid:
+        print(f"Quitting WeChat pid={old_pid}...")
+        if not quit_wechat_gracefully(force=force):
+            return 1
+        if not wait_for_wechat_exit(old_pid):
+            print("WeChat did not exit in time. Close it manually and retry.", file=sys.stderr)
+            return 1
+
+    print("Launching WeChat...")
+    if not launch_wechat():
+        return 1
+
+    new_pid = wait_for_new_wechat_pid(old_pid)
+    if not new_pid:
+        print("Could not detect restarted WeChat pid.", file=sys.stderr)
+        return 1
+
+    if not data_dir:
+        data_dir = detect_data_dir(new_pid) or detect_data_dir_from_filesystem()
+    if not data_dir:
+        print("Could not detect the active WeChat account data dir.", file=sys.stderr)
+        return 1
+
+    print(f"WeChat restarted pid={new_pid}")
+    print("Starting chat warmup while AES hook is active...")
+    start_chat_warmup(chats, duration=duration)
+
+    rc = run_lldb_keyscan(new_pid, data_dir, mode="aes-hook", duration=duration)
+    if rc != 0:
+        return rc
+
+    if not verify_after:
+        return 0
+    restart_rc = restart_chatlog(base_url)
+    if restart_rc != 0:
+        return restart_rc
+    return verify_read(base_url, limit=5)
 
 
 def import_keys(keys_file: str) -> int:
@@ -658,6 +977,9 @@ def main(argv: list[str] | None = None) -> int:
             "diagnose",
             "build-scanner",
             "extract-keys",
+            "extract-keys-lldb",
+            "extract-keys-hook",
+            "extract-keys-restart-hook",
             "import-keys",
             "build-chatlog",
             "start-chatlog",
@@ -670,6 +992,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--chatlog-base-url", default=DEFAULT_CHATLOG_BASE_URL)
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--keys-file", default="wechat_keys.json")
+    parser.add_argument("--duration", type=int)
+    parser.add_argument("--open-chat", action="append", default=[])
+    parser.add_argument("--yes", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--skip-verify-read", action="store_true")
     args = parser.parse_args(argv)
 
     if args.command == "diagnose":
@@ -679,6 +1006,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "extract-keys":
         return extract_keys()
+    if args.command == "extract-keys-lldb":
+        return run_lldb_keyscan()
+    if args.command == "extract-keys-hook":
+        if args.duration is None:
+            return run_lldb_keyscan(mode="aes-hook")
+        return run_lldb_keyscan(mode="aes-hook", duration=args.duration)
+    if args.command == "extract-keys-restart-hook":
+        duration = args.duration or DEFAULT_RESTART_HOOK_DURATION
+        return restart_wechat_and_hook(
+            duration=duration,
+            open_chats=args.open_chat,
+            assume_yes=args.yes,
+            force=args.force,
+            verify_after=not args.skip_verify_read,
+            base_url=args.chatlog_base_url,
+        )
     if args.command == "import-keys":
         return import_keys(args.keys_file)
     if args.command == "build-chatlog":

@@ -193,6 +193,9 @@ class MacUIBackend(AbstractWeChatBackend):
     def stop(self) -> None:
         self._running = False
 
+    def health_status(self) -> str:
+        return "mac_ui_ok"
+
     def poll_once(self, callback: MessageCallback) -> None:
         """Poll visible WeChat UI text once and dispatch new lines.
 

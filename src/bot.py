@@ -118,7 +118,13 @@ class HealthMonitor:
     def _check_wechat_hwnd(self) -> str:
         """Check WeChat window HWND."""
         try:
-            wc = self._backend._window
+            health_status = getattr(self._backend, "health_status", None)
+            if callable(health_status):
+                return str(health_status())
+
+            wc = getattr(self._backend, "_window", None)
+            if wc is None:
+                return f"{self._config.wechat_backend}_ok"
             hwnd = wc._cached_hwnd
             if hwnd is not None:
                 if wc._validate_hwnd(hwnd):

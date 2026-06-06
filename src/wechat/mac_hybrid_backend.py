@@ -95,8 +95,10 @@ class MacHybridBackend(AbstractWeChatBackend):
         self._chat_titles: dict[str, str] = {}
         self._chat_is_group: dict[str, bool] = {}
         self._title_entries: dict[str, dict[str, bool]] = {}
-        self._session_order: dict[str, int] = {}
         self._chat_titles_loaded = False
+        self._manual_chat_titles = _parse_chat_title_map(os.getenv("MAC_CHAT_TITLE_MAP", ""))
+        for username, title in self._manual_chat_titles.items():
+            self._remember_chat_session(username, title, str(username).endswith("@chatroom"))
 
     def start(self, callback: MessageCallback) -> None:
         self._running = True
@@ -115,16 +117,26 @@ class MacHybridBackend(AbstractWeChatBackend):
             return False
         if not self._chat_titles_loaded:
             self._load_chat_titles()
-        target = self._chat_titles.get(chat_id, chat_id)
-        if _looks_internal_chat_id(target):
-            target = self._resolve_chat_title(chat_id) or target
+        if _looks_internal_chat_id(chat_id):
+            target = self._resolve_chat_title(chat_id)
+        else:
+            target = self._chat_titles.get(chat_id, chat_id)
+        if not target:
+            logger.warning("Refusing to send macOS WeChat reply without a resolved chat target: %s", chat_id)
+            return False
+        if _looks_internal_chat_id(target or ""):
+            logger.warning(
+                "Refusing to open macOS WeChat chat with unresolved internal id: chat_id=%s target=%s",
+                chat_id,
+                target,
+            )
+            return False
         is_group = self._chat_is_group.get(chat_id, str(chat_id).endswith("@chatroom"))
         prefer_group = self._should_prefer_group_result(chat_id, target)
-        sidebar_index = self._session_order.get(chat_id)
         if target and not self._automation.open_chat(
             target,
             prefer_group=prefer_group,
-            sidebar_index=sidebar_index,
+            sidebar_index=None,
             expected_title=target,
             expected_is_group=is_group,
             require_group_marker=prefer_group,
@@ -259,6 +271,9 @@ class MacHybridBackend(AbstractWeChatBackend):
         return any(g == chat_id or g == group_name for g in groups)
 
     def _resolve_chat_title(self, username: str) -> str | None:
+        manual = self._manual_chat_titles.get(username, "")
+        if manual and not _looks_internal_chat_id(manual):
+            return manual
         title = self._chat_titles.get(username, "")
         if title and not _looks_internal_chat_id(title):
             return title
@@ -270,7 +285,6 @@ class MacHybridBackend(AbstractWeChatBackend):
         return None
 
     def _load_chat_titles(self) -> None:
-        self._chat_titles_loaded = True
         get_sessions = getattr(self._client, "get_sessions", None)
         if not callable(get_sessions):
             return
@@ -293,8 +307,10 @@ class MacHybridBackend(AbstractWeChatBackend):
                 or "",
             ).strip()
             if username and title and not _looks_internal_chat_id(title):
-                self._session_order[username] = index
+                if username in self._manual_chat_titles:
+                    continue
                 self._remember_chat_session(username, title, _session_is_group(item, username))
+        self._chat_titles_loaded = True
 
     def _remember_chat_session(self, username: str, title: str, is_group: bool) -> None:
         if not username:
@@ -343,6 +359,39 @@ def _to_bool(value) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _parse_chat_title_map(raw: str) -> dict[str, str]:
+    raw = str(raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data = None
+    if isinstance(data, dict):
+        return {
+            str(key).strip(): str(value).strip()
+            for key, value in data.items()
+            if str(key).strip() and str(value).strip()
+        }
+
+    result: dict[str, str] = {}
+    for item in raw.replace("\n", ",").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "=" in item:
+            key, value = item.split("=", 1)
+        elif ":" in item:
+            key, value = item.split(":", 1)
+        else:
+            continue
+        key = key.strip()
+        value = value.strip()
+        if key and value:
+            result[key] = value
+    return result
 
 
 def _session_is_group(item: dict, username: str) -> bool:

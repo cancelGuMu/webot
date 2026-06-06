@@ -68,8 +68,17 @@ class MacUIAutomation:
     ) -> bool:
         if not chat_name:
             return False
+        if _looks_internal_chat_id(chat_name):
+            logger.warning("Refusing to search macOS WeChat with internal chat id: %s", chat_name)
+            return False
         if not self._bring_wechat_frontmost():
             return False
+        if expected_title and self._current_chat_title_matches(
+            expected_title,
+            expected_is_group=expected_is_group,
+            require_group_marker=require_group_marker,
+        ):
+            return True
         if sidebar_index is not None:
             opened = self._open_sidebar_chat(sidebar_index)
             if opened and expected_title:
@@ -79,25 +88,8 @@ class MacUIAutomation:
                     require_group_marker=require_group_marker,
                 )
             return opened
-        if not self._open_start_chat_sheet():
+        if not self._open_existing_chat_from_search(chat_name, prefer_group=prefer_group):
             return False
-        time.sleep(0.2)
-        if not self._run(["pbcopy"], input_text=chat_name):
-            return False
-        if not self._paste_clipboard(send=False):
-            return False
-        time.sleep(0.4)
-        geometry = self._get_wechat_geometry()
-        sheet = self._sheet_rect(geometry)
-        if not sheet:
-            logger.warning("Could not locate WeChat start-chat sheet")
-            return False
-        if not self._click_screen(sheet["x"] + 64, self._search_result_y(sheet, prefer_group)):
-            return False
-        time.sleep(0.15)
-        if not self._click_screen(sheet["x"] + sheet["w"] - 54, sheet["y"] + sheet["h"] - 40):
-            return False
-        time.sleep(0.25)
         if expected_title:
             return self._verify_current_chat_title(
                 expected_title,
@@ -122,34 +114,33 @@ class MacUIAutomation:
         time.sleep(0.25)
         return True
 
-    def _open_start_chat_sheet(self) -> bool:
-        script = '''
-tell application "System Events"
-  tell process "WeChat"
-    set frontmost to true
-    tell menu bar 1
-      tell menu bar item "文件"
-        tell menu "文件"
-          if exists menu item "发起会话" then
-            click menu item "发起会话"
-          else if exists menu item "发起群聊" then
-            click menu item "发起群聊"
-          else if exists menu item "New Chat" then
-            click menu item "New Chat"
-          else
-            error "Cannot find WeChat start-chat menu item"
-          end if
-        end tell
-      end tell
-    end tell
-  end tell
-end tell
-'''
-        return self._run_osascript(script, timeout=8)
+    def _open_existing_chat_from_search(self, chat_name: str, prefer_group: bool = False) -> bool:
+        geometry = self._get_wechat_geometry()
+        if self._modal_sheet_rect(geometry):
+            if not self._press_escape():
+                return False
+            time.sleep(0.2)
+            geometry = self._get_wechat_geometry()
+        window = self._window_rect(geometry)
+        if not window:
+            logger.warning("Could not locate WeChat main window for existing chat search")
+            return False
+        if not self._click_screen(window["x"] + 160, window["y"] + 56):
+            return False
+        time.sleep(0.1)
+        if not self._run(["pbcopy"], input_text=chat_name):
+            return False
+        if not self._paste_clipboard(send=False):
+            return False
+        time.sleep(0.4)
+        if not self._click_screen(window["x"] + 160, self._existing_search_result_y(window, prefer_group)):
+            return False
+        time.sleep(0.25)
+        return True
 
     @staticmethod
-    def _search_result_y(sheet: dict, prefer_group: bool) -> float:
-        return sheet["y"] + (174 if prefer_group else 124)
+    def _existing_search_result_y(window: dict, prefer_group: bool) -> float:
+        return window["y"] + (244 if prefer_group else 176)
 
     def read_visible_texts(self) -> list[str]:
         app = self._escape_jxa(self._app_name)
@@ -219,7 +210,7 @@ JSON.stringify([...new Set(values)]);
         return self._paste_clipboard(send=True)
 
     def _paste_clipboard(self, send: bool = False) -> bool:
-        send_line = '  key code 36' if send else ''
+        send_line = self._send_key_script_line() if send else ''
         script = f'''
 tell application "System Events"
   keystroke "v" using command down
@@ -228,6 +219,13 @@ tell application "System Events"
 end tell
 '''
         return self._run_osascript(script, timeout=8)
+
+    @staticmethod
+    def _send_key_script_line() -> str:
+        shortcut = os.getenv("MAC_WECHAT_SEND_SHORTCUT", "cmd_enter").strip().lower()
+        if shortcut in {"enter", "return"}:
+            return "  key code 36"
+        return "  key code 36 using command down"
 
     def _verify_current_chat_title(
         self,
@@ -252,16 +250,30 @@ end tell
         )
         return False
 
+    def _current_chat_title_matches(
+        self,
+        expected_title: str,
+        expected_is_group: bool = False,
+        require_group_marker: bool = False,
+    ) -> bool:
+        return self._texts_match_chat_title(
+            self._title_reader(),
+            expected_title,
+            expected_is_group=expected_is_group,
+            require_group_marker=require_group_marker,
+        )
+
     def _read_current_header_texts(self) -> list[str]:
         geometry = self._get_wechat_geometry()
         window = self._window_rect(geometry)
         if not window:
             return []
 
-        x = int(window["x"])
-        y = int(window["y"])
-        w = int(window["w"])
-        h = 140
+        header = self._chat_header_capture_rect(window)
+        x = int(header["x"])
+        y = int(header["y"])
+        w = int(header["w"])
+        h = int(header["h"])
         tmp = tempfile.NamedTemporaryFile(prefix="webot_wechat_header_", suffix=".png", delete=False)
         path = tmp.name
         tmp.close()
@@ -383,6 +395,16 @@ JSON.stringify({front: name});
     def _run_osascript(self, script: str, timeout=5) -> bool:
         return self._run(["osascript", "-e", script], timeout=timeout)
 
+    def _press_escape(self) -> bool:
+        return self._run_osascript(
+            '''
+tell application "System Events"
+  key code 53
+end tell
+''',
+            timeout=3,
+        )
+
     def _get_wechat_geometry(self) -> dict:
         app = self._escape_jxa(self._app_name)
         script = f'''
@@ -442,18 +464,17 @@ JSON.stringify(result);
     def _window_rect(self, geometry: dict) -> dict | None:
         return self._valid_rect(geometry.get("window") if isinstance(geometry, dict) else None)
 
-    def _sheet_rect(self, geometry: dict) -> dict | None:
-        sheet = self._valid_rect(geometry.get("sheet") if isinstance(geometry, dict) else None)
-        if sheet:
-            return sheet
-        window = self._window_rect(geometry)
-        if not window:
-            return None
+    def _modal_sheet_rect(self, geometry: dict) -> dict | None:
+        return self._valid_rect(geometry.get("sheet") if isinstance(geometry, dict) else None)
+
+    @staticmethod
+    def _chat_header_capture_rect(window: dict) -> dict:
+        left_offset = min(max(window["w"] * 0.34, 260), 620)
         return {
-            "x": window["x"] + (window["w"] * 0.30),
-            "y": window["y"] + 80,
-            "w": window["w"] * 0.65,
-            "h": window["h"] * 0.75,
+            "x": window["x"] + left_offset,
+            "y": window["y"],
+            "w": max(window["w"] - left_offset, 1),
+            "h": 140,
         }
 
     @staticmethod
@@ -508,6 +529,11 @@ JSON.stringify(result);
     @staticmethod
     def _escape_jxa(value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _looks_internal_chat_id(value: str) -> bool:
+    value = str(value or "").strip()
+    return value.endswith("@chatroom") or value.startswith("wxid_")
 
 
 class MacUIBackend(AbstractWeChatBackend):

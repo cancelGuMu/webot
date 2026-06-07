@@ -1,0 +1,164 @@
+name: Build Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and upload assets to"
+        required: true
+        default: "v1.0.1"
+      source_windows_release:
+        description: "Previous release that contains bundled Windows DLLs"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows assets
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Build frontend
+        shell: pwsh
+        run: |
+          Push-Location ui
+          npm install
+          npm run build
+          Pop-Location
+
+      - name: Install Python build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Restore bundled Windows DLLs
+        shell: pwsh
+        run: |
+          $sourceRelease = "${{ inputs.source_windows_release }}"
+          $previousExe = Join-Path $env:RUNNER_TEMP "webot-$sourceRelease.exe"
+          $extractor = Join-Path $env:RUNNER_TEMP "extract_windows_dlls.py"
+
+          Invoke-WebRequest `
+            -Uri "https://github.com/cancelGuMu/webot/releases/download/$sourceRelease/webot.exe" `
+            -OutFile $previousExe
+
+          @'
+          import argparse
+          from pathlib import Path
+          from PyInstaller.archive.readers import CArchiveReader
+
+          REQUIRED_DLLS = [
+              "MSVCP140.dll",
+              "VCRUNTIME140.dll",
+              "VCRUNTIME140_1.dll",
+              "WCDB.dll",
+              "wcdb_api.dll",
+              "wx_key.dll",
+          ]
+
+          def main() -> None:
+              parser = argparse.ArgumentParser()
+              parser.add_argument("--archive", required=True)
+              parser.add_argument("--dest", default="lib")
+              args = parser.parse_args()
+
+              archive = CArchiveReader(args.archive)
+              dest = Path(args.dest)
+              dest.mkdir(parents=True, exist_ok=True)
+
+              missing = []
+              for dll in REQUIRED_DLLS:
+                  entry_name = find_entry_name(archive.toc, dll)
+                  if not entry_name:
+                      missing.append(dll)
+                      continue
+                  data = archive.extract(entry_name)
+                  (dest / dll).write_bytes(data)
+                  print(f"restored {dll} from {entry_name}")
+
+              if missing:
+                  raise SystemExit(f"Missing DLLs in previous release archive: {', '.join(missing)}")
+
+          def find_entry_name(toc: dict, dll: str) -> str | None:
+              dll_lower = dll.lower()
+              preferred = []
+              fallbacks = []
+              for name in toc:
+                  normalized = str(name).replace("\\", "/").lower()
+                  if normalized == dll_lower:
+                      fallbacks.append(name)
+                  elif normalized.endswith("/" + dll_lower):
+                      if normalized.startswith("lib/"):
+                          preferred.append(name)
+                      else:
+                          fallbacks.append(name)
+              return (preferred or fallbacks or [None])[0]
+
+          if __name__ == "__main__":
+              main()
+          '@ | Set-Content -Encoding UTF8 $extractor
+
+          python $extractor --archive $previousExe --dest lib
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          python -m PyInstaller --clean --noconfirm build.spec
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $env:PATH += ";C:\Program Files (x86)\NSIS"
+          $version = "${{ inputs.tag }}".TrimStart("v")
+
+          if (Select-String -Path installer.nsi -Pattern '!ifndef PRODUCT_VERSION' -Quiet) {
+            makensis.exe "/DPRODUCT_VERSION=$version" installer.nsi
+          } else {
+            (Get-Content installer.nsi) `
+              -replace '!define PRODUCT_VERSION "1\.0\.0"', "!define PRODUCT_VERSION `"$version`"" |
+              Set-Content -Encoding UTF8 installer.nsi
+            makensis.exe installer.nsi
+          }
+
+      - name: Package release zip
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.tag }}".TrimStart("v")
+          $zipPath = "dist/webot-windows-x64.zip"
+          Compress-Archive `
+            -Path "dist/webot.exe", "dist/webot-setup.exe", ".env.example" `
+            -DestinationPath $zipPath `
+            -Force
+          Get-ChildItem dist/webot.exe, dist/webot-setup.exe, $zipPath |
+            Format-Table Name, Length
+
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/webot.exe
+            dist/webot-setup.exe
+            dist/webot-windows-x64.zip

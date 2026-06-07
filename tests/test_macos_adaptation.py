@@ -1,7 +1,9 @@
 """Tests for macOS adaptation without changing the Windows wcdb path."""
 
+import subprocess
 import unittest
 import tempfile
+import plistlib
 from unittest.mock import patch
 from pathlib import Path
 
@@ -75,6 +77,16 @@ class FakeMacAutomation:
         return True
 
 
+class FakeMacDiagnosticAutomation:
+    def __init__(self, report=None):
+        self.calls = 0
+        self.report = report or {"ok": True, "accessibility_ok": True}
+
+    def diagnose_access(self):
+        self.calls += 1
+        return self.report
+
+
 class FakeChatlogClient:
     def __init__(self, batches=None, sessions=None):
         self.batches = list(batches or [])
@@ -103,7 +115,30 @@ class FakeClicker:
         return True
 
 
+class FakeWebview:
+    def __init__(self):
+        self.created = []
+        self.started = []
+
+    def create_window(self, **kwargs):
+        self.created.append(kwargs)
+        return object()
+
+    def start(self, **kwargs):
+        self.started.append(kwargs)
+
+
 class MacOSAdaptationTests(unittest.TestCase):
+    def test_mac_ui_default_runner_converts_timeout_to_failed_process(self):
+        with patch(
+            "src.wechat.mac_ui_backend.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["osascript"], 3),
+        ):
+            result = MacUIAutomation._default_runner(["osascript"], timeout=3)
+
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("timed out", result.stderr)
+
     def test_find_env_file_honors_explicit_env_file_override(self):
         from src.config import find_env_file
 
@@ -147,6 +182,13 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertNotIn("uiautomation", lowered)
         self.assertNotIn("comtypes", lowered)
 
+    def test_macos_entitlements_allow_bundled_python_framework(self):
+        with Path("macos-entitlements.plist").open("rb") as f:
+            entitlements = plistlib.load(f)
+
+        self.assertTrue(entitlements["com.apple.security.automation.apple-events"])
+        self.assertTrue(entitlements["com.apple.security.cs.disable-library-validation"])
+
     def test_frontend_exposes_mac_ui_backend_label(self):
         config_panel = Path("ui/src/components/ConfigPanel.jsx").read_text(encoding="utf-8")
         dashboard = Path("ui/src/components/Dashboard.jsx").read_text(encoding="utf-8")
@@ -187,10 +229,59 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertNotIn("uiautomation", report["value"])
         self.assertNotIn("comtypes", report["value"])
 
+    def test_macos_wechat_diagnostics_skips_non_macos(self):
+        from src.web.server import _macos_wechat_diagnostics
+
+        automation = FakeMacDiagnosticAutomation()
+
+        report = _macos_wechat_diagnostics(
+            system_name="Windows",
+            automation=automation,
+        )
+
+        self.assertFalse(report["ok"])
+        self.assertTrue(report["skipped"])
+        self.assertEqual(automation.calls, 0)
+
+    def test_macos_wechat_diagnostics_uses_injected_automation(self):
+        from src.web.server import _macos_wechat_diagnostics
+
+        automation = FakeMacDiagnosticAutomation({
+            "ok": True,
+            "activated": True,
+            "accessibility_ok": True,
+            "screen_capture_ok": True,
+        })
+
+        report = _macos_wechat_diagnostics(
+            system_name="Darwin",
+            automation=automation,
+        )
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(automation.calls, 1)
+
     def test_desktop_mac_imports_without_windows_modules(self):
         import desktop_mac
 
         self.assertTrue(hasattr(desktop_mac, "main"))
+
+    def test_desktop_mac_opens_native_webview_window(self):
+        import desktop_mac
+
+        webview = FakeWebview()
+
+        desktop_mac.open_dashboard(
+            "http://127.0.0.1:7327",
+            webview_module=webview,
+            browser_opener=lambda url: self.fail(f"unexpected browser fallback: {url}"),
+            sleep_func=lambda seconds: None,
+        )
+
+        self.assertEqual(webview.created[0]["title"], "webot — Dashboard")
+        self.assertEqual(webview.created[0]["url"], "http://127.0.0.1:7327")
+        self.assertEqual(webview.created[0]["min_size"], (900, 600))
+        self.assertEqual(webview.started[0]["gui"], "cocoa")
 
     def test_mac_ui_poll_once_emits_standardized_messages_once(self):
         automation = FakeMacAutomation([
@@ -252,6 +343,7 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertEqual(runner.calls[4]["cmd"], ["pbcopy"])
         self.assertEqual(runner.calls[4]["input_text"], "hello")
         self.assertIn("osascript", runner.calls[5]["cmd"][0])
+        self.assertIn('tell process "WeChat"', runner.calls[5]["cmd"][-1])
         self.assertNotIn("click at", runner.calls[5]["cmd"][-1])
         self.assertIn("keystroke \"v\"", runner.calls[5]["cmd"][-1])
         self.assertIn("key code 36", runner.calls[5]["cmd"][-1])
@@ -506,6 +598,31 @@ class MacOSAdaptationTests(unittest.TestCase):
             automation.read_visible_texts(),
             ["Alice: hi", "Bob: ok"],
         )
+
+    def test_mac_ui_automation_parses_native_applescript_geometry(self):
+        parsed = MacUIAutomation._parse_wechat_geometry_applescript(
+            "window|100|200|800|600|closed|1|sheet|120|230|300|180"
+        )
+
+        self.assertEqual(parsed["window"], {"x": 100.0, "y": 200.0, "w": 800.0, "h": 600.0})
+        self.assertEqual(parsed["closed_aux_windows"], 1)
+        self.assertEqual(parsed["sheet"], {"x": 120.0, "y": 230.0, "w": 300.0, "h": 180.0})
+
+    def test_mac_ui_automation_parses_native_applescript_geometry_without_sheet(self):
+        parsed = MacUIAutomation._parse_wechat_geometry_applescript(
+            "window|100|200|800|600|closed|0"
+        )
+
+        self.assertEqual(parsed["window"], {"x": 100.0, "y": 200.0, "w": 800.0, "h": 600.0})
+        self.assertEqual(parsed["closed_aux_windows"], 0)
+        self.assertNotIn("sheet", parsed)
+
+    def test_mac_ui_automation_parses_native_applescript_error(self):
+        parsed = MacUIAutomation._parse_wechat_geometry_applescript(
+            "error|osascript is not allowed assistive access"
+        )
+
+        self.assertEqual(parsed, {"error": "osascript is not allowed assistive access"})
 
     def test_mac_hybrid_poll_once_reads_chatlog_messages_and_sends_reply(self):
         from src.wechat.mac_hybrid_backend import MacHybridBackend

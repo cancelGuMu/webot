@@ -9,7 +9,9 @@ Unicode true
 ; ── Product Info ──────────────────────────────────────────────────────
 !define PRODUCT_NAME "webot"
 !define PRODUCT_DESC "微信 AI 群聊助手"
-!define PRODUCT_VERSION "1.0.0"
+!ifndef PRODUCT_VERSION
+!define PRODUCT_VERSION "1.0.1"
+!endif
 !define PRODUCT_PUBLISHER "cancelGuMu"
 !define PRODUCT_URL "https://github.com/cancelGuMu/webot"
 

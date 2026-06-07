@@ -52,6 +52,18 @@ class ChatlogClient:
             "limit": str(limit),
         })
 
+    def get_chatrooms(self, limit: int = 500) -> dict:
+        return self._get_json("/api/v1/chatrooms", {
+            "format": "json",
+            "limit": str(limit),
+        })
+
+    def get_contacts(self, limit: int = 500) -> dict:
+        return self._get_json("/api/v1/contacts", {
+            "format": "json",
+            "limit": str(limit),
+        })
+
     def health(self) -> bool:
         req = Request(self.base_url + "/health", headers={"Accept": "application/json"})
         try:
@@ -101,6 +113,7 @@ class MacHybridBackend(AbstractWeChatBackend):
         self._chat_titles: dict[str, str] = {}
         self._chat_is_group: dict[str, bool] = {}
         self._title_entries: dict[str, dict[str, bool]] = {}
+        self._last_messages: dict[str, dict] = {}
         self._chat_titles_loaded = False
         self._manual_chat_titles = _parse_chat_title_map(os.getenv("MAC_CHAT_TITLE_MAP", ""))
         self._load_cached_chat_titles()
@@ -134,6 +147,23 @@ class MacHybridBackend(AbstractWeChatBackend):
             target = self._resolve_chat_title(chat_id)
         else:
             target = self._chat_titles.get(chat_id, chat_id)
+        last_msg = self._last_messages.get(chat_id, {})
+        configured_target = self._configured_group_title_for(chat_id, target or "")
+        if configured_target:
+            target = configured_target
+        elif self._is_unreliable_group_title(chat_id, target or "", last_msg):
+            learned = self._learn_current_visible_group_title(chat_id, last_msg, target or "")
+            if learned:
+                target = learned
+            else:
+                logger.warning(
+                    "Refusing to search macOS WeChat group with unreliable chatlog title: "
+                    "chat_id=%s title=%r sender=%r",
+                    chat_id,
+                    target,
+                    last_msg.get("sender_name") or last_msg.get("sender_id") or "",
+                )
+                return False
         if not target:
             logger.warning("Refusing to send macOS WeChat reply without a resolved chat target: %s", chat_id)
             return False
@@ -213,6 +243,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             if self._bot_name and self._bot_name in msg["sender_name"]:
                 continue
 
+            self._last_messages[msg["chat_id"]] = msg
             reply = callback(msg)
             if reply:
                 self.send_text(msg["chat_id"], reply)
@@ -259,14 +290,24 @@ class MacHybridBackend(AbstractWeChatBackend):
         if not username:
             username = group_name
         is_group = _to_bool(raw.get("is_group")) or str(username).endswith("@chatroom")
+        sender_name = str(raw.get("sender") or raw.get("sender_name") or "unknown").strip() or "unknown"
         configured_title = self._configured_group_title_for(username, group_name) if is_group else None
         if configured_title:
             group_name = configured_title
         elif _looks_internal_chat_id(group_name):
             group_name = self._resolve_chat_title(username) or group_name
-        self._remember_chat_session(username, group_name, is_group)
+        weak_group_title = _is_unreliable_chatlog_group_title(username, group_name, sender_name, is_group)
+        if weak_group_title:
+            resolved = self._resolve_chat_title(username)
+            if resolved and not self._is_unreliable_group_title(
+                username,
+                resolved,
+                {"sender_name": sender_name, "is_group": is_group},
+            ):
+                group_name = resolved
+        if not weak_group_title or configured_title:
+            self._remember_chat_session(username, group_name, is_group)
 
-        sender_name = str(raw.get("sender") or raw.get("sender_name") or "unknown").strip() or "unknown"
         timestamp = _to_int(raw.get("timestamp"), default=int(time.time()))
         local_id = str(raw.get("local_id") or raw.get("message_id") or "").strip()
         if local_id:
@@ -355,31 +396,76 @@ class MacHybridBackend(AbstractWeChatBackend):
 
     def _load_chat_titles(self) -> None:
         get_sessions = getattr(self._client, "get_sessions", None)
-        if not callable(get_sessions):
+        if callable(get_sessions):
+            try:
+                payload = get_sessions()
+            except Exception as exc:
+                logger.warning("Failed to load chatlog sessions for title map: %s", exc)
+            else:
+                sessions = payload.get("sessions") if isinstance(payload, dict) else None
+                self._remember_chat_title_items(
+                    sessions,
+                    username_keys=("username", "name"),
+                    title_keys=("chat", "display", "remark", "nickname"),
+                    default_is_group=False,
+                )
+
+        get_chatrooms = getattr(self._client, "get_chatrooms", None)
+        if callable(get_chatrooms):
+            try:
+                payload = get_chatrooms()
+            except Exception as exc:
+                logger.debug("Failed to load chatlog chatrooms for title map: %s", exc)
+            else:
+                chatrooms = payload.get("chatrooms") if isinstance(payload, dict) else None
+                self._remember_chat_title_items(
+                    chatrooms,
+                    username_keys=("name", "username"),
+                    title_keys=("display", "remark", "nickname"),
+                    default_is_group=True,
+                )
+
+        get_contacts = getattr(self._client, "get_contacts", None)
+        if callable(get_contacts):
+            try:
+                payload = get_contacts()
+            except Exception as exc:
+                logger.debug("Failed to load chatlog contacts for title map: %s", exc)
+            else:
+                contacts = payload.get("contacts") if isinstance(payload, dict) else None
+                self._remember_chat_title_items(
+                    contacts,
+                    username_keys=("username", "name"),
+                    title_keys=("display", "remark", "nickname"),
+                    default_is_group=False,
+                )
+
+        self._chat_titles_loaded = True
+
+    def _remember_chat_title_items(
+        self,
+        items,
+        *,
+        username_keys: tuple[str, ...],
+        title_keys: tuple[str, ...],
+        default_is_group: bool,
+    ) -> None:
+        if not isinstance(items, list):
             return
-        try:
-            payload = get_sessions()
-        except Exception as exc:
-            logger.warning("Failed to load chatlog sessions for title map: %s", exc)
-            return
-        sessions = payload.get("sessions") if isinstance(payload, dict) else None
-        if not isinstance(sessions, list):
-            return
-        for index, item in enumerate(sessions):
+        for item in items:
             if not isinstance(item, dict):
                 continue
-            username = str(item.get("username") or "").strip()
-            title = str(
-                item.get("chat")
-                or item.get("display")
-                or item.get("nickname")
-                or "",
-            ).strip()
-            if username and title and not _looks_internal_chat_id(title):
-                if username in self._manual_chat_titles:
-                    continue
-                self._remember_chat_session(username, title, _session_is_group(item, username))
-        self._chat_titles_loaded = True
+            username = _first_present_text(item, username_keys)
+            title = _first_present_text(item, title_keys)
+            if not username or not title or _looks_internal_chat_id(title):
+                continue
+            if username in self._manual_chat_titles:
+                continue
+            self._remember_chat_session(
+                username,
+                title,
+                default_is_group or _session_is_group(item, username),
+            )
 
     def _remember_chat_session(
         self,
@@ -477,6 +563,57 @@ class MacHybridBackend(AbstractWeChatBackend):
         has_private = any(not value for value in entries.values())
         return has_group and has_private
 
+    def _is_unreliable_group_title(self, username: str, title: str, msg: dict | None) -> bool:
+        msg = msg or {}
+        is_group = bool(msg.get("is_group")) or self._chat_is_group.get(
+            username,
+            str(username).endswith("@chatroom"),
+        )
+        sender = str(msg.get("sender_name") or msg.get("sender_id") or "").strip()
+        return _is_unreliable_chatlog_group_title(username, title, sender, is_group)
+
+    def _learn_current_visible_group_title(
+        self,
+        username: str,
+        msg: dict | None,
+        weak_title: str,
+    ) -> str | None:
+        if not str(username or "").endswith("@chatroom") or not msg:
+            return None
+        title_reader = getattr(self._automation, "read_current_chat_title_candidates", None)
+        visible_reader = getattr(self._automation, "read_visible_texts", None)
+        if not callable(title_reader) or not callable(visible_reader):
+            return None
+        try:
+            titles = title_reader()
+        except Exception as exc:
+            logger.debug("Failed to read current macOS WeChat title candidates: %s", exc)
+            return None
+        title = _best_visible_group_title(
+            titles,
+            weak_title=weak_title,
+            sender=str(msg.get("sender_name") or msg.get("sender_id") or ""),
+            bot_name=self._bot_name,
+        )
+        if not title:
+            return None
+        try:
+            visible_texts = visible_reader()
+        except Exception as exc:
+            logger.debug("Failed to read current macOS WeChat visible texts: %s", exc)
+            return None
+        if not _visible_texts_include_message(visible_texts, str(msg.get("content") or "")):
+            logger.info(
+                "Not learning macOS WeChat group title %r for %s; trigger message is not visible",
+                title,
+                username,
+            )
+            return None
+        self._remember_chat_session(username, title, True, force=True)
+        self._persist_chat_title(username, title, True)
+        logger.info("Learned macOS WeChat group title for %s: %r", username, title)
+        return title
+
 
 def _can_int(value) -> bool:
     try:
@@ -500,6 +637,85 @@ def _looks_internal_chat_id(value: str) -> bool:
 
 def _normalize_chat_title(value: str) -> str:
     return "".join(str(value or "").strip().split()).lower()
+
+
+def _first_present_text(item: dict, keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _is_unreliable_chatlog_group_title(
+    username: str,
+    title: str,
+    sender: str,
+    is_group: bool,
+) -> bool:
+    if not is_group and not str(username or "").endswith("@chatroom"):
+        return False
+    title = str(title or "").strip()
+    sender = str(sender or "").strip()
+    if not title or _looks_internal_chat_id(title):
+        return False
+    if sender and _normalize_chat_title(title) == _normalize_chat_title(sender):
+        return True
+    return False
+
+
+def _best_visible_group_title(
+    titles,
+    *,
+    weak_title: str = "",
+    sender: str = "",
+    bot_name: str = "",
+) -> str | None:
+    reject = {
+        _normalize_chat_title(weak_title),
+        _normalize_chat_title(sender),
+        _normalize_chat_title(bot_name),
+    }
+    for raw in titles or []:
+        title = _clean_wechat_group_title(str(raw or ""))
+        normalized = _normalize_chat_title(title)
+        if not title or not normalized:
+            continue
+        if normalized in reject:
+            continue
+        if _looks_internal_chat_id(title):
+            continue
+        if _looks_non_title_text(title):
+            continue
+        return title
+    return None
+
+
+def _clean_wechat_group_title(value: str) -> str:
+    title = str(value or "").strip()
+    title = re.sub(r"\s*[（(]\d+[）)]\s*$", "", title).strip()
+    return title
+
+
+def _looks_non_title_text(value: str) -> bool:
+    normalized = _normalize_chat_title(value)
+    if not normalized:
+        return True
+    if normalized in {"微信", "wechat", "搜一搜", "搜索", "聊天", "通讯录"}:
+        return True
+    if normalized.startswith("微信号:") or normalized.startswith("微信号："):
+        return True
+    if normalized.startswith("@"):
+        return True
+    return False
+
+
+def _visible_texts_include_message(texts, content: str) -> bool:
+    expected = _normalize_chat_title(content)
+    if len(expected) < 4:
+        return False
+    combined = _normalize_chat_title("".join(str(item or "") for item in texts or []))
+    return expected in combined
 
 
 def _should_replace_chat_title(existing: str, incoming: str) -> bool:
@@ -530,6 +746,7 @@ def _chat_title_cache_paths() -> list[Path]:
     app_home = os.getenv("WEBOT_APP_HOME", "").strip()
     if app_home:
         paths.append(Path(app_home) / "data" / "group_names.json")
+    else:
         paths.append(Path("data") / "group_names.json")
     return _unique_paths(paths)
 
@@ -539,6 +756,7 @@ def _chat_title_log_paths() -> list[Path]:
     app_home = os.getenv("WEBOT_APP_HOME", "").strip()
     if app_home:
         paths.append(Path(app_home) / "data" / "bot.log")
+    else:
         paths.append(Path("data") / "bot.log")
     return _unique_paths(paths)
 

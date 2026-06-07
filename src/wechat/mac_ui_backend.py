@@ -469,6 +469,9 @@ JSON.stringify([...new Set(values)]);
             return []
         return [str(item).strip() for item in data if str(item).strip()]
 
+    def read_current_chat_title_candidates(self) -> list[str]:
+        return self._title_reader()
+
     def diagnose_access(self) -> dict:
         """Return a side-effect-light diagnostic for packaged macOS permissions."""
         result = {

@@ -5,6 +5,7 @@ import unittest
 import tempfile
 import plistlib
 import os
+import json
 from unittest.mock import patch
 from pathlib import Path
 
@@ -37,8 +38,10 @@ class FakeRunner:
 
 
 class FakeMacAutomation:
-    def __init__(self, snapshots=None):
+    def __init__(self, snapshots=None, title_texts=None, visible_texts=None):
         self.snapshots = list(snapshots or [])
+        self.title_texts = list(title_texts or [])
+        self.visible_texts = list(visible_texts or [])
         self.sent = []
         self.opened = []
         self.open_options = []
@@ -69,8 +72,15 @@ class FakeMacAutomation:
         return True
 
     def read_visible_texts(self):
+        if self.visible_texts:
+            return self.visible_texts.pop(0)
         if self.snapshots:
             return self.snapshots.pop(0)
+        return []
+
+    def read_current_chat_title_candidates(self):
+        if self.title_texts:
+            return self.title_texts.pop(0)
         return []
 
     def send_text(self, content):
@@ -89,9 +99,11 @@ class FakeMacDiagnosticAutomation:
 
 
 class FakeChatlogClient:
-    def __init__(self, batches=None, sessions=None):
+    def __init__(self, batches=None, sessions=None, chatrooms=None, contacts=None):
         self.batches = list(batches or [])
         self.sessions = sessions or {"sessions": []}
+        self.chatrooms = chatrooms or {"chatrooms": []}
+        self.contacts = contacts or {"contacts": []}
         self.calls = []
 
     def get_new_messages(self, state=None, limit=200):
@@ -102,6 +114,12 @@ class FakeChatlogClient:
 
     def get_sessions(self, limit=500):
         return self.sessions
+
+    def get_chatrooms(self, limit=500):
+        return self.chatrooms
+
+    def get_contacts(self, limit=500):
+        return self.contacts
 
     def health(self):
         return True
@@ -986,73 +1004,126 @@ class MacOSAdaptationTests(unittest.TestCase):
     def test_mac_hybrid_resolves_internal_chatroom_id_before_send(self):
         from src.wechat.mac_hybrid_backend import MacHybridBackend
 
-        client = FakeChatlogClient(
-            batches=[{
-                "count": 1,
-                "new_state": {"52859259744@chatroom": 1780740773},
-                "messages": [{
-                    "timestamp": 1780740773,
-                    "sender": "honker",
-                    "type": "text",
-                    "content": "@群聊小助手 你好",
-                    "local_id": 10,
-                    "chat": "52859259744@chatroom",
-                    "username": "52859259744@chatroom",
-                    "is_group": True,
+        with tempfile.TemporaryDirectory() as tmp:
+            client = FakeChatlogClient(
+                batches=[{
+                    "count": 1,
+                    "new_state": {"52859259744@chatroom": 1780740773},
+                    "messages": [{
+                        "timestamp": 1780740773,
+                        "sender": "honker",
+                        "type": "text",
+                        "content": "@群聊小助手 你好",
+                        "local_id": 10,
+                        "chat": "52859259744@chatroom",
+                        "username": "52859259744@chatroom",
+                        "is_group": True,
+                    }],
                 }],
-            }],
-            sessions={
-                "sessions": [{
-                    "username": "52859259744@chatroom",
-                    "chat": "honker",
-                    "is_group": True,
-                }],
-            },
-        )
-        automation = FakeMacAutomation()
-        with patch.dict("os.environ", {"MAC_CHAT_TITLE_MAP": ""}):
-            backend = MacHybridBackend(
-                bot_display_name="群聊小助手",
-                groups=["*"],
-                client=client,
-                automation=automation,
+                sessions={
+                    "sessions": [{
+                        "username": "52859259744@chatroom",
+                        "chat": "摸鱼群",
+                        "is_group": True,
+                    }],
+                },
             )
+            automation = FakeMacAutomation()
+            with patch.dict(
+                "os.environ",
+                {"MAC_CHAT_TITLE_MAP": "", "WEBOT_APP_HOME": tmp},
+            ):
+                backend = MacHybridBackend(
+                    bot_display_name="群聊小助手",
+                    groups=["*"],
+                    client=client,
+                    automation=automation,
+                )
 
-        backend.poll_once(lambda msg: "收到")
+            backend.poll_once(lambda msg: "收到")
 
-        self.assertEqual(automation.opened, ["honker"])
+        self.assertEqual(automation.opened, ["摸鱼群"])
+        self.assertEqual(automation.sent, ["收到"])
+
+    def test_mac_hybrid_resolves_group_title_from_chatlog_chatrooms(self):
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = FakeChatlogClient(
+                batches=[{
+                    "count": 1,
+                    "new_state": {"room1@chatroom": 1780740773},
+                    "messages": [{
+                        "timestamp": 1780740773,
+                        "sender": "Alice",
+                        "type": "text",
+                        "content": "@群聊小助手 你好",
+                        "local_id": 10,
+                        "chat": "room1@chatroom",
+                        "username": "room1@chatroom",
+                        "is_group": True,
+                    }],
+                }],
+                sessions={"sessions": []},
+                chatrooms={
+                    "chatrooms": [{
+                        "name": "room1@chatroom",
+                        "display": "摸鱼群",
+                        "nickname": "摸鱼群",
+                    }],
+                },
+            )
+            automation = FakeMacAutomation()
+            with patch.dict(
+                "os.environ",
+                {"MAC_CHAT_TITLE_MAP": "", "WEBOT_APP_HOME": tmp},
+            ):
+                backend = MacHybridBackend(
+                    bot_display_name="群聊小助手",
+                    groups=["*"],
+                    client=client,
+                    automation=automation,
+                )
+
+            backend.poll_once(lambda msg: "收到")
+
+        self.assertEqual(automation.opened, ["摸鱼群"])
         self.assertEqual(automation.sent, ["收到"])
 
     def test_mac_hybrid_refuses_to_search_internal_chatroom_id_without_resolved_title(self):
         from src.wechat.mac_hybrid_backend import MacHybridBackend
 
-        client = FakeChatlogClient(
-            batches=[{
-                "count": 1,
-                "new_state": {"52859259744@chatroom": 1780740773},
-                "messages": [{
-                    "timestamp": 1780740773,
-                    "sender": "honker",
-                    "type": "text",
-                    "content": "@群聊小助手 你好",
-                    "local_id": 10,
-                    "chat": "52859259744@chatroom",
-                    "username": "52859259744@chatroom",
-                    "is_group": True,
+        with tempfile.TemporaryDirectory() as tmp:
+            client = FakeChatlogClient(
+                batches=[{
+                    "count": 1,
+                    "new_state": {"52859259744@chatroom": 1780740773},
+                    "messages": [{
+                        "timestamp": 1780740773,
+                        "sender": "honker",
+                        "type": "text",
+                        "content": "@群聊小助手 你好",
+                        "local_id": 10,
+                        "chat": "52859259744@chatroom",
+                        "username": "52859259744@chatroom",
+                        "is_group": True,
+                    }],
                 }],
-            }],
-            sessions={"sessions": []},
-        )
-        automation = FakeMacAutomation()
-        with patch.dict("os.environ", {"MAC_CHAT_TITLE_MAP": ""}):
-            backend = MacHybridBackend(
-                bot_display_name="群聊小助手",
-                groups=["*"],
-                client=client,
-                automation=automation,
+                sessions={"sessions": []},
             )
+            automation = FakeMacAutomation()
+            with patch.dict(
+                "os.environ",
+                {"MAC_CHAT_TITLE_MAP": "", "WEBOT_APP_HOME": tmp},
+            ):
+                backend = MacHybridBackend(
+                    bot_display_name="群聊小助手",
+                    groups=["*"],
+                    client=client,
+                    automation=automation,
+                )
 
-        backend.poll_once(lambda msg: "收到")
+            backend.poll_once(lambda msg: "收到")
 
         self.assertEqual(automation.opened, [])
         self.assertEqual(automation.sent, [])
@@ -1214,57 +1285,175 @@ class MacOSAdaptationTests(unittest.TestCase):
         }])
         self.assertEqual(automation.sent, ["收到"])
 
-    def test_mac_hybrid_prefers_group_result_when_title_collides_with_private_chat(self):
+    def test_mac_hybrid_learns_current_visible_group_title_when_chatlog_title_is_sender(self):
         from src.wechat.mac_hybrid_backend import MacHybridBackend
 
-        client = FakeChatlogClient(
-            batches=[{
-                "count": 1,
-                "new_state": {"52859259744@chatroom": 1780743227},
-                "messages": [{
-                    "timestamp": 1780743227,
-                    "sender": "honker",
-                    "type": "text",
-                    "content": "@群聊小助手 你好",
-                    "local_id": 11,
-                    "chat": "honker",
-                    "username": "52859259744@chatroom",
-                    "is_group": True,
-                }],
-            }],
-            sessions={
-                "sessions": [
-                    {
-                        "username": "wxid_jfs04ffdka4u21",
+        with tempfile.TemporaryDirectory() as tmp:
+            app_home = Path(tmp)
+            client = FakeChatlogClient(
+                batches=[{
+                    "count": 1,
+                    "new_state": {"52859259744@chatroom": 1780842896},
+                    "messages": [{
+                        "timestamp": 1780842896,
+                        "sender": "honker",
+                        "type": "text",
+                        "content": "@群聊小助手 你好",
+                        "local_id": 1780842896000066,
                         "chat": "honker",
-                        "chat_type": "private",
-                        "is_group": False,
-                    },
-                    {
+                        "username": "52859259744@chatroom",
+                        "is_group": True,
+                    }],
+                }],
+                sessions={
+                    "sessions": [{
                         "username": "52859259744@chatroom",
                         "chat": "honker",
                         "chat_type": "group",
                         "is_group": True,
-                    },
-                ],
-            },
-        )
-        automation = FakeMacAutomation()
-        with patch.dict("os.environ", {"MAC_CHAT_TITLE_MAP": ""}):
-            backend = MacHybridBackend(
-                bot_display_name="群聊小助手",
-                groups=["*"],
-                client=client,
-                automation=automation,
+                    }],
+                },
             )
+            automation = FakeMacAutomation(
+                title_texts=[["ai群聊测试（2）"]],
+                visible_texts=[["ai群聊测试（2）", "honker", "@群聊小助手 你好"]],
+            )
+            with patch.dict(
+                "os.environ",
+                {"MAC_CHAT_TITLE_MAP": "", "WEBOT_APP_HOME": str(app_home)},
+            ):
+                backend = MacHybridBackend(
+                    bot_display_name="群聊小助手",
+                    groups=["*"],
+                    client=client,
+                    automation=automation,
+                )
 
-        backend.poll_once(lambda msg: "收到")
+                backend.poll_once(lambda msg: "收到")
+
+            cache_path = app_home / "data" / "group_names.json"
+            cached_names = json.loads(cache_path.read_text(encoding="utf-8"))
 
         self.assertEqual(automation.open_options, [{
-            "chat_name": "honker",
+            "chat_name": "ai群聊测试",
+            "prefer_group": False,
+            "sidebar_index": None,
+            "expected_title": "ai群聊测试",
+            "expected_is_group": True,
+            "require_group_marker": False,
+        }])
+        self.assertEqual(automation.sent, ["收到"])
+        self.assertEqual(cached_names, {
+            "52859259744@chatroom": "ai群聊测试",
+        })
+
+    def test_mac_hybrid_does_not_learn_current_title_without_visible_trigger_evidence(self):
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app_home = Path(tmp)
+            client = FakeChatlogClient(
+                batches=[{
+                    "count": 1,
+                    "new_state": {"52859259744@chatroom": 1780842896},
+                    "messages": [{
+                        "timestamp": 1780842896,
+                        "sender": "honker",
+                        "type": "text",
+                        "content": "@群聊小助手 你好",
+                        "local_id": 1780842896000066,
+                        "chat": "honker",
+                        "username": "52859259744@chatroom",
+                        "is_group": True,
+                    }],
+                }],
+                sessions={
+                    "sessions": [{
+                        "username": "52859259744@chatroom",
+                        "chat": "honker",
+                        "chat_type": "group",
+                        "is_group": True,
+                    }],
+                },
+            )
+            automation = FakeMacAutomation(
+                title_texts=[["别的群（3）"]],
+                visible_texts=[["别的群（3）", "别人在聊天"]],
+            )
+            with patch.dict(
+                "os.environ",
+                {"MAC_CHAT_TITLE_MAP": "", "WEBOT_APP_HOME": str(app_home)},
+            ):
+                backend = MacHybridBackend(
+                    bot_display_name="群聊小助手",
+                    groups=["*"],
+                    client=client,
+                    automation=automation,
+                )
+
+                backend.poll_once(lambda msg: "收到")
+
+            cache_path = app_home / "data" / "group_names.json"
+
+        self.assertEqual(automation.opened, [])
+        self.assertEqual(automation.sent, [])
+        self.assertFalse(cache_path.exists())
+
+    def test_mac_hybrid_prefers_group_result_when_title_collides_with_private_chat(self):
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = FakeChatlogClient(
+                batches=[{
+                    "count": 1,
+                    "new_state": {"52859259744@chatroom": 1780743227},
+                    "messages": [{
+                        "timestamp": 1780743227,
+                        "sender": "honker",
+                        "type": "text",
+                        "content": "@群聊小助手 你好",
+                        "local_id": 11,
+                        "chat": "项目群",
+                        "username": "52859259744@chatroom",
+                        "is_group": True,
+                    }],
+                }],
+                sessions={
+                    "sessions": [
+                        {
+                            "username": "wxid_jfs04ffdka4u21",
+                            "chat": "项目群",
+                            "chat_type": "private",
+                            "is_group": False,
+                        },
+                        {
+                            "username": "52859259744@chatroom",
+                            "chat": "项目群",
+                            "chat_type": "group",
+                            "is_group": True,
+                        },
+                    ],
+                },
+            )
+            automation = FakeMacAutomation()
+            with patch.dict(
+                "os.environ",
+                {"MAC_CHAT_TITLE_MAP": "", "WEBOT_APP_HOME": tmp},
+            ):
+                backend = MacHybridBackend(
+                    bot_display_name="群聊小助手",
+                    groups=["*"],
+                    client=client,
+                    automation=automation,
+                )
+
+            backend.poll_once(lambda msg: "收到")
+
+        self.assertEqual(automation.open_options, [{
+            "chat_name": "项目群",
             "prefer_group": True,
             "sidebar_index": None,
-            "expected_title": "honker",
+            "expected_title": "项目群",
             "expected_is_group": True,
             "require_group_marker": True,
         }])

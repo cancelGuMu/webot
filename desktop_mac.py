@@ -20,18 +20,14 @@ def _resolve_resource_root() -> Path:
 
 
 def _resolve_app_home() -> Path:
+    explicit_home = os.getenv("WEBOT_APP_HOME", "").strip()
+    if explicit_home:
+        return Path(explicit_home).expanduser().resolve()
+
     if not getattr(sys, "frozen", False):
         return Path(__file__).resolve().parent
 
-    exe_path = Path(sys.executable).resolve()
-    # dist/webot.app/Contents/MacOS/webot -> dist/
-    if (
-        exe_path.parent.name == "MacOS"
-        and exe_path.parent.parent.name == "Contents"
-        and exe_path.parent.parent.parent.suffix == ".app"
-    ):
-        return exe_path.parent.parent.parent.parent
-    return exe_path.parent
+    return Path.home() / "Library" / "Application Support" / "webot"
 
 
 RESOURCE_ROOT = _resolve_resource_root()
@@ -55,6 +51,7 @@ def _write_crash_log(exc_info: str) -> None:
 
 def ensure_macos_env_file() -> Path:
     """Create a macOS-specific env file and point config loading at it."""
+    APP_HOME.mkdir(parents=True, exist_ok=True)
     if not MAC_ENV_PATH.exists():
         MAC_ENV_PATH.write_text(
             "AI_BACKEND=deepseek\n"

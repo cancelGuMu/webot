@@ -4,6 +4,7 @@ import subprocess
 import unittest
 import tempfile
 import plistlib
+import os
 from unittest.mock import patch
 from pathlib import Path
 
@@ -265,6 +266,37 @@ class MacOSAdaptationTests(unittest.TestCase):
         import desktop_mac
 
         self.assertTrue(hasattr(desktop_mac, "main"))
+
+    def test_desktop_mac_uses_application_support_when_frozen(self):
+        import desktop_mac
+
+        with (
+            patch.object(desktop_mac.sys, "frozen", True, create=True),
+            patch.object(desktop_mac.Path, "home", return_value=Path("/Users/tester")),
+            patch.dict("os.environ", {}, clear=True),
+        ):
+            self.assertEqual(
+                desktop_mac._resolve_app_home(),
+                Path("/Users/tester/Library/Application Support/webot"),
+            )
+
+    def test_desktop_mac_env_file_creates_application_support_dir(self):
+        import desktop_mac
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app_home = Path(tmp) / "Library" / "Application Support" / "webot"
+            env_path = app_home / ".env.macos"
+            with (
+                patch.object(desktop_mac, "APP_HOME", app_home),
+                patch.object(desktop_mac, "MAC_ENV_PATH", env_path),
+                patch.dict("os.environ", {}, clear=True),
+            ):
+                written = desktop_mac.ensure_macos_env_file()
+                self.assertEqual(os.environ["WEBOT_APP_HOME"], str(app_home))
+                self.assertEqual(os.environ["WEBOT_ENV_FILE"], str(env_path))
+
+            self.assertEqual(written, env_path)
+            self.assertTrue(env_path.exists())
 
     def test_desktop_mac_opens_native_webview_window(self):
         import desktop_mac

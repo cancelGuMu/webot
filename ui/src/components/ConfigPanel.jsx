@@ -191,10 +191,10 @@ function IdentitySection({ form, update }) {
         )}
       </Field>
 
-      <Field label="微信后端" hint="Windows 推荐 WCDB；macOS 推荐混合模式读取数据库并用辅助功能发送">
+      <Field label="微信后端" hint="Windows 推荐 WCDB；macOS 推荐 WeFlow 直读并用辅助功能发送">
         <Select value={form.wechat_backend} onChange={v => update('wechat_backend', v)} options={[
           { value: 'wcdb', desc: 'WCDB', hint: '推荐 · 原生数据库直读' },
-          { value: 'mac_hybrid', desc: 'macOS Hybrid', hint: '推荐 · 数据库读取 + 辅助功能发送' },
+          { value: 'mac_hybrid', desc: 'macOS WeFlow', hint: '推荐 · WeFlow 直读 + 辅助功能发送' },
           { value: 'mac_ui', desc: 'macOS UI', hint: '实验性 · 辅助功能自动化' },
         ]} />
       </Field>

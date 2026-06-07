@@ -6,6 +6,7 @@ import tempfile
 import plistlib
 import os
 import json
+import hashlib
 from unittest.mock import patch
 from pathlib import Path
 
@@ -125,32 +126,82 @@ class FakeChatlogClient:
         return True
 
 
-class FakeHealthClient:
-    def __init__(self, health_results):
-        self.health_results = list(health_results)
-        self.health_calls = 0
+class FakeWeFlowSQLiteReader:
+    def __init__(self):
+        self.message_table = "Msg_" + hashlib.md5("52859259744@chatroom".encode()).hexdigest()
+        self.queries = []
 
     def health(self):
-        self.health_calls += 1
-        if self.health_results:
-            return self.health_results.pop(0)
-        return False
+        return True
+
+    def message_db_rels(self):
+        return ["message/message_0.db"]
+
+    def query(self, db_rel, sql):
+        self.queries.append((db_rel, sql))
+        normalized = " ".join(sql.split()).lower()
+        if db_rel == "session/session.db" and "from sessiontable" in normalized:
+            return [{
+                "username": "52859259744@chatroom",
+                "summary": "honker: @群聊小助手 你好",
+                "last_timestamp": 1780843904,
+                "sort_timestamp": 1780843904,
+                "last_msg_locald_id": 120,
+                "last_msg_type": 1,
+                "last_sender_display_name": "honker",
+            }]
+        if db_rel == "contact/contact.db" and "where username in" in normalized:
+            return [
+                {
+                    "username": "52859259744@chatroom",
+                    "remark": "",
+                    "nick_name": "ai群聊测试",
+                    "alias": "",
+                },
+                {
+                    "username": "wxid_jfs04ffdka4u21",
+                    "remark": "honker",
+                    "nick_name": "honker233",
+                    "alias": "",
+                },
+            ]
+        if db_rel == "contact/contact.db" and "from contact" in normalized:
+            return [
+                {
+                    "username": "52859259744@chatroom",
+                    "remark": "",
+                    "nick_name": "ai群聊测试",
+                    "alias": "",
+                }
+            ]
+        if db_rel.startswith("message/") and "sqlite_master" in normalized:
+            return [{"name": self.message_table}]
+        if db_rel.startswith("message/") and "from name2id" in normalized:
+            return [{"rowid": 6, "user_name": "wxid_jfs04ffdka4u21", "is_session": 0}]
+        if db_rel.startswith("message/") and self.message_table.lower() in normalized:
+            return [{
+                "local_id": 120,
+                "server_id": 0,
+                "local_type": 1,
+                "sort_seq": 1780843904000,
+                "real_sender_id": 6,
+                "create_time": 1780843904,
+                "status": 3,
+                "source": "",
+                "message_content": "wxid_jfs04ffdka4u21:\n@群聊小助手\u2005你好",
+                "compress_content": "",
+                "senderUsername": "wxid_jfs04ffdka4u21",
+            }]
+        return []
 
 
-class FakeChatlogProcess:
-    pid = 4321
-
-    def poll(self):
-        return None
-
-
-class FakeChatlogServiceManager:
-    def __init__(self):
-        self.calls = 0
-
-    def ensure_running(self):
-        self.calls += 1
-        return False
+class FakeBinaryWeFlowSQLiteReader(FakeWeFlowSQLiteReader):
+    def query(self, db_rel, sql):
+        rows = super().query(db_rel, sql)
+        normalized = " ".join(sql.split()).lower()
+        if db_rel.startswith("message/") and self.message_table.lower() in normalized:
+            rows = [dict(rows[0], message_content="(�/� -\x1d\x01")]
+        return rows
 
 
 class FakeClicker:
@@ -258,6 +309,7 @@ class MacOSAdaptationTests(unittest.TestCase):
         backend = Bot(cfg)._create_wechat_backend(store=None)
 
         self.assertEqual(backend.__class__.__name__, "MacHybridBackend")
+        self.assertEqual(backend._client.__class__.__name__, "MacWeFlowClient")
 
     def test_requirements_macos_omits_windows_only_packages(self):
         text = Path("requirements-macos.txt").read_text(encoding="utf-8")
@@ -292,13 +344,14 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertIn("WECHAT_BACKEND=mac_ui", text)
         self.assertIn("WECHAT_BACKEND=mac_hybrid", text)
         self.assertIn("all_keys.json", text)
-        self.assertIn("tools/macos_chatlog_setup.py extract-keys", text)
-        self.assertIn("tools/macos_chatlog_setup.py import-keys", text)
-        self.assertIn("tools/macos_chatlog_setup.py diagnose", text)
-        self.assertIn("tools/macos_chatlog_setup.py extract-keys-restart-hook", text)
-        self.assertIn("tools/macos_chatlog_setup.py build-chatlog", text)
-        self.assertIn("tools/macos_chatlog_setup.py start-chatlog", text)
-        self.assertIn("tools/macos_chatlog_setup.py verify-read", text)
+        self.assertIn("WeFlow", text)
+        self.assertIn("不需要额外启动消息读取服务", text)
+        self.assertIn("tools/macos_weflow_setup.py extract-keys", text)
+        self.assertIn("tools/macos_weflow_setup.py import-keys", text)
+        self.assertIn("tools/macos_weflow_setup.py diagnose", text)
+        self.assertIn("tools/macos_weflow_setup.py extract-keys-restart-hook", text)
+        self.assertNotIn("tools/macos_chatlog_setup.py", text)
+        self.assertNotIn("CHATLOG_BASE_URL", text)
 
     def test_platform_dependency_report_for_macos_excludes_windows_deps(self):
         from src.web.server import _platform_dependency_report
@@ -381,6 +434,7 @@ class MacOSAdaptationTests(unittest.TestCase):
 
             self.assertEqual(written, env_path)
             self.assertTrue(env_path.exists())
+            self.assertNotIn("CHATLOG_BASE_URL", env_path.read_text(encoding="utf-8"))
 
     def test_desktop_mac_opens_native_webview_window(self):
         import desktop_mac
@@ -1036,13 +1090,80 @@ class MacOSAdaptationTests(unittest.TestCase):
         backend.poll_once(lambda msg: seen.append(msg) or "不应发送")
 
         self.assertEqual(len(seen), 1)
-        self.assertEqual(seen[0]["message_id"], "mac-chatlog-room1@chatroom-42")
+        self.assertEqual(seen[0]["message_id"], "mac-weflow-room1@chatroom-42")
         self.assertEqual(seen[0]["chat_id"], "room1@chatroom")
         self.assertEqual(seen[0]["group_name"], "摸鱼群")
         self.assertEqual(seen[0]["sender_name"], "Alice")
         self.assertEqual(seen[0]["content"], "@群聊小助手 总结一下")
         self.assertTrue(seen[0]["is_at_mentioned"])
         self.assertEqual(automation.opened, ["摸鱼群"])
+        self.assertEqual(automation.sent, ["收到"])
+
+    def test_mac_weflow_client_reads_group_title_from_contact_not_sender(self):
+        from src.wechat.mac_weflow_client import MacWeFlowClient
+
+        client = MacWeFlowClient(sqlite_reader=FakeWeFlowSQLiteReader())
+
+        payload = client.get_new_messages({"52859259744@chatroom": 1780843903}, limit=10)
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["new_state"]["52859259744@chatroom"], 1780843904)
+        msg = payload["messages"][0]
+        self.assertEqual(msg["username"], "52859259744@chatroom")
+        self.assertEqual(msg["chat"], "ai群聊测试")
+        self.assertEqual(msg["sender_id"], "wxid_jfs04ffdka4u21")
+        self.assertEqual(msg["sender_name"], "honker")
+        self.assertEqual(msg["content"], "@群聊小助手\u2005你好")
+
+    def test_mac_weflow_client_skips_binary_decoded_text_rows(self):
+        from src.wechat.mac_weflow_client import MacWeFlowClient
+
+        client = MacWeFlowClient(sqlite_reader=FakeBinaryWeFlowSQLiteReader())
+
+        payload = client.get_new_messages({"52859259744@chatroom": 1780843903}, limit=10)
+
+        self.assertEqual(payload["count"], 0)
+        self.assertEqual(payload["messages"], [])
+
+    def test_mac_hybrid_uses_weflow_contact_title_when_chatlog_style_chat_is_sender(self):
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        client = FakeChatlogClient(
+            batches=[{
+                "count": 1,
+                "new_state": {"52859259744@chatroom": 1780843904},
+                "messages": [{
+                    "timestamp": 1780843904,
+                    "sender": "honker",
+                    "sender_id": "wxid_jfs04ffdka4u21",
+                    "type": "text",
+                    "content": "@群聊小助手 你好",
+                    "local_id": 120,
+                    "chat": "honker",
+                    "username": "52859259744@chatroom",
+                    "is_group": True,
+                }],
+            }],
+            contacts={
+                "contacts": [{
+                    "username": "52859259744@chatroom",
+                    "display": "ai群聊测试",
+                    "remark": "",
+                    "nickname": "ai群聊测试",
+                }]
+            },
+        )
+        automation = FakeMacAutomation()
+        backend = MacHybridBackend(
+            bot_display_name="群聊小助手",
+            groups=["*"],
+            client=client,
+            automation=automation,
+        )
+
+        backend.poll_once(lambda msg: "收到")
+
+        self.assertEqual(automation.opened, ["ai群聊测试"])
         self.assertEqual(automation.sent, ["收到"])
 
     def test_mac_hybrid_resolves_internal_chatroom_id_before_send(self):
@@ -1556,7 +1677,7 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertEqual([msg["content"] for msg in seen], ["@群聊小助手 新消息"])
         self.assertEqual(automation.sent, ["收到新消息"])
 
-    def test_mac_hybrid_start_ensures_chatlog_service_before_priming(self):
+    def test_mac_hybrid_start_primes_weflow_state_directly(self):
         from src.wechat.mac_hybrid_backend import MacHybridBackend
 
         client = FakeChatlogClient([
@@ -1576,82 +1697,17 @@ class MacOSAdaptationTests(unittest.TestCase):
                 }],
             },
         ])
-        service_manager = FakeChatlogServiceManager()
         backend = MacHybridBackend(
             bot_display_name="群聊小助手",
             groups=["*"],
             poll_sec=0,
             client=client,
             automation=FakeMacAutomation(),
-            service_manager=service_manager,
         )
 
         backend.start(lambda msg: backend.stop() or "收到")
 
-        self.assertEqual(service_manager.calls, 1)
         self.assertEqual(client.calls[0], {"state": {}, "limit": 200})
-
-    def test_chatlog_service_manager_noops_when_service_is_healthy(self):
-        from src.wechat.mac_chatlog_service import MacChatlogServiceManager
-
-        launches = []
-        manager = MacChatlogServiceManager(
-            client=FakeHealthClient([True]),
-            popen_factory=lambda *args, **kwargs: launches.append((args, kwargs)),
-        )
-
-        self.assertFalse(manager.ensure_running())
-        self.assertEqual(launches, [])
-
-    def test_chatlog_service_manager_starts_bundled_binary_with_runtime_env(self):
-        from src.wechat.mac_chatlog_service import MacChatlogServiceManager
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            binary = root / "tools" / "macos_chatlog" / "chatlog-alpha"
-            binary.parent.mkdir(parents=True)
-            binary.write_text("#!/bin/sh\n", encoding="utf-8")
-            binary.chmod(0o755)
-            app_home = root / "home"
-            data_dir = root / "wechat-data"
-            data_dir.mkdir()
-            launches = []
-
-            def fake_popen(cmd, **kwargs):
-                launches.append({"cmd": cmd, **kwargs})
-                return FakeChatlogProcess()
-
-            manager = MacChatlogServiceManager(
-                client=FakeHealthClient([False, False, True]),
-                base_url="http://127.0.0.1:5039",
-                app_home=app_home,
-                resource_root=root,
-                data_dir_resolver=lambda: str(data_dir),
-                popen_factory=fake_popen,
-                sleep_func=lambda _: None,
-            )
-
-            self.assertTrue(manager.ensure_running(timeout=1))
-
-            self.assertEqual(launches[0]["cmd"], [str(binary.resolve())])
-            self.assertEqual(launches[0]["cwd"], str(app_home.resolve()))
-            self.assertEqual(launches[0]["env"]["CHATLOG_DATA_DIR"], str(data_dir))
-            self.assertEqual(launches[0]["env"]["CHATLOG_HTTP_ADDR"], "127.0.0.1:5039")
-            self.assertTrue((app_home / "data" / "chatlog_alpha.log").exists())
-
-    def test_chatlog_service_manager_raises_clear_error_when_binary_missing(self):
-        from src.wechat.mac_chatlog_service import ChatlogServiceError, MacChatlogServiceManager
-
-        with tempfile.TemporaryDirectory() as tmp:
-            manager = MacChatlogServiceManager(
-                client=FakeHealthClient([False]),
-                app_home=Path(tmp) / "home",
-                resource_root=Path(tmp) / "missing",
-                data_dir_resolver=lambda: str(Path(tmp) / "wechat-data"),
-            )
-
-            with self.assertRaisesRegex(ChatlogServiceError, "chatlog-alpha binary not found"):
-                manager.ensure_running(timeout=1)
 
     def test_health_monitor_uses_mac_backend_health_status_without_window(self):
         from src.bot import HealthMonitor
@@ -1671,7 +1727,7 @@ class MacOSAdaptationTests(unittest.TestCase):
             config=cfg,
         )
 
-        self.assertEqual(monitor._check_wechat_hwnd(), "chatlog_ok")
+        self.assertEqual(monitor._check_wechat_hwnd(), "weflow_ok")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 """macOS hybrid WeChat backend.
 
-Read path: local chatlog HTTP service backed by decrypted macOS WeChat DBs.
+Read path: WeFlow-style local WCDB access keyed by stable ``@chatroom`` ids.
 Write path: existing macOS Accessibility automation from ``mac_ui_backend``.
 """
 
@@ -13,79 +13,21 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Optional
-from urllib.parse import urlencode
-from urllib.error import URLError
-from urllib.request import Request, urlopen
+from typing import Any
 
 from .base import AbstractWeChatBackend, MessageCallback
 from .mac_ui_backend import MacUIAutomation
+from .mac_weflow_client import MacWeFlowClient
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CHATLOG_BASE_URL = "http://127.0.0.1:5030"
 DEFAULT_POLL_SEC = 1.0
 DEFAULT_LIMIT = 200
 SENT_TITLE_RE = re.compile(r"Sent macOS WeChat reply to (?P<username>\S+) via '(?P<title>[^']+)'")
 
 
-class ChatlogClient:
-    """Small HTTP client for chatlog-style local APIs."""
-
-    def __init__(self, base_url: str | None = None, timeout: float = 5.0):
-        self.base_url = (base_url or os.getenv("CHATLOG_BASE_URL") or DEFAULT_CHATLOG_BASE_URL).rstrip("/")
-        self.timeout = timeout
-
-    def get_new_messages(self, state: dict[str, int] | None = None,
-                         limit: int = DEFAULT_LIMIT) -> dict:
-        params = {
-            "format": "json",
-            "limit": str(limit),
-        }
-        if state:
-            params["state"] = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
-        return self._get_json("/api/v1/new_messages", params)
-
-    def get_sessions(self, limit: int = 500) -> dict:
-        return self._get_json("/api/v1/sessions", {
-            "format": "json",
-            "limit": str(limit),
-        })
-
-    def get_chatrooms(self, limit: int = 500) -> dict:
-        return self._get_json("/api/v1/chatrooms", {
-            "format": "json",
-            "limit": str(limit),
-        })
-
-    def get_contacts(self, limit: int = 500) -> dict:
-        return self._get_json("/api/v1/contacts", {
-            "format": "json",
-            "limit": str(limit),
-        })
-
-    def health(self) -> bool:
-        req = Request(self.base_url + "/health", headers={"Accept": "application/json"})
-        try:
-            with urlopen(req, timeout=min(self.timeout, 2.0)) as resp:
-                body = resp.read(512).decode("utf-8", errors="replace")
-            return resp.status < 400 and ("ok" in body.lower() or bool(body.strip()))
-        except (OSError, URLError):
-            return False
-
-    def _get_json(self, path: str, params: dict[str, str]) -> dict:
-        url = f"{self.base_url}{path}?{urlencode(params)}"
-        req = Request(url, headers={"Accept": "application/json"})
-        with urlopen(req, timeout=self.timeout) as resp:
-            raw = resp.read().decode("utf-8")
-        data = json.loads(raw or "{}")
-        if not isinstance(data, dict):
-            raise ValueError(f"chatlog returned non-object JSON from {path}")
-        return data
-
-
 class MacHybridBackend(AbstractWeChatBackend):
-    """Read macOS WeChat messages from chatlog and send with Accessibility."""
+    """Read macOS WeChat messages from WeFlow WCDB and send with Accessibility."""
 
     def __init__(
         self,
@@ -93,19 +35,17 @@ class MacHybridBackend(AbstractWeChatBackend):
         groups: list[str] | None = None,
         poll_sec: float = DEFAULT_POLL_SEC,
         store=None,
-        client: Optional[ChatlogClient] = None,
-        automation: Optional[MacUIAutomation] = None,
+        client: Any = None,
+        automation: MacUIAutomation | None = None,
         limit: int = DEFAULT_LIMIT,
-        service_manager=None,
     ):
         self._bot_name = bot_display_name
         self._groups = groups or []
         self._poll_sec = poll_sec
         self._store = store
-        self._client = client or ChatlogClient()
+        self._client = client or MacWeFlowClient()
         self._automation = automation or MacUIAutomation()
         self._limit = limit
-        self._service_manager = service_manager
         self._service_error = ""
         self._state: dict[str, int] = {}
         self._running = False
@@ -128,12 +68,11 @@ class MacHybridBackend(AbstractWeChatBackend):
     def start(self, callback: MessageCallback) -> None:
         self._running = True
         logger.info(
-            "MacHybridBackend starting (groups=%s, poll=%ss, bot=%r)",
+            "MacHybridBackend starting in WeFlow target mode (groups=%s, poll=%ss, bot=%r)",
             self._groups, self._poll_sec, self._bot_name,
         )
         self._automation.activate_wechat()
-        self._ensure_chatlog_service()
-        self._prime_chatlog_state()
+        self._prime_message_state()
         while self._running:
             self.poll_once(callback)
             time.sleep(self._poll_sec)
@@ -157,7 +96,7 @@ class MacHybridBackend(AbstractWeChatBackend):
                 target = learned
             else:
                 logger.warning(
-                    "Refusing to search macOS WeChat group with unreliable chatlog title: "
+                    "Refusing to search macOS WeChat group with unreliable title: "
                     "chat_id=%s title=%r sender=%r",
                     chat_id,
                     target,
@@ -199,28 +138,14 @@ class MacHybridBackend(AbstractWeChatBackend):
 
     def health_status(self) -> str:
         if self._service_error:
-            return "chatlog_down"
-        return "chatlog_ok" if self._client.health() else "chatlog_down"
-
-    def _ensure_chatlog_service(self) -> None:
-        if self._service_manager is None:
-            from .mac_chatlog_service import MacChatlogServiceManager
-
-            self._service_manager = MacChatlogServiceManager(client=self._client)
-        try:
-            started = self._service_manager.ensure_running()
-            self._service_error = ""
-            if started:
-                logger.info("Started managed macOS chatlog service")
-        except Exception as exc:
-            self._service_error = str(exc)
-            logger.warning("Managed macOS chatlog service unavailable: %s", exc)
+            return "weflow_down"
+        return "weflow_ok" if self._client.health() else "weflow_down"
 
     def poll_once(self, callback: MessageCallback) -> None:
         try:
             payload = self._client.get_new_messages(self._state, limit=self._limit)
         except Exception as exc:
-            logger.warning("Failed to poll chatlog messages: %s", exc)
+            logger.warning("Failed to poll macOS WeFlow messages: %s", exc)
             return
 
         self._apply_new_state(payload.get("new_state"))
@@ -232,7 +157,7 @@ class MacHybridBackend(AbstractWeChatBackend):
         for raw in messages:
             if not isinstance(raw, dict):
                 continue
-            msg = self._message_from_chatlog(raw)
+            msg = self._message_from_source(raw)
             if not msg or not self._should_monitor(msg):
                 continue
             msg_id = msg["message_id"]
@@ -248,11 +173,11 @@ class MacHybridBackend(AbstractWeChatBackend):
             if reply:
                 self.send_text(msg["chat_id"], reply)
 
-    def _prime_chatlog_state(self) -> None:
+    def _prime_message_state(self) -> None:
         try:
             payload = self._client.get_new_messages(self._state, limit=self._limit)
         except Exception as exc:
-            logger.warning("Failed to prime chatlog state: %s", exc)
+            logger.warning("Failed to prime macOS WeFlow state: %s", exc)
             return
 
         self._apply_new_state(payload.get("new_state"))
@@ -265,12 +190,12 @@ class MacHybridBackend(AbstractWeChatBackend):
         for raw in messages:
             if not isinstance(raw, dict):
                 continue
-            msg = self._message_from_chatlog(raw)
+            msg = self._message_from_source(raw)
             if not msg:
                 continue
             self._seen_ids.add(msg["message_id"])
             primed += 1
-        logger.info("Primed macOS chatlog state (%s historical messages skipped)", primed)
+        logger.info("Primed macOS WeFlow state (%s historical messages skipped)", primed)
 
     def _apply_new_state(self, new_state) -> None:
         if isinstance(new_state, dict):
@@ -280,7 +205,7 @@ class MacHybridBackend(AbstractWeChatBackend):
                 if _can_int(v)
             }
 
-    def _message_from_chatlog(self, raw: dict) -> dict | None:
+    def _message_from_source(self, raw: dict) -> dict | None:
         content = str(raw.get("content") or "").strip()
         if not content:
             return None
@@ -296,7 +221,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             group_name = configured_title
         elif _looks_internal_chat_id(group_name):
             group_name = self._resolve_chat_title(username) or group_name
-        weak_group_title = _is_unreliable_chatlog_group_title(username, group_name, sender_name, is_group)
+        weak_group_title = _is_unreliable_group_title_value(username, group_name, sender_name, is_group)
         if weak_group_title:
             resolved = self._resolve_chat_title(username)
             if resolved and not self._is_unreliable_group_title(
@@ -311,12 +236,12 @@ class MacHybridBackend(AbstractWeChatBackend):
         timestamp = _to_int(raw.get("timestamp"), default=int(time.time()))
         local_id = str(raw.get("local_id") or raw.get("message_id") or "").strip()
         if local_id:
-            msg_id = f"mac-chatlog-{username}-{local_id}"
+            msg_id = f"mac-weflow-{username}-{local_id}"
         else:
             digest = hashlib.sha1(
                 f"{username}\0{sender_name}\0{content}\0{timestamp}".encode("utf-8")
             ).hexdigest()
-            msg_id = f"mac-chatlog-{digest}"
+            msg_id = f"mac-weflow-{digest}"
 
         return {
             "message_id": msg_id,
@@ -325,7 +250,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             "sender_id": sender_name,
             "sender_name": sender_name,
             "content": content,
-            "msg_type": _chatlog_type_to_msg_type(raw.get("type")),
+            "msg_type": _source_type_to_msg_type(raw.get("type")),
             "timestamp": timestamp,
             "is_at_mentioned": bool(
                 self._bot_name
@@ -400,7 +325,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             try:
                 payload = get_sessions()
             except Exception as exc:
-                logger.warning("Failed to load chatlog sessions for title map: %s", exc)
+                logger.warning("Failed to load macOS WeFlow sessions for title map: %s", exc)
             else:
                 sessions = payload.get("sessions") if isinstance(payload, dict) else None
                 self._remember_chat_title_items(
@@ -415,7 +340,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             try:
                 payload = get_chatrooms()
             except Exception as exc:
-                logger.debug("Failed to load chatlog chatrooms for title map: %s", exc)
+                logger.debug("Failed to load macOS WeFlow chatrooms for title map: %s", exc)
             else:
                 chatrooms = payload.get("chatrooms") if isinstance(payload, dict) else None
                 self._remember_chat_title_items(
@@ -430,7 +355,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             try:
                 payload = get_contacts()
             except Exception as exc:
-                logger.debug("Failed to load chatlog contacts for title map: %s", exc)
+                logger.debug("Failed to load macOS WeFlow contacts for title map: %s", exc)
             else:
                 contacts = payload.get("contacts") if isinstance(payload, dict) else None
                 self._remember_chat_title_items(
@@ -570,7 +495,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             str(username).endswith("@chatroom"),
         )
         sender = str(msg.get("sender_name") or msg.get("sender_id") or "").strip()
-        return _is_unreliable_chatlog_group_title(username, title, sender, is_group)
+        return _is_unreliable_group_title_value(username, title, sender, is_group)
 
     def _learn_current_visible_group_title(
         self,
@@ -647,7 +572,7 @@ def _first_present_text(item: dict, keys: tuple[str, ...]) -> str:
     return ""
 
 
-def _is_unreliable_chatlog_group_title(
+def _is_unreliable_group_title_value(
     username: str,
     title: str,
     sender: str,
@@ -833,7 +758,7 @@ def _session_is_group(item: dict, username: str) -> bool:
     )
 
 
-def _chatlog_type_to_msg_type(value) -> int:
+def _source_type_to_msg_type(value) -> int:
     label = str(value or "").strip().lower()
     if not label or label in {"text", "文本"}:
         return 1

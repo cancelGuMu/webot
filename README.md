@@ -104,7 +104,7 @@ AI 连续多次判断"不应该插话"时，会自动延长沉默时间（最高
 ## 支持的微信版本
 
 - **Windows**：微信 4.x（DRM 补丁偏移 `0x6e1f6`，微信更新后可能失效）
-- **macOS**：实验性支持（`mac_hybrid` / `mac_ui`，自动托管本地 chatlog 服务）
+- **macOS**：实验性支持（`mac_hybrid` / `mac_ui`，WeFlow WCDB 直读 + 辅助功能发送）
 
 微信版本更新后，DRM 补丁偏移可能变化。如遇数据库无法打开，可通过环境变量覆盖：
 
@@ -153,63 +153,50 @@ cd ui && npm install && npm run build && cd ..
 python desktop_mac.py
 ```
 
-macOS 路径会使用独立的 `.env.macos`，默认设置 `WECHAT_BACKEND=mac_hybrid`，不会覆盖 Windows 使用的 `.env`。`mac_hybrid` 通过本地 chatlog 服务读取 macOS 微信数据库，再通过辅助功能发送消息；`mac_ui` 仍可作为只走界面自动化的兜底模式。
+macOS 路径会使用独立的 `.env.macos`，默认设置 `WECHAT_BACKEND=mac_hybrid`，不会覆盖 Windows 使用的 `.env`。`mac_hybrid` 内置 WeFlow 的 WCDB 读取链路，直接按稳定的 `@chatroom` id 读取 macOS 微信数据库，并从 `contact` 表解析群名，再通过辅助功能发送消息；`mac_ui` 仍可作为只走界面自动化的兜底模式。
 
-macOS 读消息前需要先准备本地 chatlog 服务：
+macOS 读消息前需要保证当前微信账号目录中存在 `all_keys.json`：
 
 ```bash
 # 1. 确认微信已登录，SIP 已关闭；首次提取 key 需要管理员权限
-python3 tools/macos_chatlog_setup.py diagnose
+python3 tools/macos_weflow_setup.py diagnose
 
 # 2. 提取当前账号的 all_keys.json（会触发 sudo 密码输入，不会打印 key 明文）
-python3 tools/macos_chatlog_setup.py extract-keys
+python3 tools/macos_weflow_setup.py extract-keys
 
 # 如果 Mach 扫描没有匹配到 key，可直接走 lldb 内存扫描
-python3 tools/macos_chatlog_setup.py extract-keys-lldb
+python3 tools/macos_weflow_setup.py extract-keys-lldb
 
 # 如果 lldb hex 扫描也没有 key，说明当前 WeChat 可能不保留 x'...' 形式；
 # 用 AES hook 模式，并在命令等待期间打开几个有历史消息的聊天。
 # 最稳的做法是在 WeChat 刚启动后运行该命令。
-python3 tools/macos_chatlog_setup.py extract-keys-hook
+python3 tools/macos_weflow_setup.py extract-keys-hook
 
 # 也可以让脚本重启 WeChat 后立刻挂 AES hook，并自动打开“文件传输助手”触发数据库读取；
-# 成功提取后会自动重启 chatlog 并执行 verify-read。
-python3 tools/macos_chatlog_setup.py extract-keys-restart-hook --yes
+# 成功提取后会写入 all_keys.json。
+python3 tools/macos_weflow_setup.py extract-keys-restart-hook --yes
 
 # 如需指定触发读取的聊天，可重复传 --open-chat：
-python3 tools/macos_chatlog_setup.py extract-keys-restart-hook --yes --open-chat "文件传输助手" --open-chat "群聊名"
+python3 tools/macos_weflow_setup.py extract-keys-restart-hook --yes --open-chat "文件传输助手" --open-chat "群聊名"
 
 # 如果你已用 wechat-db-decrypt-macos 得到 wechat_keys.json，可导入为 all_keys.json
-python3 tools/macos_chatlog_setup.py import-keys --keys-file /path/to/wechat_keys.json
+python3 tools/macos_weflow_setup.py import-keys --keys-file /path/to/wechat_keys.json
 
 # 3. 再次确认 valid_key_entries > 0；open_db_files 用于判断微信是否已加载数据库
-python3 tools/macos_chatlog_setup.py diagnose
-
-# 4. 构建并启动 chatlog_alpha HTTP 服务，默认监听 127.0.0.1:5030
-python3 tools/macos_chatlog_setup.py build-chatlog
-python3 tools/macos_chatlog_setup.py start-chatlog
-
-# 5. 验证能读取增量消息；输出只包含数量/字段，不打印聊天正文
-python3 tools/macos_chatlog_setup.py verify-read
-
-# 如果已启动服务后才重新提取 key，请重启 chatlog 服务
-python3 tools/macos_chatlog_setup.py restart-chatlog
+python3 tools/macos_weflow_setup.py diagnose
 ```
 
-正常启动 webot 时不需要再单独运行 `start-chatlog`。源码启动
-`python desktop_mac.py` 或打包后的 `webot.app` 会在 `mac_hybrid`
-启动前检查 `CHATLOG_BASE_URL`，如果本地服务未运行，会自动拉起
-已构建/已打包的 `chatlog-alpha` 子进程。`start-chatlog` 保留给排障和
-单独验证使用。
+正常启动 webot 时不需要再单独运行任何消息读取服务。源码启动
+`python desktop_mac.py` 或打包后的 `webot.app` 都会在同一个进程内加载
+`resources/wcdb/macos/universal/libWCDB.dylib` 读取本地数据库。
 
 `.env.macos` 中可显式配置：
 
 ```env
 WECHAT_BACKEND=mac_hybrid
-CHATLOG_BASE_URL=http://127.0.0.1:5030
+# 如果自动检测账号目录不准，可指定到包含 db_storage 的 wxid_* 目录
+MAC_WEFLOW_DATA_DIR=/Users/you/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_xxx
 MAC_WECHAT_SEND_SHORTCUT=enter
-# 如已安装自己的 chatlog_alpha，可指定二进制路径
-# CHATLOG_BIN=/path/to/chatlog
 ```
 
 首次发送消息时，需要在系统设置中给终端或 Python 授权“辅助功能”权限。
@@ -228,7 +215,7 @@ Codex/脚本不会也不能代输这个密码。
 重新执行 key 提取。
 
 参考实现：
-[teest114514/chatlog_alpha](https://github.com/teest114514/chatlog_alpha)、
+[honker233/WeFlow](https://github.com/honker233/WeFlow)、
 [wechat-db-decrypt-macos](https://github.com/Thearas/wechat-db-decrypt-macos)、
 [macOS 微信自动化调研](https://blog.ax0x.ai/wechat-automation-macos)。
 
@@ -429,7 +416,7 @@ webot 通过以下方式工作：
 <details>
 <summary><strong>支持 macOS 吗？</strong></summary>
 
-Windows 仍是正式推荐平台。macOS 推荐实验性的 `WECHAT_BACKEND=mac_hybrid` 路径：读取由 chatlog 服务解密后的本地微信数据库，发送消息时再通过辅助功能操作微信窗口。它需要当前微信账号目录中存在 `all_keys.json`，并会在启动时自动确保本地 chatlog HTTP 服务运行在 `CHATLOG_BASE_URL`。`WECHAT_BACKEND=mac_ui` 仍保留为界面自动化兜底，但不适合稳定读取聊天消息。
+Windows 仍是正式推荐平台。macOS 推荐实验性的 `WECHAT_BACKEND=mac_hybrid` 路径：通过内置 WeFlow WCDB 读取链路直读本地微信数据库，发送消息时再通过辅助功能操作微信窗口。它需要当前微信账号目录中存在 `all_keys.json`，不需要额外启动消息读取服务。`WECHAT_BACKEND=mac_ui` 仍保留为界面自动化兜底，但不适合稳定读取聊天消息。
 
 </details>
 

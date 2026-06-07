@@ -104,7 +104,7 @@ AI 连续多次判断"不应该插话"时，会自动延长沉默时间（最高
 ## 支持的微信版本
 
 - **Windows**：微信 4.x（DRM 补丁偏移 `0x6e1f6`，微信更新后可能失效）
-- **macOS**：实验性支持（`mac_hybrid` / `mac_ui`，需本地 chatlog 服务）
+- **macOS**：实验性支持（`mac_hybrid` / `mac_ui`，自动托管本地 chatlog 服务）
 
 微信版本更新后，DRM 补丁偏移可能变化。如遇数据库无法打开，可通过环境变量覆盖：
 
@@ -195,6 +195,12 @@ python3 tools/macos_chatlog_setup.py verify-read
 # 如果已启动服务后才重新提取 key，请重启 chatlog 服务
 python3 tools/macos_chatlog_setup.py restart-chatlog
 ```
+
+正常启动 webot 时不需要再单独运行 `start-chatlog`。源码启动
+`python desktop_mac.py` 或打包后的 `webot.app` 会在 `mac_hybrid`
+启动前检查 `CHATLOG_BASE_URL`，如果本地服务未运行，会自动拉起
+已构建/已打包的 `chatlog-alpha` 子进程。`start-chatlog` 保留给排障和
+单独验证使用。
 
 `.env.macos` 中可显式配置：
 
@@ -423,7 +429,7 @@ webot 通过以下方式工作：
 <details>
 <summary><strong>支持 macOS 吗？</strong></summary>
 
-Windows 仍是正式推荐平台。macOS 推荐实验性的 `WECHAT_BACKEND=mac_hybrid` 路径：读取由 chatlog 服务解密后的本地微信数据库，发送消息时再通过辅助功能操作微信窗口。它需要当前微信账号目录中存在 `all_keys.json`，并需要本地 chatlog HTTP 服务运行在 `CHATLOG_BASE_URL`。`WECHAT_BACKEND=mac_ui` 仍保留为界面自动化兜底，但不适合稳定读取聊天消息。
+Windows 仍是正式推荐平台。macOS 推荐实验性的 `WECHAT_BACKEND=mac_hybrid` 路径：读取由 chatlog 服务解密后的本地微信数据库，发送消息时再通过辅助功能操作微信窗口。它需要当前微信账号目录中存在 `all_keys.json`，并会在启动时自动确保本地 chatlog HTTP 服务运行在 `CHATLOG_BASE_URL`。`WECHAT_BACKEND=mac_ui` 仍保留为界面自动化兜底，但不适合稳定读取聊天消息。
 
 </details>
 

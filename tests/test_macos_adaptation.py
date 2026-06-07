@@ -107,6 +107,34 @@ class FakeChatlogClient:
         return True
 
 
+class FakeHealthClient:
+    def __init__(self, health_results):
+        self.health_results = list(health_results)
+        self.health_calls = 0
+
+    def health(self):
+        self.health_calls += 1
+        if self.health_results:
+            return self.health_results.pop(0)
+        return False
+
+
+class FakeChatlogProcess:
+    pid = 4321
+
+    def poll(self):
+        return None
+
+
+class FakeChatlogServiceManager:
+    def __init__(self):
+        self.calls = 0
+
+    def ensure_running(self):
+        self.calls += 1
+        return False
+
+
 class FakeClicker:
     def __init__(self):
         self.points = []
@@ -1018,6 +1046,103 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertEqual([msg["content"] for msg in seen], ["@群聊小助手 新消息"])
         self.assertEqual(automation.sent, ["收到新消息"])
+
+    def test_mac_hybrid_start_ensures_chatlog_service_before_priming(self):
+        from src.wechat.mac_hybrid_backend import MacHybridBackend
+
+        client = FakeChatlogClient([
+            {"count": 0, "new_state": {"room1@chatroom": 10}, "messages": []},
+            {
+                "count": 1,
+                "new_state": {"room1@chatroom": 11},
+                "messages": [{
+                    "timestamp": 11,
+                    "sender": "Alice",
+                    "type": "text",
+                    "content": "@群聊小助手 新消息",
+                    "local_id": 2,
+                    "chat": "摸鱼群",
+                    "username": "room1@chatroom",
+                    "is_group": True,
+                }],
+            },
+        ])
+        service_manager = FakeChatlogServiceManager()
+        backend = MacHybridBackend(
+            bot_display_name="群聊小助手",
+            groups=["*"],
+            poll_sec=0,
+            client=client,
+            automation=FakeMacAutomation(),
+            service_manager=service_manager,
+        )
+
+        backend.start(lambda msg: backend.stop() or "收到")
+
+        self.assertEqual(service_manager.calls, 1)
+        self.assertEqual(client.calls[0], {"state": {}, "limit": 200})
+
+    def test_chatlog_service_manager_noops_when_service_is_healthy(self):
+        from src.wechat.mac_chatlog_service import MacChatlogServiceManager
+
+        launches = []
+        manager = MacChatlogServiceManager(
+            client=FakeHealthClient([True]),
+            popen_factory=lambda *args, **kwargs: launches.append((args, kwargs)),
+        )
+
+        self.assertFalse(manager.ensure_running())
+        self.assertEqual(launches, [])
+
+    def test_chatlog_service_manager_starts_bundled_binary_with_runtime_env(self):
+        from src.wechat.mac_chatlog_service import MacChatlogServiceManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binary = root / "tools" / "macos_chatlog" / "chatlog-alpha"
+            binary.parent.mkdir(parents=True)
+            binary.write_text("#!/bin/sh\n", encoding="utf-8")
+            binary.chmod(0o755)
+            app_home = root / "home"
+            data_dir = root / "wechat-data"
+            data_dir.mkdir()
+            launches = []
+
+            def fake_popen(cmd, **kwargs):
+                launches.append({"cmd": cmd, **kwargs})
+                return FakeChatlogProcess()
+
+            manager = MacChatlogServiceManager(
+                client=FakeHealthClient([False, False, True]),
+                base_url="http://127.0.0.1:5039",
+                app_home=app_home,
+                resource_root=root,
+                data_dir_resolver=lambda: str(data_dir),
+                popen_factory=fake_popen,
+                sleep_func=lambda _: None,
+            )
+
+            self.assertTrue(manager.ensure_running(timeout=1))
+
+            self.assertEqual(launches[0]["cmd"], [str(binary.resolve())])
+            self.assertEqual(launches[0]["cwd"], str(app_home.resolve()))
+            self.assertEqual(launches[0]["env"]["CHATLOG_DATA_DIR"], str(data_dir))
+            self.assertEqual(launches[0]["env"]["CHATLOG_HTTP_ADDR"], "127.0.0.1:5039")
+            self.assertTrue((app_home / "data" / "chatlog_alpha.log").exists())
+
+    def test_chatlog_service_manager_raises_clear_error_when_binary_missing(self):
+        from src.wechat.mac_chatlog_service import ChatlogServiceError, MacChatlogServiceManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = MacChatlogServiceManager(
+                client=FakeHealthClient([False]),
+                app_home=Path(tmp) / "home",
+                resource_root=Path(tmp) / "missing",
+                data_dir_resolver=lambda: str(Path(tmp) / "wechat-data"),
+            )
+
+            with self.assertRaisesRegex(ChatlogServiceError, "chatlog-alpha binary not found"):
+                manager.ensure_running(timeout=1)
 
     def test_health_monitor_uses_mac_backend_health_status_without_window(self):
         from src.bot import HealthMonitor

@@ -45,6 +45,7 @@ class MacUIAutomation:
         screen_text_reader=None,
     ):
         self._app_name = app_name or os.getenv("MAC_WECHAT_APP_NAME", "WeChat")
+        self._custom_runner = runner is not None
         self._runner = runner or self._default_runner
         self._clicker = clicker or self._core_graphics_click
         self._title_reader = title_reader or self._read_current_header_texts
@@ -52,14 +53,22 @@ class MacUIAutomation:
 
     @staticmethod
     def _default_runner(cmd, input_text=None, timeout=5):
-        return subprocess.run(
-            cmd,
-            input=input_text,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        try:
+            return subprocess.run(
+                cmd,
+                input=input_text,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return subprocess.CompletedProcess(
+                cmd,
+                124,
+                stdout=exc.stdout or "",
+                stderr=f"Command timed out after {timeout}s: {exc}",
+            )
 
     def activate_wechat(self) -> bool:
         return self._bring_wechat_frontmost()
@@ -356,6 +365,59 @@ JSON.stringify([...new Set(values)]);
             return []
         return [str(item).strip() for item in data if str(item).strip()]
 
+    def diagnose_access(self) -> dict:
+        """Return a side-effect-light diagnostic for packaged macOS permissions."""
+        result = {
+            "app_name": self._app_name,
+            "activated": False,
+            "frontmost": False,
+            "accessibility_ok": False,
+            "screen_capture_ok": False,
+            "window": None,
+            "header_rect": None,
+            "title_texts": [],
+            "errors": [],
+        }
+
+        try:
+            result["activated"] = self._bring_wechat_frontmost()
+        except Exception as exc:
+            result["errors"].append(f"activate_wechat: {exc}")
+
+        try:
+            result["frontmost"] = self._is_wechat_frontmost()
+        except Exception as exc:
+            result["errors"].append(f"frontmost: {exc}")
+
+        try:
+            geometry = self._get_wechat_geometry()
+            result["geometry"] = geometry
+            window = self._window_rect(geometry)
+            if window:
+                result["window"] = window
+                result["accessibility_ok"] = True
+        except Exception as exc:
+            result["errors"].append(f"geometry: {exc}")
+            window = None
+
+        if window:
+            header = self._chat_header_capture_rect(window)
+            valid_header = self._valid_rect(header)
+            result["header_rect"] = valid_header
+            if valid_header:
+                capture = self._probe_screen_capture(valid_header)
+                result["screen_capture_ok"] = capture["ok"]
+                if capture.get("error"):
+                    result["errors"].append(capture["error"])
+                if capture["ok"]:
+                    try:
+                        result["title_texts"] = self._read_current_header_texts()
+                    except Exception as exc:
+                        result["errors"].append(f"title_ocr: {exc}")
+
+        result["ok"] = bool(result["activated"] and result["accessibility_ok"] and result["screen_capture_ok"])
+        return result
+
     def send_text(self, content: str) -> bool:
         if not content:
             return False
@@ -378,14 +440,14 @@ JSON.stringify([...new Set(values)]);
 
     def _paste_clipboard(self, send: bool = False) -> bool:
         send_line = self._send_key_script_line() if send else ''
-        script = f'''
-tell application "System Events"
+        return self._run_wechat_process_script(
+            f'''
   keystroke "v" using command down
   delay 0.1
 {send_line}
-end tell
-'''
-        return self._run_osascript(script, timeout=8)
+''',
+            timeout=8,
+        )
 
     @staticmethod
     def _send_key_script_line() -> str:
@@ -615,6 +677,11 @@ print(String(data: data, encoding: .utf8)!)
         return False
 
     def _is_wechat_frontmost(self) -> bool:
+        if not self._custom_runner:
+            name = self._frontmost_app_name_from_appkit()
+            if name:
+                return name in {self._app_name, "WeChat", "微信"}
+
         script = '''
 const se = Application("System Events");
 const front = se.processes.whose({frontmost: true})();
@@ -634,6 +701,19 @@ JSON.stringify({front: name});
             return False
         return data.get("front") in {self._app_name, "WeChat", "微信"}
 
+    @staticmethod
+    def _frontmost_app_name_from_appkit() -> str:
+        try:
+            from AppKit import NSWorkspace
+
+            app = NSWorkspace.sharedWorkspace().frontmostApplication()
+            if not app:
+                return ""
+            return str(app.localizedName() or "")
+        except Exception as exc:
+            logger.debug("macOS AppKit frontmost check failed: %s", exc)
+            return ""
+
     def _run(self, cmd, input_text=None, timeout=5) -> bool:
         result = self._runner(cmd, input_text=input_text, timeout=timeout)
         if result.returncode != 0:
@@ -642,29 +722,99 @@ JSON.stringify({front: name});
         return True
 
     def _run_osascript(self, script: str, timeout=5) -> bool:
+        if not self._custom_runner:
+            native = self._run_applescript_in_process(script)
+            if native is not None:
+                return native["ok"]
         return self._run(["osascript", "-e", script], timeout=timeout)
 
-    def _press_escape(self) -> bool:
-        return self._run_osascript(
-            '''
+    @staticmethod
+    def _run_applescript_in_process(script: str) -> dict | None:
+        try:
+            from Foundation import NSAppleScript
+        except Exception:
+            return None
+
+        try:
+            apple_script = NSAppleScript.alloc().initWithSource_(script)
+            descriptor, error = apple_script.executeAndReturnError_(None)
+        except Exception as exc:
+            logger.warning("macOS in-process AppleScript failed: %s", exc)
+            return {"ok": False, "stdout": "", "stderr": str(exc)}
+
+        if error:
+            logger.warning("macOS in-process AppleScript failed: %s", error)
+            return {"ok": False, "stdout": "", "stderr": str(error)}
+
+        stdout = ""
+        try:
+            if descriptor is not None and descriptor.stringValue() is not None:
+                stdout = str(descriptor.stringValue())
+        except Exception:
+            stdout = ""
+        return {"ok": True, "stdout": stdout, "stderr": ""}
+
+    def _run_wechat_process_script(self, body: str, timeout=5) -> bool:
+        app = self._escape_applescript(self._app_name)
+        script = f'''
 tell application "System Events"
-  key code 53
+  tell process "{app}"
+    set frontmost to true
+{body}
+  end tell
 end tell
+'''
+        return self._run_osascript(script, timeout=timeout)
+
+    def _probe_screen_capture(self, rect: dict) -> dict:
+        x = int(rect["x"])
+        y = int(rect["y"])
+        w = int(rect["w"])
+        h = int(rect["h"])
+        tmp = tempfile.NamedTemporaryFile(prefix="webot_wechat_diag_", suffix=".png", delete=False)
+        path = tmp.name
+        tmp.close()
+        try:
+            result = self._runner(
+                ["screencapture", "-x", f"-R{x},{y},{w},{h}", path],
+                timeout=5,
+            )
+            if result.returncode != 0:
+                stderr = str(result.stderr or "").strip()
+                logger.warning("macOS screen capture diagnostic failed: %s", stderr)
+                return {
+                    "ok": False,
+                    "error": stderr or "screencapture failed",
+                }
+            return {"ok": True, "error": None}
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+    def _press_escape(self) -> bool:
+        return self._run_wechat_process_script(
+            '''
+  key code 53
 ''',
             timeout=3,
         )
 
     def _select_focused_text(self) -> bool:
-        return self._run_osascript(
+        return self._run_wechat_process_script(
             '''
-tell application "System Events"
   keystroke "a" using command down
-end tell
 ''',
             timeout=3,
         )
 
     def _get_wechat_geometry(self) -> dict:
+        if not self._custom_runner:
+            native = self._get_wechat_geometry_applescript()
+            if native is not None:
+                return native
+
         app = self._escape_jxa(self._app_name)
         script = f'''
 const appName = "{app}";
@@ -719,7 +869,9 @@ try {{
       if (sheets.length > 0) result.sheet = rect(sheets[0]);
     }} catch (e) {{}}
   }}
-}} catch (e) {{}}
+}} catch (e) {{
+  result.error = String(e);
+}}
 
 JSON.stringify(result);
 '''
@@ -735,7 +887,110 @@ JSON.stringify(result);
         except json.JSONDecodeError:
             logger.warning("macOS WeChat geometry returned non-JSON output")
             return {}
+        if isinstance(data, dict) and data.get("error"):
+            logger.warning(
+                "macOS WeChat geometry access failed: %s. "
+                "Grant Accessibility permission to webot.app.",
+                data.get("error"),
+            )
         return data if isinstance(data, dict) else {}
+
+    def _get_wechat_geometry_applescript(self) -> dict | None:
+        app = self._escape_applescript(self._app_name)
+        script = f'''
+set appName to "{app}"
+try
+  tell application "System Events"
+    set proc to first process whose name is appName
+    set mainWindow to missing value
+    set closedAuxWindows to 0
+    repeat with candidateWindow in windows of proc
+      try
+        set candidateName to name of candidateWindow
+        if candidateName is "微信" then
+          set mainWindow to candidateWindow
+          exit repeat
+        end if
+      end try
+    end repeat
+
+    if mainWindow is not missing value then
+      repeat with candidateWindow in windows of proc
+        try
+          set candidateName to name of candidateWindow
+          if candidateName is "微信 (窗口)" or candidateName contains "搜一搜" or candidateName ends with " - 搜一搜" then
+            try
+              click button 1 of candidateWindow
+              set closedAuxWindows to closedAuxWindows + 1
+            end try
+          end if
+        end try
+      end repeat
+    end if
+
+    if mainWindow is missing value and (count of windows of proc) > 0 then
+      set mainWindow to window 1 of proc
+    end if
+
+    if mainWindow is missing value then
+      return "empty"
+    end if
+
+    set windowPosition to position of mainWindow
+    set windowSize to size of mainWindow
+    set outputText to "window|" & item 1 of windowPosition & "|" & item 2 of windowPosition & "|" & item 1 of windowSize & "|" & item 2 of windowSize & "|closed|" & closedAuxWindows
+
+    try
+      if (count of sheets of mainWindow) > 0 then
+        set sheetRect to sheet 1 of mainWindow
+        set sheetPosition to position of sheetRect
+        set sheetSize to size of sheetRect
+        set outputText to outputText & "|sheet|" & item 1 of sheetPosition & "|" & item 2 of sheetPosition & "|" & item 1 of sheetSize & "|" & item 2 of sheetSize
+      end if
+    end try
+
+    return outputText
+  end tell
+on error errorMessage
+  return "error|" & errorMessage
+end try
+'''
+        native = self._run_applescript_in_process(script)
+        if native is None:
+            return None
+        if not native["ok"]:
+            return {"error": native.get("stderr") or "AppleScript failed"}
+        return self._parse_wechat_geometry_applescript(native.get("stdout", ""))
+
+    @staticmethod
+    def _parse_wechat_geometry_applescript(output: str) -> dict:
+        parts = str(output or "").split("|")
+        if not parts or parts[0] == "empty":
+            return {}
+        if parts[0] == "error":
+            return {"error": "|".join(parts[1:]).strip()}
+        if parts[0] != "window" or len(parts) < 7:
+            return {}
+        try:
+            data = {
+                "window": {
+                    "x": float(parts[1]),
+                    "y": float(parts[2]),
+                    "w": float(parts[3]),
+                    "h": float(parts[4]),
+                },
+                "closed_aux_windows": int(float(parts[6])) if parts[5] == "closed" else 0,
+            }
+            if len(parts) >= 12 and parts[7] == "sheet":
+                data["sheet"] = {
+                    "x": float(parts[8]),
+                    "y": float(parts[9]),
+                    "w": float(parts[10]),
+                    "h": float(parts[11]),
+                }
+            return data
+        except (TypeError, ValueError):
+            return {}
 
     def _window_rect(self, geometry: dict) -> dict | None:
         return self._valid_rect(geometry.get("window") if isinstance(geometry, dict) else None)

@@ -65,12 +65,19 @@ def _sanitize_display_name(name: str) -> str:
 
     return name
 
-# In a PyInstaller EXE, __file__ resolves inside the temp extraction dir.
-# We want writable data (.env, data/*) in the EXE directory, not in the temp dir.
-if getattr(sys, "frozen", False):
-    PROJECT_ROOT = Path(sys.executable).resolve().parent
-else:
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+def _resolve_project_root() -> Path:
+    app_home = os.getenv("WEBOT_APP_HOME", "").strip()
+    if app_home:
+        return Path(app_home).expanduser().resolve()
+
+    # In a PyInstaller EXE, __file__ resolves inside the temp extraction dir.
+    # We want writable data (.env, data/*) in the EXE directory, not in the temp dir.
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+PROJECT_ROOT = _resolve_project_root()
 
 
 def find_env_file() -> Path | None:

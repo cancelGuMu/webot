@@ -367,6 +367,33 @@ def _platform_wechat_report(system_name=None):
         return {"ok": False, "value": f"微信检测出错: {e}", "error": str(e)}
 
 
+def _macos_wechat_diagnostics(system_name=None, automation=None):
+    """Run macOS WeChat permission diagnostics from this process identity."""
+    import platform
+
+    system = system_name or platform.system()
+    if system != "Darwin":
+        return {
+            "ok": False,
+            "skipped": True,
+            "error": "macOS diagnostics are only available on Darwin",
+        }
+
+    try:
+        if automation is None:
+            from src.wechat.mac_ui_backend import MacUIAutomation
+
+            automation = MacUIAutomation()
+        return automation.diagnose_access()
+    except Exception as exc:
+        logger.exception("macOS WeChat diagnostics failed")
+        return {
+            "ok": False,
+            "skipped": False,
+            "error": str(exc),
+        }
+
+
 # ── Thread-safe server state classes ────────────────────────────────────
 
 
@@ -1329,6 +1356,14 @@ class _UIHandler(SimpleHTTPRequestHandler):
             self.send_json(_read_recent_logs())
             return
 
+        # ── API: macOS WeChat automation diagnostics ─────────────────
+        if self.path == "/api/macos/diagnose":
+            self.send_json({
+                "ok": True,
+                "diagnostics": _macos_wechat_diagnostics(),
+            })
+            return
+
         # ── API: Onboarding status ────────────────────────────────────
         if self.path == "/api/onboarding/status":
             from src.config import is_onboarding_done
@@ -1361,13 +1396,11 @@ class _UIHandler(SimpleHTTPRequestHandler):
             # In frozen mode, __file__ is inside the read-only _MEIPASS
             # extraction directory. Use PROJECT_ROOT from config.py which
             # correctly resolves to the EXE directory when frozen.
-            if getattr(sys, "frozen", False):
-                project_root = Path(sys.executable).resolve().parent
-            else:
-                project_root = Path(__file__).resolve().parent.parent.parent
-            env_path = project_root / ".env"
+            from src.config import PROJECT_ROOT, find_env_file
+            project_root = PROJECT_ROOT
+            env_path = find_env_file() or (project_root / ".env")
             env_ok = env_path.exists()
-            env_val = ".env 配置文件已存在" if env_ok else ".env 配置文件尚未创建"
+            env_val = "配置文件已存在" if env_ok else "配置文件尚未创建"
 
             # 5. DB permissions check
             data_dir = project_root / "data"

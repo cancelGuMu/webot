@@ -83,6 +83,31 @@ def _find_or_create_env() -> Path:
     return env_path
 
 
+def _detect_default_data_dir() -> str:
+    """Auto-detect the default WeChat data directory (parent of wxid_*).
+
+    Returns the base directory path string, or empty string if not found.
+    Used by the UI to show what auto-detection would use.
+    """
+    import os as _os
+    candidates = [
+        Path(_os.environ.get("USERPROFILE", "")) / "Documents" / "xwechat_files",
+        Path(_os.environ.get("USERPROFILE", "")) / "Documents" / "WeChat Files",
+    ]
+    for base in candidates:
+        if not base.exists():
+            continue
+        try:
+            wxid_dirs = [d for d in base.iterdir() if d.is_dir() and d.name.startswith("wxid_")]
+            for wxid_dir in wxid_dirs:
+                session_db = wxid_dir / "db_storage" / "session" / "session.db"
+                if session_db.exists():
+                    return str(base)
+        except PermissionError:
+            continue
+    return ""
+
+
 def _detect_wxid_and_db_path():
     """Auto-detect WeChat wxid and database path from common locations.
 
@@ -896,6 +921,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "log_level": raw.get("LOG_LEVEL", "INFO"),
                     "wechat_data_dir": raw.get("WECHAT_DATA_DIR", ""),
                 },
+                "detected_data_dir": _detect_default_data_dir(),
             })
             return
 

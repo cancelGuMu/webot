@@ -668,12 +668,13 @@ const sectionAccents = { ai: '#18E299', identity: '#3772cf', data: '#18E299', fe
 
 // ── Data Path Section (微信数据目录配置) ──────────────────────────────
 
-function DataPathSection({ form, update }) {
+function DataPathSection({ form, update, detectedDataDir }) {
   const [browseOpen, setBrowseOpen] = useState(false)
   const [browsePath, setBrowsePath] = useState('')
   const [browseEntries, setBrowseEntries] = useState([])
   const [browseLoading, setBrowseLoading] = useState(false)
   const [browseError, setBrowseError] = useState('')
+  const [browseInput, setBrowseInput] = useState('')
   const [detectResult, setDetectResult] = useState(null)
   const [detecting, setDetecting] = useState(false)
   const [detectError, setDetectError] = useState('')
@@ -690,6 +691,7 @@ function DataPathSection({ form, update }) {
       const d = await res.json()
       if (d.ok) {
         setBrowsePath(d.current_path || '')
+        setBrowseInput(d.current_path || '')
         setBrowseEntries(d.entries || [])
       } else {
         setBrowseError(d.error || '无法读取目录')
@@ -701,8 +703,25 @@ function DataPathSection({ form, update }) {
   }
 
   function openBrowse() {
+    const initialPath = form.wechat_data_dir || detectedDataDir || ''
+    setBrowseInput(initialPath)
     setBrowseOpen(true)
-    loadBrowseDir(form.wechat_data_dir || '')
+    loadBrowseDir(initialPath)
+  }
+
+  function handleBrowseGo() {
+    const trimmed = browseInput.trim()
+    if (trimmed) {
+      setBrowseError('')
+      loadBrowseDir(trimmed)
+    }
+  }
+
+  function handleBrowseInputKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleBrowseGo()
+    }
   }
 
   function navigateUp() {
@@ -766,7 +785,7 @@ function DataPathSection({ form, update }) {
               type="text"
               value={form.wechat_data_dir || ''}
               onChange={v => { update('wechat_data_dir', v); setDetectResult(null) }}
-              placeholder={hasCustomPath ? '' : '自动检测中...（留空使用默认位置）'}
+              placeholder={detectedDataDir || '自动检测中...'}
               className="w-full bg-bg-raised border border-border-main rounded-full pl-5 pr-5 py-2.5 text-[14px] text-text-main
                          placeholder:text-text-muted/65 font-mono tabular-nums
                          focus:outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/15
@@ -849,9 +868,22 @@ function DataPathSection({ form, update }) {
         </div>
       )}
 
-      <p className="text-xs text-text-muted mt-3 leading-relaxed">
-        💡 如果微信聊天记录不在默认位置（Documents\xwechat_files），请在此指定包含 <code className="bg-bg-raised px-1.5 py-0.5 rounded font-mono text-[11px]">wxid_*</code> 文件夹的父目录
-      </p>
+      {detectedDataDir && !hasCustomPath && (
+        <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-brand-green-light border border-brand-green/20 rounded-full text-xs text-brand-green-hover dark:text-brand-green font-medium">
+          <CheckCircle size={14} weight="fill" />
+          <span className="truncate font-mono">自动检测: {detectedDataDir}</span>
+        </div>
+      )}
+      {!detectedDataDir && !hasCustomPath && (
+        <p className="text-xs text-text-muted mt-3 leading-relaxed">
+          ⚠ 未检测到默认微信数据目录，请手动指定包含 <code className="bg-bg-raised px-1.5 py-0.5 rounded font-mono text-[11px]">wxid_*</code> 文件夹的父目录
+        </p>
+      )}
+      {hasCustomPath && (
+        <p className="text-xs text-text-muted mt-3 leading-relaxed">
+          💡 已设置自定义路径。留空则恢复自动检测（{detectedDataDir || '默认 Documents 目录'}）
+        </p>
+      )}
 
       {/* ── Directory Browser Modal ────────────────────────────────── */}
       {browseOpen && (
@@ -868,6 +900,30 @@ function DataPathSection({ form, update }) {
                 onClick={() => setBrowseOpen(false)}
                 className="text-text-muted hover:text-text-main transition-colors cursor-pointer leading-none text-lg"
               >&times;</button>
+            </div>
+
+            {/* Path input (paste-able) */}
+            <div className="px-5 py-3 border-b border-border-main/40">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={browseInput}
+                  onChange={e => setBrowseInput(e.target.value)}
+                  onKeyDown={handleBrowseInputKeyDown}
+                  placeholder="粘贴或输入路径，回车跳转..."
+                  className="flex-1 bg-bg-raised border border-border-main rounded-full px-4 py-2 text-[13px] text-text-main placeholder:text-text-muted/55 font-mono
+                             focus:outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/15
+                             transition-all duration-200 hover:border-text-muted/30"
+                />
+                <button
+                  type="button"
+                  onClick={handleBrowseGo}
+                  disabled={!browseInput.trim()}
+                  className="shrink-0 px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-full text-[13px] text-brand-green-hover dark:text-brand-green font-semibold hover:bg-brand-green/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                >
+                  跳转
+                </button>
+              </div>
             </div>
 
             {/* Path breadcrumb */}
@@ -1170,6 +1226,9 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     e.target.value = ''
   }
 
+  // Detected default data dir (auto-detected, shown as placeholder)
+  const [detectedDataDir, setDetectedDataDir] = useState('')
+
   // Load current config from server on mount
   useEffect(() => {
     async function load() {
@@ -1182,6 +1241,9 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
             ...data.config,
             wechat_groups: data.config.wechat_groups || '*',
           }))
+          if (data.detected_data_dir) {
+            setDetectedDataDir(data.detected_data_dir)
+          }
         }
       } catch {}
       setLoaded(true)
@@ -1288,7 +1350,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
               <div className="p-7">
                 {activeSection === 'ai' && <AiSection form={form} update={update} />}
                 {activeSection === 'identity' && <IdentitySection form={form} update={update} />}
-                {activeSection === 'data' && <DataPathSection form={form} update={update} />}
+                {activeSection === 'data' && <DataPathSection form={form} update={update} detectedDataDir={detectedDataDir} />}
                 {activeSection === 'features' && <FeaturesSection form={form} update={update} />}
                 {activeSection === 'sandbox' && <SandboxSection form={form} />}
               </div>

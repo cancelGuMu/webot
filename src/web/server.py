@@ -84,9 +84,23 @@ def _find_or_create_env() -> Path:
 
 
 def _detect_wxid_and_db_path():
-    """Auto-detect WeChat wxid and database path from common locations."""
+    """Auto-detect WeChat wxid and database path from common locations.
+
+    Respects WECHAT_DATA_DIR env var as a custom base dir (scanned first).
+    """
     import os as _os
-    candidates = [
+
+    candidates: list[Path] = []
+
+    # 1. Custom path from env (highest priority)
+    custom_dir = _os.environ.get("WECHAT_DATA_DIR", "").strip()
+    if custom_dir:
+        custom = Path(custom_dir)
+        if custom.exists() and custom.is_dir():
+            candidates.append(custom)
+
+    # 2. Default locations
+    candidates += [
         Path(_os.environ.get("USERPROFILE", "")) / "Documents" / "xwechat_files",
         Path(_os.environ.get("USERPROFILE", "")) / "Documents" / "WeChat Files",
     ]
@@ -234,6 +248,27 @@ def _run_step1_extraction():
             _step1_state["phase"] = "error"
             _step1_state["message"] = str(e)
             _step1_state["running"] = False
+
+
+def _list_dir_entries(target: Path) -> list[dict]:
+    """List directory entries for the filesystem browser API.
+
+    Returns only directories (the user is browsing for parent dir of wxid_*).
+    Sorted: directories first, then alphabetically.
+    """
+    entries = []
+    try:
+        for child in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+            if child.name.startswith(".") or child.name.startswith("$"):
+                continue  # skip hidden/system entries
+            entries.append({
+                "name": child.name,
+                "path": str(child),
+                "is_dir": child.is_dir(),
+            })
+    except PermissionError:
+        pass
+    return entries
 
 
 def _read_recent_logs():
@@ -859,6 +894,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         if kw.strip()
                     ],
                     "log_level": raw.get("LOG_LEVEL", "INFO"),
+                    "wechat_data_dir": raw.get("WECHAT_DATA_DIR", ""),
                 },
             })
             return
@@ -902,6 +938,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         if kw.strip()
                     ],
                     "log_level": raw.get("LOG_LEVEL", "INFO"),
+                    "wechat_data_dir": raw.get("WECHAT_DATA_DIR", ""),
                 }
                 filename = f"webot-config-{_dt_date.today().isoformat()}.json"
                 body = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
@@ -951,6 +988,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         "FALLBACK_WINDOW_HOURS": str(config.get("fallback_window_hours", 8)),
                         "TRIGGER_KEYWORDS": ",".join(config.get("trigger_keywords", [])) if config.get("trigger_keywords") else None,
                         "LOG_LEVEL": config.get("log_level"),
+                        "WECHAT_DATA_DIR": config.get("wechat_data_dir"),
                     }
                     seen = set()
                     for line in lines:
@@ -1022,6 +1060,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "FALLBACK_WINDOW_HOURS": str(config.get("fallback_window_hours", 8)),
                     "TRIGGER_KEYWORDS": ",".join(config.get("trigger_keywords", [])) if config.get("trigger_keywords") else None,
                     "LOG_LEVEL": config.get("log_level"),
+                    "WECHAT_DATA_DIR": config.get("wechat_data_dir"),
                 }
                 new_lines = []
                 seen = set()
@@ -1526,6 +1565,94 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 _step1_state["message"] = ""
                 _step1_state["result"] = None
             self.send_json({"ok": True, "message": "请退出微信，然后点击「重新获取密钥」"})
+            return
+
+        # ── API: Browse filesystem directories ──────────────────────
+        if self.path.startswith("/api/browse"):
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            dir_path = params.get("path", [""])[0].strip()
+            if not dir_path:
+                # No path given — list drives on Windows, home on others
+                import platform
+                if platform.system() == "Windows":
+                    import string
+                    drives = []
+                    for letter in string.ascii_uppercase:
+                        p = Path(f"{letter}:\\")
+                        if p.exists():
+                            drives.append({"name": f"{letter}:", "path": f"{letter}:\\", "is_dir": True})
+                    self.send_json({"ok": True, "entries": drives, "current_path": ""})
+                else:
+                    home = Path.home()
+                    entries = _list_dir_entries(home)
+                    self.send_json({"ok": True, "entries": entries, "current_path": str(home)})
+                return
+
+            target = Path(dir_path)
+            if not target.exists():
+                self.send_json({"ok": False, "error": f"路径不存在: {dir_path}"})
+                return
+            if not target.is_dir():
+                self.send_json({"ok": False, "error": "请选择一个目录"})
+                return
+
+            try:
+                entries = _list_dir_entries(target)
+                self.send_json({"ok": True, "entries": entries, "current_path": str(target)})
+            except PermissionError:
+                self.send_json({"ok": False, "error": "没有权限访问该目录"})
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Detect WeChat data in a custom directory ──────────
+        if self.path == "/api/wechat-data-dir/detect":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len else b"{}"
+            try:
+                data = json.loads(body)
+                dir_path = (data.get("path") or "").strip()
+                if not dir_path:
+                    self.send_json({"ok": False, "error": "请提供目录路径"})
+                    return
+                target = Path(dir_path)
+                if not target.exists() or not target.is_dir():
+                    self.send_json({"ok": False, "error": f"目录不存在: {dir_path}"})
+                    return
+
+                # Scan for wxid_* directories
+                wxid_dirs = sorted(
+                    [d for d in target.iterdir() if d.is_dir() and d.name.startswith("wxid_")],
+                    key=lambda d: d.stat().st_mtime, reverse=True,
+                )
+                accounts = []
+                for wxid_dir in wxid_dirs:
+                    session_db = wxid_dir / "db_storage" / "session" / "session.db"
+                    accounts.append({
+                        "wxid": wxid_dir.name,
+                        "has_session_db": session_db.exists(),
+                        "db_path": str(session_db) if session_db.exists() else "",
+                    })
+
+                if accounts:
+                    self.send_json({
+                        "ok": True,
+                        "found": True,
+                        "accounts": accounts,
+                        "message": f"找到 {len(accounts)} 个微信账号",
+                    })
+                else:
+                    self.send_json({
+                        "ok": True,
+                        "found": False,
+                        "accounts": [],
+                        "message": f"在 {dir_path} 中未找到 wxid_* 目录。请确认路径正确。",
+                    })
+            except Exception as e:
+                logger.exception("Failed to detect WeChat data dir")
+                self.send_json({"ok": False, "error": str(e)})
             return
 
         # ── SPA fallback: serve index.html for unknown paths ──────────

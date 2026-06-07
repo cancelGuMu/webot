@@ -153,33 +153,56 @@ def _find_dll():
     )
 
 
-def _find_wxid_and_dbpath():
+def _find_wxid_and_dbpath(custom_base_dir: str = ""):
     """Auto-detect WeChat wxid and database path from the filesystem.
 
-    Scans Documents\\xwechat_files\\ for wxid_* directories.
+    If custom_base_dir is provided, scans that directory first.
+    Otherwise falls back to Documents\\xwechat_files\\ and Documents\\WeChat Files\\.
     """
-    # 1. Scan filesystem (primary — no external dependencies)
-    documents = Path.home() / "Documents"
-    candidates = [
-        documents / "xwechat_files",
-        documents / "WeChat Files",
-    ]
+    # Collect candidate base directories to scan
+    candidates: list[Path] = []
 
+    # 1. Custom directory (highest priority)
+    if custom_base_dir:
+        custom = Path(custom_base_dir)
+        if custom.exists() and custom.is_dir():
+            candidates.append(custom)
+            logger.info("Scanning custom WECHAT_DATA_DIR: %s", custom)
+        else:
+            logger.warning(
+                "WECHAT_DATA_DIR=%s does not exist or is not a directory — "
+                "falling back to auto-detection",
+                custom_base_dir,
+            )
+
+    # 2. Default auto-detection paths
+    documents = Path.home() / "Documents"
+    for default_base in (documents / "xwechat_files", documents / "WeChat Files"):
+        if default_base not in candidates:
+            candidates.append(default_base)
+
+    # Scan candidates in order
     for base in candidates:
         if not base.exists():
             continue
         # Find wxid directories (e.g., wxid_zogepsik3fud12_b6ce)
-        wxid_dirs = sorted(
-            [d for d in base.iterdir() if d.is_dir() and d.name.startswith("wxid_")],
-            key=lambda d: d.stat().st_mtime,
-            reverse=True,
-        )
+        try:
+            wxid_dirs = sorted(
+                [d for d in base.iterdir() if d.is_dir() and d.name.startswith("wxid_")],
+                key=lambda d: d.stat().st_mtime,
+                reverse=True,
+            )
+        except PermissionError:
+            logger.warning("Permission denied reading %s — skipping", base)
+            continue
+
         for wxid_dir in wxid_dirs:
             # Verify session.db exists
             session_db = wxid_dir / "db_storage" / "session" / "session.db"
             if session_db.exists():
                 wxid = wxid_dir.name
-                logger.info("Auto-detected: wxid=%s db=%s", wxid, str(base))
+                source = "custom" if base == candidates[0] and custom_base_dir else "auto"
+                logger.info("%s-detected: wxid=%s db=%s", source, wxid, str(base))
                 return wxid, str(base)
 
     raise FileNotFoundError(
@@ -220,7 +243,19 @@ class WcdbNativeClient:
     # ── Init ──────────────────────────────────────────────────────────
 
     def _load_config(self):
-        wxid, db_path = _find_wxid_and_dbpath()
+        # Read wechat_data_dir from config (custom path support)
+        custom_dir = ""
+        try:
+            from src.config import load_config
+            config = load_config()
+            custom_dir = config.wechat_data_dir
+        except Exception:
+            # Config not yet available (e.g. during onboarding) — fall back
+            # to auto-detection.  load_config may raise if required keys are
+            # missing, but _find_wxid_and_dbpath still works without them.
+            pass
+
+        wxid, db_path = _find_wxid_and_dbpath(custom_dir)
         self._config = {
             "myWxid": wxid,
             "dbPath": db_path,

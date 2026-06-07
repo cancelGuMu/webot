@@ -663,8 +663,284 @@ function LotsEditor() {
   )
 }
 
-const sectionTitles = { ai: 'AI 后端配置', identity: '机器人身份', features: '功能开关', sandbox: '提示词沙箱' }
-const sectionAccents = { ai: '#18E299', identity: '#3772cf', features: '#c37d0d', sandbox: '#8b5cf6' }
+const sectionTitles = { ai: 'AI 后端配置', identity: '机器人身份', data: '数据路径', features: '功能开关', sandbox: '提示词沙箱' }
+const sectionAccents = { ai: '#18E299', identity: '#3772cf', data: '#18E299', features: '#c37d0d', sandbox: '#8b5cf6' }
+
+// ── Data Path Section (微信数据目录配置) ──────────────────────────────
+
+function DataPathSection({ form, update }) {
+  const [browseOpen, setBrowseOpen] = useState(false)
+  const [browsePath, setBrowsePath] = useState('')
+  const [browseEntries, setBrowseEntries] = useState([])
+  const [browseLoading, setBrowseLoading] = useState(false)
+  const [browseError, setBrowseError] = useState('')
+  const [detectResult, setDetectResult] = useState(null)
+  const [detecting, setDetecting] = useState(false)
+  const [detectError, setDetectError] = useState('')
+
+  // ── Browse API ────────────────────────────────────────────────
+
+  async function loadBrowseDir(path) {
+    setBrowseLoading(true)
+    setBrowseError('')
+    setDetectResult(null)
+    try {
+      const params = path ? `?path=${encodeURIComponent(path)}` : ''
+      const res = await fetch(`http://127.0.0.1:7327/api/browse${params}`)
+      const d = await res.json()
+      if (d.ok) {
+        setBrowsePath(d.current_path || '')
+        setBrowseEntries(d.entries || [])
+      } else {
+        setBrowseError(d.error || '无法读取目录')
+      }
+    } catch {
+      setBrowseError('无法连接到服务器')
+    }
+    setBrowseLoading(false)
+  }
+
+  function openBrowse() {
+    setBrowseOpen(true)
+    loadBrowseDir(form.wechat_data_dir || '')
+  }
+
+  function navigateUp() {
+    const parent = browsePath.split('\\').slice(0, -1).join('\\')
+    if (parent.length >= 1) {
+      loadBrowseDir(parent)
+    }
+  }
+
+  function navigateTo(entryPath) {
+    loadBrowseDir(entryPath)
+  }
+
+  function selectCurrentPath() {
+    update('wechat_data_dir', browsePath)
+    setBrowseOpen(false)
+    setDetectResult(null)
+  }
+
+  // ── Detect API ────────────────────────────────────────────────
+
+  async function handleDetect() {
+    const path = (form.wechat_data_dir || '').trim()
+    if (!path) {
+      setDetectError('请先输入或选择目录路径')
+      setTimeout(() => setDetectError(''), 4000)
+      return
+    }
+    setDetecting(true)
+    setDetectError('')
+    setDetectResult(null)
+    try {
+      const res = await fetch('http://127.0.0.1:7327/api/wechat-data-dir/detect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      })
+      const d = await res.json()
+      if (d.ok) {
+        setDetectResult(d)
+      } else {
+        setDetectError(d.error || '检测失败')
+        setTimeout(() => setDetectError(''), 5000)
+      }
+    } catch {
+      setDetectError('无法连接到服务器')
+      setTimeout(() => setDetectError(''), 5000)
+    }
+    setDetecting(false)
+  }
+
+  const hasCustomPath = (form.wechat_data_dir || '').trim().length > 0
+
+  return (
+    <div>
+      <Field label="微信数据目录"
+        hint="微信聊天记录存储的父目录（包含 wxid_* 文件夹）。留空则自动从 Documents 检测。">
+        <div className="flex items-start gap-2">
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={form.wechat_data_dir || ''}
+              onChange={v => { update('wechat_data_dir', v); setDetectResult(null) }}
+              placeholder={hasCustomPath ? '' : '自动检测中...（留空使用默认位置）'}
+              className="w-full bg-bg-raised border border-border-main rounded-full pl-5 pr-5 py-2.5 text-[14px] text-text-main
+                         placeholder:text-text-muted/65 font-mono tabular-nums
+                         focus:outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/15
+                         transition-all duration-200
+                         hover:border-text-muted/30 dark:hover:border-text-muted/40"
+            />
+            {hasCustomPath && (
+              <button
+                type="button"
+                onClick={() => { update('wechat_data_dir', ''); setDetectResult(null); setDetectError('') }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted/60 hover:text-[#d45656] text-lg leading-none transition-colors cursor-pointer"
+                title="清除自定义路径"
+              >&times;</button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={openBrowse}
+            className="shrink-0 px-4 py-2.5 bg-bg-main border border-border-main rounded-full text-[13px] text-text-main font-medium hover:border-brand-green hover:text-brand-green-hover transition-colors cursor-pointer"
+          >
+            浏览...
+          </button>
+          {hasCustomPath && (
+            <button
+              type="button"
+              onClick={handleDetect}
+              disabled={detecting}
+              className="shrink-0 px-4 py-2.5 bg-brand-green-light border border-brand-green/20 rounded-full text-[13px] text-brand-green-hover dark:text-brand-green font-semibold hover:bg-brand-green/10 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {detecting ? (
+                <span className="flex items-center gap-1.5">
+                  <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  检测中
+                </span>
+              ) : '检测'}</button>
+          )}
+        </div>
+      </Field>
+
+      {/* Detection result */}
+      {detectResult && (
+        <div className={`mt-3 p-4 rounded-2xl border ${
+          detectResult.found
+            ? 'bg-brand-green-light border-brand-green/20'
+            : 'bg-[#c37d0d]/5 border-[#c37d0d]/20'
+        }`}>
+          {detectResult.found ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle size={18} weight="fill" className="text-brand-green-hover dark:text-brand-green" />
+                <span className="text-sm font-semibold text-brand-green-hover dark:text-brand-green">{detectResult.message}</span>
+              </div>
+              {detectResult.accounts.map((acct, i) => (
+                <div key={i} className="flex items-center gap-3 text-xs font-mono bg-bg-main/60 border border-border-main rounded-xl px-3 py-2">
+                  <span className="text-text-main font-semibold">{acct.wxid}</span>
+                  <span className="text-text-muted">·</span>
+                  <span className={acct.has_session_db ? 'text-brand-green-hover dark:text-brand-green' : 'text-[#d45656]'}>
+                    {acct.has_session_db ? '✓ session.db 已就绪' : '✗ 未找到 session.db'}
+                  </span>
+                </div>
+              ))}
+              <p className="text-[11px] text-text-muted mt-1">确认无误后点击下方「保存配置」并重启机器人即可生效</p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Warning size={18} weight="fill" className="text-[#c37d0d]" />
+              <span className="text-sm text-[#c37d0d]">{detectResult.message}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {detectError && (
+        <div className="mt-3 flex items-center gap-2 px-4 py-2.5 bg-[#d45656]/5 border border-[#d45656]/20 rounded-full text-sm text-[#d45656]">
+          <Warning size={16} weight="fill" className="text-[#d45656]" />
+          <span>{detectError}</span>
+        </div>
+      )}
+
+      <p className="text-xs text-text-muted mt-3 leading-relaxed">
+        💡 如果微信聊天记录不在默认位置（Documents\xwechat_files），请在此指定包含 <code className="bg-bg-raised px-1.5 py-0.5 rounded font-mono text-[11px]">wxid_*</code> 文件夹的父目录
+      </p>
+
+      {/* ── Directory Browser Modal ────────────────────────────────── */}
+      {browseOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0d0d]/60 backdrop-blur-sm" onClick={() => setBrowseOpen(false)}>
+          <div
+            className="bg-bg-card border border-border-main rounded-2xl shadow-2xl w-[520px] max-h-[520px] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border-main/60">
+              <h4 className="text-sm font-semibold text-text-main">选择微信数据目录</h4>
+              <button
+                type="button"
+                onClick={() => setBrowseOpen(false)}
+                className="text-text-muted hover:text-text-main transition-colors cursor-pointer leading-none text-lg"
+              >&times;</button>
+            </div>
+
+            {/* Path breadcrumb */}
+            <div className="px-5 py-2.5 bg-bg-raised/50 border-b border-border-main/40">
+              <div className="flex items-center gap-1.5 text-xs font-mono text-text-muted">
+                <button
+                  type="button"
+                  onClick={navigateUp}
+                  disabled={!browsePath || browsePath.length <= 3}
+                  className="text-text-muted hover:text-text-main disabled:opacity-30 disabled:cursor-default cursor-pointer transition-colors"
+                  title="上级目录"
+                >↑</button>
+                <span className="truncate">{browsePath || '此电脑'}</span>
+              </div>
+            </div>
+
+            {/* Entry list */}
+            <div className="flex-1 overflow-y-auto px-2 py-1.5">
+              {browseLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <svg className="animate-spin h-5 w-5 text-text-muted" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                </div>
+              ) : browseError ? (
+                <div className="p-4 text-xs text-[#d45656] text-center">{browseError}</div>
+              ) : browseEntries.length === 0 ? (
+                <div className="p-4 text-xs text-text-muted text-center">此目录为空</div>
+              ) : (
+                browseEntries.filter(e => e.is_dir).map((entry, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => navigateTo(entry.path)}
+                    className="w-full text-left px-3 py-2 rounded-xl text-[13px] text-text-main hover:bg-bg-raised transition-colors cursor-pointer flex items-center gap-2.5 font-mono"
+                  >
+                    <span className="text-base shrink-0">📁</span>
+                    <span className="truncate">{entry.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3.5 border-t border-border-main/60 flex items-center justify-between">
+              <p className="text-[11px] text-text-muted truncate max-w-[340px] font-mono">
+                当前: {browsePath || '—'}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBrowseOpen(false)}
+                  className="px-4 py-2 rounded-full border border-border-main bg-bg-main text-xs text-text-muted hover:text-text-main transition-colors cursor-pointer font-medium"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={selectCurrentPath}
+                  className="px-4 py-2 rounded-full bg-[#0d0d0d] dark:bg-white text-white dark:text-[#0d0d0d] text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  选择此目录
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 function SandboxSection({ form }) {
   const [message, setMessage] = useState('')
@@ -834,7 +1110,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     proactive_rate_lively: 6.5, proactive_rate_burst: 8.5,
     sticky_mention_enabled: true, sticky_mention_ttl_sec: 60,
     summarize_enabled: true, fallback_window_hours: 8, trigger_keywords: [],
-    log_level: 'INFO',
+    log_level: 'INFO', wechat_data_dir: '',
   })
 
   async function handleExportConfig() {
@@ -945,6 +1221,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           fallback_window_hours: form.fallback_window_hours,
           trigger_keywords: form.trigger_keywords,
           log_level: form.log_level,
+          wechat_data_dir: form.wechat_data_dir,
         }),
       })
       const data = await res.json()
@@ -1011,6 +1288,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
               <div className="p-7">
                 {activeSection === 'ai' && <AiSection form={form} update={update} />}
                 {activeSection === 'identity' && <IdentitySection form={form} update={update} />}
+                {activeSection === 'data' && <DataPathSection form={form} update={update} />}
                 {activeSection === 'features' && <FeaturesSection form={form} update={update} />}
                 {activeSection === 'sandbox' && <SandboxSection form={form} />}
               </div>

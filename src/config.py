@@ -146,6 +146,9 @@ class BotConfig:
     wechat_backend: str = "wcdb"
     # Comma-separated group names to monitor. "*" = auto-discover all groups.
     wechat_groups: str = "*"
+    # Custom WeChat data directory. Leave empty to auto-detect from Documents.
+    # Set to the parent directory containing wxid_* folders (e.g. D:\WeChatData).
+    wechat_data_dir: str = ""
 
     # === Bot Identity ===
     bot_display_name: str = "群聊小助手"
@@ -327,6 +330,7 @@ def load_config() -> BotConfig:
         # deepseek_model handled conditionally below (dataclass default)
         "wechat_backend": os.getenv("WECHAT_BACKEND", "wcdb").strip(),
         "wechat_groups": _decode_wechat_groups(os.getenv("WECHAT_GROUPS", "*")),
+        "wechat_data_dir": os.getenv("WECHAT_DATA_DIR", "").strip(),
         "bot_display_name": _sanitize_display_name(os.getenv("BOT_DISPLAY_NAME", "群聊小助手")),
         "admin_wxid": os.getenv("ADMIN_WXID", "").strip(),
         "db_path": os.getenv("DB_PATH", "data/messages.db").strip(),

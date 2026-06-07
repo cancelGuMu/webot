@@ -682,12 +682,34 @@ print(String(data: data, encoding: .utf8)!)
     def _bring_wechat_frontmost(self) -> bool:
         if not self._run(["open", "-a", self._app_name], timeout=8):
             return False
+        if self._wait_for_wechat_frontmost():
+            return True
+        if self._activate_wechat_with_system_events():
+            if self._wait_for_wechat_frontmost():
+                return True
+        logger.warning("WeChat did not become frontmost after activation")
+        return False
+
+    def _wait_for_wechat_frontmost(self) -> bool:
         for _ in range(10):
             if self._is_wechat_frontmost():
                 return True
             time.sleep(0.2)
-        logger.warning("WeChat did not become frontmost after activation")
         return False
+
+    def _activate_wechat_with_system_events(self) -> bool:
+        app = self._escape_applescript(self._app_name)
+        script = f'''
+tell application "{app}"
+  activate
+end tell
+tell application "System Events"
+  tell process "{app}"
+    set frontmost to true
+  end tell
+end tell
+'''
+        return self._run_osascript(script, timeout=5)
 
     def _is_wechat_frontmost(self) -> bool:
         if not self._custom_runner:

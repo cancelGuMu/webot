@@ -435,6 +435,29 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertIn("key code 36 using command down", runner.calls[5]["cmd"][-1])
 
+    def test_mac_ui_activation_retries_with_system_events_when_open_does_not_focus(self):
+        runner = FakeRunner(
+            [FakeCompletedProcess()]
+            + [FakeCompletedProcess(stdout='{"front":"Finder"}')] * 10
+            + [
+                FakeCompletedProcess(),
+                FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            ]
+        )
+        automation = MacUIAutomation(app_name="WeChat", runner=runner)
+
+        with patch("src.wechat.mac_ui_backend.time.sleep", lambda _seconds: None):
+            self.assertTrue(automation.activate_wechat())
+
+        scripts = "\n".join(
+            call["cmd"][-1]
+            for call in runner.calls
+            if call["cmd"][0] == "osascript"
+        )
+        self.assertIn('tell application "WeChat"', scripts)
+        self.assertIn("activate", scripts)
+        self.assertIn("set frontmost to true", scripts)
+
     def test_mac_ui_automation_open_chat_uses_existing_chat_search_not_start_chat_sheet(self):
         runner = FakeRunner([
             FakeCompletedProcess(),

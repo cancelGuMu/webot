@@ -81,6 +81,7 @@ class MacHybridBackend(AbstractWeChatBackend):
         client: Optional[ChatlogClient] = None,
         automation: Optional[MacUIAutomation] = None,
         limit: int = DEFAULT_LIMIT,
+        service_manager=None,
     ):
         self._bot_name = bot_display_name
         self._groups = groups or []
@@ -89,6 +90,8 @@ class MacHybridBackend(AbstractWeChatBackend):
         self._client = client or ChatlogClient()
         self._automation = automation or MacUIAutomation()
         self._limit = limit
+        self._service_manager = service_manager
+        self._service_error = ""
         self._state: dict[str, int] = {}
         self._running = False
         self._seen_ids: set[str] = set()
@@ -107,6 +110,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             self._groups, self._poll_sec, self._bot_name,
         )
         self._automation.activate_wechat()
+        self._ensure_chatlog_service()
         self._prime_chatlog_state()
         while self._running:
             self.poll_once(callback)
@@ -154,7 +158,23 @@ class MacHybridBackend(AbstractWeChatBackend):
         self._running = False
 
     def health_status(self) -> str:
+        if self._service_error:
+            return "chatlog_down"
         return "chatlog_ok" if self._client.health() else "chatlog_down"
+
+    def _ensure_chatlog_service(self) -> None:
+        if self._service_manager is None:
+            from .mac_chatlog_service import MacChatlogServiceManager
+
+            self._service_manager = MacChatlogServiceManager(client=self._client)
+        try:
+            started = self._service_manager.ensure_running()
+            self._service_error = ""
+            if started:
+                logger.info("Started managed macOS chatlog service")
+        except Exception as exc:
+            self._service_error = str(exc)
+            logger.warning("Managed macOS chatlog service unavailable: %s", exc)
 
     def poll_once(self, callback: MessageCallback) -> None:
         try:

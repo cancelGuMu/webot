@@ -6,14 +6,22 @@ Build: .venv/bin/pyinstaller build-macos.spec
 Output: dist/webot.app
 """
 import os
+from pathlib import Path
 
 MACOS_CODESIGN_IDENTITY = os.getenv("MACOS_CODESIGN_IDENTITY") or None
 MACOS_ENTITLEMENTS_FILE = "macos-entitlements.plist"
+PROJECT_ROOT = Path(SPECPATH)
+MACOS_CHATLOG_BINARY = PROJECT_ROOT / "tools" / "macos_chatlog" / "chatlog-alpha"
+MACOS_CHATLOG_BINARIES = (
+    [(str(MACOS_CHATLOG_BINARY), "tools/macos_chatlog")]
+    if MACOS_CHATLOG_BINARY.exists()
+    else []
+)
 
 a = Analysis(
     ["desktop_mac.py"],
     pathex=[],
-    binaries=[],
+    binaries=MACOS_CHATLOG_BINARIES,
     datas=[
         ("ui/dist", "ui/dist"),
         (".env.example", "."),
@@ -50,6 +58,7 @@ a = Analysis(
         "src.web.server",
         "src.wechat",
         "src.wechat.base",
+        "src.wechat.mac_chatlog_service",
         "src.wechat.mac_hybrid_backend",
         "src.wechat.mac_ui_backend",
         "anthropic",

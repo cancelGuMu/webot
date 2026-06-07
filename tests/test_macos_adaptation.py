@@ -3,6 +3,7 @@
 import subprocess
 import unittest
 import tempfile
+import plistlib
 from unittest.mock import patch
 from pathlib import Path
 
@@ -180,6 +181,13 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertNotIn("pywin32", lowered)
         self.assertNotIn("uiautomation", lowered)
         self.assertNotIn("comtypes", lowered)
+
+    def test_macos_entitlements_allow_bundled_python_framework(self):
+        with Path("macos-entitlements.plist").open("rb") as f:
+            entitlements = plistlib.load(f)
+
+        self.assertTrue(entitlements["com.apple.security.automation.apple-events"])
+        self.assertTrue(entitlements["com.apple.security.cs.disable-library-validation"])
 
     def test_frontend_exposes_mac_ui_backend_label(self):
         config_panel = Path("ui/src/components/ConfigPanel.jsx").read_text(encoding="utf-8")

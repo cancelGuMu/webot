@@ -87,20 +87,31 @@ jobs:
 
               missing = []
               for dll in REQUIRED_DLLS:
-                  archive_name = f"lib\\\\{dll}"
-                  fallback_name = dll
-                  if archive_name in archive.toc:
-                      data = archive.extract(archive_name)
-                  elif fallback_name in archive.toc:
-                      data = archive.extract(fallback_name)
-                  else:
+                  entry_name = find_entry_name(archive.toc, dll)
+                  if not entry_name:
                       missing.append(dll)
                       continue
+                  data = archive.extract(entry_name)
                   (dest / dll).write_bytes(data)
-                  print(f"restored {dll}")
+                  print(f"restored {dll} from {entry_name}")
 
               if missing:
                   raise SystemExit(f"Missing DLLs in previous release archive: {', '.join(missing)}")
+
+          def find_entry_name(toc: dict, dll: str) -> str | None:
+              dll_lower = dll.lower()
+              preferred = []
+              fallbacks = []
+              for name in toc:
+                  normalized = str(name).replace("\\", "/").lower()
+                  if normalized == dll_lower:
+                      fallbacks.append(name)
+                  elif normalized.endswith("/" + dll_lower):
+                      if normalized.startswith("lib/"):
+                          preferred.append(name)
+                      else:
+                          fallbacks.append(name)
+              return (preferred or fallbacks or [None])[0]
 
           if __name__ == "__main__":
               main()

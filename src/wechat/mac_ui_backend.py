@@ -257,6 +257,7 @@ class MacUIAutomation:
 
         labels = []
         candidates = []
+        partial_candidates = []
         for entry in entries or []:
             text = str(entry.get("text") or "").strip()
             normalized = cls._normalize_title(text)
@@ -264,10 +265,13 @@ class MacUIAutomation:
                 continue
             y = float(entry.get("y", 0))
             item = {**entry, "text": text, "normalized": normalized, "y": y}
-            if normalized in {"群聊", "最常使用"} or cls._is_search_network_label(normalized):
+            if cls._is_search_section_label(normalized):
                 labels.append(item)
+                continue
             if normalized == target:
                 candidates.append(item)
+            elif target in normalized and not cls._is_search_result_metadata(normalized):
+                partial_candidates.append(item)
 
         if not candidates:
             return None
@@ -280,6 +284,13 @@ class MacUIAutomation:
             group_candidates = [c for c in candidates if c["y"] > group_y]
             if group_candidates:
                 return cls._entry_center(min(group_candidates, key=lambda c: c["y"]))
+            group_boundary = cls._next_label_y(labels, group_y)
+            group_partial_candidates = [
+                c for c in partial_candidates
+                if c["y"] > group_y and (group_boundary is None or c["y"] < group_boundary)
+            ]
+            if group_partial_candidates:
+                return cls._entry_center(min(group_partial_candidates, key=lambda c: c["y"]))
 
         if prefer_group:
             return None
@@ -319,6 +330,19 @@ class MacUIAutomation:
     @staticmethod
     def _is_search_network_label(normalized: str) -> bool:
         return normalized in {"搜索网络结果", "搜一搜", "搜一搜网络结果"}
+
+    @classmethod
+    def _is_search_section_label(cls, normalized: str) -> bool:
+        return normalized in {"群聊", "最常使用", "联系人", "聊天记录"} or cls._is_search_network_label(normalized)
+
+    @staticmethod
+    def _is_search_result_metadata(normalized: str) -> bool:
+        return normalized.startswith("包含:") or normalized.startswith("包含：")
+
+    @staticmethod
+    def _next_label_y(labels: list[dict], after_y: float) -> float | None:
+        values = [float(entry["y"]) for entry in labels if float(entry["y"]) > after_y]
+        return min(values) if values else None
 
     @classmethod
     def _label_y(cls, entries: list[dict], label: str) -> float | None:
@@ -673,7 +697,12 @@ print(String(data: data, encoding: .utf8)!)
                     return True
                 continue
             if expected_is_group:
-                if actual == expected or actual.startswith(expected + "(") or actual.startswith(expected + "（"):
+                if (
+                    actual == expected
+                    or actual.startswith(expected + "(")
+                    or actual.startswith(expected + "（")
+                    or (len(expected) >= 3 and actual.startswith(expected))
+                ):
                     return True
                 continue
             if actual == expected:

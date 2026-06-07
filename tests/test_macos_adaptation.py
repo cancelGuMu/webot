@@ -613,6 +613,28 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertEqual(point, {"x": 390.0, "y": 537.0})
 
+    def test_mac_ui_search_result_picker_prefers_group_section_partial_match(self):
+        entries = [
+            {"text": "最常使用", "x": 168, "y": 110, "w": 120, "h": 24},
+            {"text": "ai 群聊测试", "x": 256, "y": 180, "w": 160, "h": 30},
+            {"text": "包含:honker233", "x": 256, "y": 228, "w": 180, "h": 26},
+            {"text": "联系人", "x": 168, "y": 302, "w": 100, "h": 24},
+            {"text": "honker", "x": 256, "y": 522, "w": 100, "h": 30},
+            {"text": "群聊", "x": 168, "y": 624, "w": 80, "h": 24},
+            {"text": "honker233粉丝微信纯享版", "x": 256, "y": 720, "w": 280, "h": 34},
+            {"text": "谁是卧底测试群", "x": 256, "y": 830, "w": 180, "h": 34},
+            {"text": "包含:honker233", "x": 256, "y": 875, "w": 180, "h": 26},
+            {"text": "聊天记录", "x": 168, "y": 948, "w": 120, "h": 24},
+        ]
+
+        point = MacUIAutomation._search_result_click_point(
+            entries,
+            "honker",
+            expected_is_group=True,
+        )
+
+        self.assertEqual(point, {"x": 396.0, "y": 737.0})
+
     def test_mac_ui_search_result_picker_refuses_network_only_result(self):
         entries = [
             {"text": "搜索网络结果", "x": 200, "y": 300, "w": 160, "h": 24},
@@ -732,6 +754,13 @@ class MacOSAdaptationTests(unittest.TestCase):
             expected_title="honker",
             expected_is_group=True,
             require_group_marker=True,
+        ))
+
+    def test_mac_ui_group_title_match_accepts_prefix_from_unreliable_chatlog_title(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["honker233粉丝微信纯享版（31）"],
+            "honker",
+            expected_is_group=True,
         ))
 
     def test_mac_ui_automation_title_ocr_crops_right_chat_header_only(self):

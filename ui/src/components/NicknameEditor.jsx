@@ -78,20 +78,20 @@ export default function NicknameEditor() {
   return (
     <motion.div variants={pageTransition} initial="initial" animate="animate" className="max-w-4xl">
       <div className="flex items-center gap-2 mb-6">
-        <div className="w-1 h-5 rounded-full bg-[#956400]" />
-        <h3 className="text-base font-semibold tracking-tight text-[#1F1F1F]">群友昵称</h3>
+        <div className="w-1 h-5 rounded-full bg-[#c37d0d]" />
+        <h3 className="text-base font-semibold tracking-tight text-text-main">群友昵称</h3>
       </div>
 
-      <div className="bg-white border border-[#EAEAEA] rounded-xl p-7">
-        <p className="text-sm text-[#787774] mb-5">为群友设置显示昵称。AI 回复中会自动将微信 ID（wxid_xxx）替换为这里设置的昵称。</p>
+      <div className="bg-bg-card border border-border-main rounded-2xl shadow-[rgba(0,0,0,0.03)_0px_2px_4px] dark:shadow-none p-7">
+        <p className="text-sm text-text-muted mb-5">为群友设置显示昵称。AI 回复中会自动将微信 ID（wxid_xxx）替换为这里设置的昵称。</p>
 
         {/* Group selector */}
         <div className="mb-5">
-          <label className="block text-[13px] font-medium text-[#6E6E6C] mb-1.5">选择群聊</label>
+          <label className="block text-[13px] font-medium text-text-muted mb-1.5">选择群聊</label>
           <select
             value={selectedGroup}
             onChange={e => setSelectedGroup(e.target.value)}
-            className="w-full bg-[#F9F9F8] border border-[#E0E0DE] rounded-lg px-4 py-2.5 text-[15px] text-[#1F1F1F] focus:outline-none focus:border-[#C5DAC2] focus:ring-1 focus:ring-[#346538]/15 transition-all"
+            className="w-full bg-bg-raised border border-border-main rounded-lg px-4 py-2.5 text-[15px] text-text-main focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all"
           >
             {groups.map(g => (
               <option key={g.chat_id} value={g.chat_id}>
@@ -102,29 +102,29 @@ export default function NicknameEditor() {
         </div>
 
         {error && (
-          <div className="mb-4 px-4 py-3 bg-[#FDEBEC] border border-[#F5C6C8] rounded-lg text-sm text-[#9F2F2D]">{error}</div>
+          <div className="mb-4 px-4 py-3 bg-[#d45656]/5 border border-[#d45656]/20 rounded-lg text-sm text-[#d45656]">{error}</div>
         )}
 
         {/* Member table */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Spinner size={24} weight="bold" className="animate-spin text-[#346538]" />
+            <Spinner size={24} weight="bold" className="animate-spin text-brand-green" />
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#EAEAEA] text-left">
-                  <th className="pb-3 pr-4 font-medium text-[#6E6E6C] w-[180px]">群内显示名</th>
-                  <th className="pb-3 pr-4 font-medium text-[#6E6E6C] w-[200px]">微信 ID</th>
-                  <th className="pb-3 font-medium text-[#6E6E6C]">自定义昵称</th>
+                <tr className="border-b border-border-main/50 text-left">
+                  <th className="pb-3 pr-4 font-medium text-text-muted w-[180px]">群内显示名</th>
+                  <th className="pb-3 pr-4 font-medium text-text-muted w-[200px]">微信 ID</th>
+                  <th className="pb-3 font-medium text-text-muted">自定义昵称</th>
                 </tr>
               </thead>
               <tbody>
                 {members.map(m => (
-                  <tr key={m.wxid} className="border-b border-[#F4F4F2] last:border-0">
-                    <td className="py-2.5 pr-4 text-[#1F1F1F]">{m.display_name || m.wxid}</td>
-                    <td className="py-2.5 pr-4 text-[#787774] font-mono text-xs">{m.wxid}</td>
+                  <tr key={m.wxid} className="border-b border-border-main/40 last:border-0">
+                    <td className="py-2.5 pr-4 text-text-main">{m.display_name || m.wxid}</td>
+                    <td className="py-2.5 pr-4 text-text-muted font-mono text-xs">{m.wxid}</td>
                     <td className="py-2.5">
                       <div className="flex items-center gap-2">
                         <input
@@ -137,10 +137,10 @@ export default function NicknameEditor() {
                               saveNickname(m.wxid, val)
                             }
                           }}
-                          className="flex-1 bg-[#F9F9F8] border border-[#E0E0DE] rounded-lg px-3 py-1.5 text-[14px] text-[#1F1F1F] placeholder:text-[#C8C8C6] focus:outline-none focus:border-[#C5DAC2] focus:ring-1 focus:ring-[#346538]/15 transition-all"
+                          className="flex-1 bg-bg-raised border border-border-main rounded-lg px-3 py-1.5 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all"
                         />
-                        {saving[m.wxid] && <Spinner size={16} weight="bold" className="animate-spin text-[#B8B8B6] shrink-0" />}
-                        {m.nickname && !saving[m.wxid] && <Check size={16} weight="bold" className="text-[#346538] shrink-0" />}
+                        {saving[m.wxid] && <Spinner size={16} weight="bold" className="animate-spin text-text-muted shrink-0" />}
+                        {m.nickname && !saving[m.wxid] && <Check size={16} weight="bold" className="text-brand-green-hover dark:text-brand-green shrink-0" />}
                       </div>
                     </td>
                   </tr>
@@ -148,7 +148,7 @@ export default function NicknameEditor() {
               </tbody>
             </table>
             {members.length === 0 && !loading && (
-              <p className="text-center text-sm text-[#B8B8B6] py-8">
+              <p className="text-center text-sm text-text-muted/65 py-8">
                 {selected ? '该群暂无消息记录' : '请选择一个群聊'}
               </p>
             )}

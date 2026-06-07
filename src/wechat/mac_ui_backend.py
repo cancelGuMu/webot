@@ -508,7 +508,7 @@ JSON.stringify([...new Set(values)]);
         tmp.close()
         try:
             if not self._run(["screencapture", "-x", f"-R{x},{y},{w},{h}", path], timeout=5):
-                return []
+                return self.read_visible_texts()
             script = '''
 import Foundation
 import Vision
@@ -957,10 +957,19 @@ end try
 '''
         native = self._run_applescript_in_process(script)
         if native is None:
-            return None
+            return self._get_wechat_geometry_external_applescript(script)
         if not native["ok"]:
+            if _is_tcc_denial(native.get("stderr", "")):
+                return self._get_wechat_geometry_external_applescript(script)
             return {"error": native.get("stderr") or "AppleScript failed"}
         return self._parse_wechat_geometry_applescript(native.get("stdout", ""))
+
+    def _get_wechat_geometry_external_applescript(self, script: str) -> dict | None:
+        result = self._runner(["osascript", "-e", script], timeout=5)
+        if result.returncode != 0:
+            logger.warning("macOS WeChat geometry read failed: %s", result.stderr)
+            return {}
+        return self._parse_wechat_geometry_applescript(result.stdout)
 
     @staticmethod
     def _parse_wechat_geometry_applescript(output: str) -> dict:
@@ -1060,6 +1069,18 @@ end try
     @staticmethod
     def _escape_jxa(value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _is_tcc_denial(message: str) -> bool:
+    text = str(message or "").lower()
+    return (
+        "不允许辅助访问" in text
+        or "未获得授权" in text
+        or "not allowed assistive access" in text
+        or "not authorized" in text
+        or "not authorised" in text
+        or "not permitted to send apple events" in text
+    )
 
 
 def _looks_internal_chat_id(value: str) -> bool:

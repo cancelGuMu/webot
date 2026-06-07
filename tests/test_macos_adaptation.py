@@ -140,6 +140,44 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 124)
         self.assertIn("timed out", result.stderr)
 
+    def test_mac_ui_falls_back_to_external_osascript_when_in_process_access_denied(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(
+                stdout="window|210|201|880|640|closed|0"
+            )
+        ])
+        automation = MacUIAutomation(runner=runner)
+
+        with patch.object(
+            MacUIAutomation,
+            "_run_applescript_in_process",
+            return_value={
+                "ok": False,
+                "stdout": "",
+                "stderr": "“Python”不允许辅助访问。",
+            },
+        ):
+            geometry = automation._get_wechat_geometry_applescript()
+
+        self.assertEqual(geometry["window"]["w"], 880)
+        self.assertEqual(runner.calls[0]["cmd"][:2], ["osascript", "-e"])
+
+    def test_mac_ui_reads_title_texts_from_accessibility_when_screen_capture_fails(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(
+                stdout='{"window":{"x":210,"y":201,"w":880,"h":640},"closed_aux_windows":0}'
+            ),
+            FakeCompletedProcess(returncode=1, stderr="could not create image from rect"),
+            FakeCompletedProcess(stdout='["ai群聊测试", "honker", "文件传输助手"]'),
+        ])
+        automation = MacUIAutomation(runner=runner)
+
+        texts = automation._read_current_header_texts()
+
+        self.assertIn("ai群聊测试", texts)
+        self.assertEqual(runner.calls[1]["cmd"][0], "screencapture")
+        self.assertEqual(runner.calls[2]["cmd"][:3], ["osascript", "-l", "JavaScript"])
+
     def test_find_env_file_honors_explicit_env_file_override(self):
         from src.config import find_env_file
 
@@ -745,12 +783,13 @@ class MacOSAdaptationTests(unittest.TestCase):
             },
         )
         automation = FakeMacAutomation()
-        backend = MacHybridBackend(
-            bot_display_name="群聊小助手",
-            groups=["*"],
-            client=client,
-            automation=automation,
-        )
+        with patch.dict("os.environ", {"MAC_CHAT_TITLE_MAP": ""}):
+            backend = MacHybridBackend(
+                bot_display_name="群聊小助手",
+                groups=["*"],
+                client=client,
+                automation=automation,
+            )
 
         backend.poll_once(lambda msg: "收到")
 
@@ -778,12 +817,13 @@ class MacOSAdaptationTests(unittest.TestCase):
             sessions={"sessions": []},
         )
         automation = FakeMacAutomation()
-        backend = MacHybridBackend(
-            bot_display_name="群聊小助手",
-            groups=["*"],
-            client=client,
-            automation=automation,
-        )
+        with patch.dict("os.environ", {"MAC_CHAT_TITLE_MAP": ""}):
+            backend = MacHybridBackend(
+                bot_display_name="群聊小助手",
+                groups=["*"],
+                client=client,
+                automation=automation,
+            )
 
         backend.poll_once(lambda msg: "收到")
 
@@ -876,12 +916,13 @@ class MacOSAdaptationTests(unittest.TestCase):
             },
         )
         automation = FakeMacAutomation()
-        backend = MacHybridBackend(
-            bot_display_name="群聊小助手",
-            groups=["*"],
-            client=client,
-            automation=automation,
-        )
+        with patch.dict("os.environ", {"MAC_CHAT_TITLE_MAP": ""}):
+            backend = MacHybridBackend(
+                bot_display_name="群聊小助手",
+                groups=["*"],
+                client=client,
+                automation=automation,
+            )
 
         backend.poll_once(lambda msg: "收到")
 

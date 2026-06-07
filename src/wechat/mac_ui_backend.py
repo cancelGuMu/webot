@@ -187,6 +187,9 @@ class MacUIAutomation:
         ):
             return False
         time.sleep(0.1)
+        if not self._select_focused_text():
+            return False
+        time.sleep(0.05)
         if not self._run(["pbcopy"], input_text=chat_name):
             return False
         if not self._paste_clipboard(send=False):

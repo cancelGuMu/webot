@@ -249,7 +249,10 @@ class MacHybridBackend(AbstractWeChatBackend):
         if not username:
             username = group_name
         is_group = _to_bool(raw.get("is_group")) or str(username).endswith("@chatroom")
-        if _looks_internal_chat_id(group_name):
+        configured_title = self._configured_group_title_for(username, group_name) if is_group else None
+        if configured_title:
+            group_name = configured_title
+        elif _looks_internal_chat_id(group_name):
             group_name = self._resolve_chat_title(username) or group_name
         self._remember_chat_session(username, group_name, is_group)
 
@@ -295,13 +298,49 @@ class MacHybridBackend(AbstractWeChatBackend):
         if manual and not _looks_internal_chat_id(manual):
             return manual
         title = self._chat_titles.get(username, "")
+        configured = self._configured_group_title_for(username, title)
+        if configured:
+            return configured
         if title and not _looks_internal_chat_id(title):
             return title
         if not self._chat_titles_loaded:
             self._load_chat_titles()
         title = self._chat_titles.get(username, "")
+        configured = self._configured_group_title_for(username, title)
+        if configured:
+            return configured
         if title and not _looks_internal_chat_id(title):
             return title
+        return None
+
+    def _configured_group_title_for(self, username: str, title: str) -> str | None:
+        groups = [
+            str(group).strip()
+            for group in self._groups
+            if str(group).strip() and str(group).strip().lower() not in {"*", "all"}
+        ]
+        groups = [group for group in groups if not _looks_internal_chat_id(group)]
+        if not groups:
+            return None
+
+        username = str(username or "").strip()
+        if username:
+            direct = [group for group in groups if group == username]
+            if len(direct) == 1:
+                return direct[0]
+
+        normalized_title = _normalize_chat_title(title)
+        if normalized_title and not _looks_internal_chat_id(title):
+            matches = [
+                group for group in groups
+                if normalized_title in _normalize_chat_title(group)
+                or _normalize_chat_title(group) in normalized_title
+            ]
+            if len(matches) == 1:
+                return matches[0]
+
+        if len(groups) == 1:
+            return groups[0]
         return None
 
     def _load_chat_titles(self) -> None:
@@ -371,6 +410,10 @@ def _to_int(value, default: int = 0) -> int:
 def _looks_internal_chat_id(value: str) -> bool:
     value = str(value or "").strip()
     return value.endswith("@chatroom") or value.startswith("wxid_")
+
+
+def _normalize_chat_title(value: str) -> str:
+    return "".join(str(value or "").strip().split()).lower()
 
 
 def _to_bool(value) -> bool:

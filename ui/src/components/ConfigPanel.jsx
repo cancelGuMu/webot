@@ -837,21 +837,30 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     log_level: 'INFO',
   })
 
-  function handleExportConfig() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(form, null, 2))
-    const downloadAnchor = document.createElement('a')
-    downloadAnchor.setAttribute("href", dataStr)
-    downloadAnchor.setAttribute("download", `webot-config-${new Date().toISOString().slice(0, 10)}.json`)
-    document.body.appendChild(downloadAnchor)
-    downloadAnchor.click()
-    downloadAnchor.remove()
+  async function handleExportConfig() {
+    try {
+      const res = await fetch('http://127.0.0.1:7327/api/config/export')
+      if (!res.ok) throw new Error('导出请求失败')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const downloadAnchor = document.createElement('a')
+      downloadAnchor.setAttribute("href", url)
+      downloadAnchor.setAttribute("download", `webot-config-${new Date().toISOString().slice(0, 10)}.json`)
+      document.body.appendChild(downloadAnchor)
+      downloadAnchor.click()
+      downloadAnchor.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setSaveError('导出失败：' + e.message)
+      setTimeout(() => setSaveError(''), 5000)
+    }
   }
 
-  function handleImportConfig(e) {
+  async function handleImportConfig(e) {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const parsed = JSON.parse(event.target.result)
         const expectedKeys = ['ai_backend', 'deepseek_model', 'wechat_backend']
@@ -859,14 +868,23 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
         if (!hasKeys) {
           throw new Error('无效的配置文件格式')
         }
-        setForm(prev => ({
-          ...prev,
-          ...parsed
-        }))
-        setImportSuccess(true)
-        setSaved(false)
-        setSaveError('')
-        setTimeout(() => setImportSuccess(false), 5000)
+        // Update local form state immediately for UI feedback
+        setForm(prev => ({ ...prev, ...parsed }))
+        // Persist to server
+        const res = await fetch('http://127.0.0.1:7327/api/config/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(parsed),
+        })
+        const data = await res.json()
+        if (data.ok) {
+          setImportSuccess(true)
+          setSaved(false)
+          setSaveError('')
+          setTimeout(() => setImportSuccess(false), 5000)
+        } else {
+          throw new Error(data.error || '写入失败')
+        }
       } catch (err) {
         setSaveError('导入失败：' + err.message)
         setTimeout(() => setSaveError(''), 5000)

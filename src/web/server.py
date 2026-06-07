@@ -755,7 +755,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         # Only delegate specific API paths; return 405 for unknown POST paths
-        if self.path in ("/api/config", "/api/start", "/api/stop",
+        if self.path in ("/api/config", "/api/config/import", "/api/start", "/api/stop",
                          "/api/nicknames",
                          "/api/onboarding/reset",
                          "/api/onboarding/step1", "/api/onboarding/step2",
@@ -863,6 +863,60 @@ class _UIHandler(SimpleHTTPRequestHandler):
             })
             return
 
+        # ── API: Export config ───────────────────────────────────────
+        if self.path == "/api/config/export":
+            from datetime import date as _dt_date
+            try:
+                env_path = _find_or_create_env()
+                raw = {}
+                if env_path.exists():
+                    for line in env_path.read_text(encoding="utf-8").splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            raw[k.strip()] = v.strip()
+                export_data = {
+                    "ai_backend": raw.get("AI_BACKEND", "deepseek"),
+                    "deepseek_api_key": raw.get("DEEPSEEK_API_KEY", ""),
+                    "deepseek_base_url": raw.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+                    "deepseek_model": raw.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+                    "anthropic_api_key": raw.get("ANTHROPIC_API_KEY", ""),
+                    "anthropic_base_url": raw.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+                    "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
+                    "bot_display_name": raw.get("BOT_DISPLAY_NAME", ""),
+                    "wechat_backend": raw.get("WECHAT_BACKEND", "wcdb"),
+                    "wechat_groups": raw.get("WECHAT_GROUPS", "*"),
+                    "fun_enabled": raw.get("FUN_ENABLED", "true").lower() == "true",
+                    "proactive_enabled": raw.get("PROACTIVE_ENABLED", "false").lower() == "true",
+                    "proactive_rate_window_sec": int(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120")),
+                    "proactive_rate_quiet": float(raw.get("PROACTIVE_RATE_QUIET", "1.5")),
+                    "proactive_rate_casual": float(raw.get("PROACTIVE_RATE_CASUAL", "4.0")),
+                    "proactive_rate_lively": float(raw.get("PROACTIVE_RATE_LIVELY", "6.5")),
+                    "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
+                    "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
+                    "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
+                    "summarize_enabled": raw.get("SUMMARIZE_ENABLED", "true").lower() == "true",
+                    "fallback_window_hours": int(raw.get("FALLBACK_WINDOW_HOURS", "8")),
+                    "trigger_keywords": [
+                        kw.strip() for kw in raw.get("TRIGGER_KEYWORDS", "").split(",")
+                        if kw.strip()
+                    ],
+                    "log_level": raw.get("LOG_LEVEL", "INFO"),
+                }
+                filename = f"webot-config-{_dt_date.today().isoformat()}.json"
+                body = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                logger.exception("Failed to export config")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
         # ── API: Save config ──────────────────────────────────────────
         if self.path == "/api/config":
             content_len = int(self.headers.get("Content-Length", 0))
@@ -925,6 +979,81 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     })
             except Exception as e:
                 logger.exception("Failed to save config")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Import config ─────────────────────────────────────────
+        if self.path == "/api/config/import":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len else b"{}"
+            try:
+                config = json.loads(body)
+                # Basic validation: must look like a webot config export
+                expected_keys = ['ai_backend', 'deepseek_model', 'wechat_backend']
+                has_keys = any(k in config for k in expected_keys)
+                if not has_keys:
+                    raise ValueError("无效的配置文件格式：缺少必需字段")
+                env_path = _find_or_create_env()
+                if env_path.exists():
+                    lines = env_path.read_text(encoding="utf-8").splitlines()
+                else:
+                    lines = []
+                updates = {
+                    "DEEPSEEK_API_KEY": config.get("deepseek_api_key"),
+                    "DEEPSEEK_BASE_URL": config.get("deepseek_base_url"),
+                    "DEEPSEEK_MODEL": config.get("deepseek_model"),
+                    "ANTHROPIC_API_KEY": config.get("anthropic_api_key"),
+                    "ANTHROPIC_BASE_URL": config.get("anthropic_base_url"),
+                    "SUMMARIZE_MODEL": config.get("summarize_model"),
+                    "AI_BACKEND": config.get("ai_backend"),
+                    "BOT_DISPLAY_NAME": config.get("bot_display_name"),
+                    "WECHAT_BACKEND": config.get("wechat_backend"),
+                    "WECHAT_GROUPS": config.get("wechat_groups") or "*",
+                    "FUN_ENABLED": str(config.get("fun_enabled", True)).lower(),
+                    "PROACTIVE_ENABLED": str(config.get("proactive_enabled", False)).lower(),
+                    "PROACTIVE_RATE_WINDOW_SEC": str(config.get("proactive_rate_window_sec", 120)),
+                    "PROACTIVE_RATE_QUIET": str(config.get("proactive_rate_quiet", 1.5)),
+                    "PROACTIVE_RATE_CASUAL": str(config.get("proactive_rate_casual", 4.0)),
+                    "PROACTIVE_RATE_LIVELY": str(config.get("proactive_rate_lively", 6.5)),
+                    "PROACTIVE_RATE_BURST": str(config.get("proactive_rate_burst", 8.5)),
+                    "STICKY_MENTION_ENABLED": str(config.get("sticky_mention_enabled", True)).lower(),
+                    "STICKY_MENTION_TTL_SEC": str(config.get("sticky_mention_ttl_sec", 60)),
+                    "SUMMARIZE_ENABLED": str(config.get("summarize_enabled", True)).lower(),
+                    "FALLBACK_WINDOW_HOURS": str(config.get("fallback_window_hours", 8)),
+                    "TRIGGER_KEYWORDS": ",".join(config.get("trigger_keywords", [])) if config.get("trigger_keywords") else None,
+                    "LOG_LEVEL": config.get("log_level"),
+                }
+                new_lines = []
+                seen = set()
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#") and "=" in stripped:
+                        key = stripped.split("=", 1)[0].strip()
+                        if key in updates and updates[key] is not None:
+                            new_lines.append(f"{key}={updates[key]}")
+                            seen.add(key)
+                            continue
+                    new_lines.append(line)
+                for key, val in updates.items():
+                    if key not in seen and val is not None:
+                        new_lines.append(f"{key}={val}")
+                # Atomic write
+                tmp_path = env_path.with_suffix(".tmp")
+                tmp_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+                os.replace(tmp_path, env_path)
+                # Update in-process environment
+                for key, val in updates.items():
+                    if val is not None:
+                        os.environ[key] = str(val)
+                self.send_json({
+                    "ok": True,
+                    "imported": list(seen),
+                    "requires_restart": True,
+                })
+            except ValueError as e:
+                self.send_json({"ok": False, "error": str(e)})
+            except Exception as e:
+                logger.exception("Failed to import config")
                 self.send_json({"ok": False, "error": str(e)})
             return
 

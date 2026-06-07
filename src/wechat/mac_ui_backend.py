@@ -170,6 +170,11 @@ class MacUIAutomation:
         if not window:
             logger.warning("Could not locate WeChat main window for existing chat search")
             return False
+        if not self._goto_chats_tab():
+            logger.warning(
+                "Could not switch macOS WeChat to chats tab before search; "
+                "will search from current view",
+            )
         if not self._click_screen(
             window["x"] + SEARCH_FIELD_X_OFFSET,
             window["y"] + SEARCH_FIELD_Y_OFFSET,
@@ -813,6 +818,17 @@ end tell
 ''',
             timeout=3,
         )
+
+    def _goto_chats_tab(self) -> bool:
+        ok = self._run_wechat_process_script(
+            '''
+  key code 19 using command down
+''',
+            timeout=3,
+        )
+        if ok:
+            time.sleep(0.25)
+        return ok
 
     def _select_focused_text(self) -> bool:
         return self._run_wechat_process_script(

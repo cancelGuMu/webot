@@ -488,8 +488,9 @@ class MacOSAdaptationTests(unittest.TestCase):
         ))
 
         self.assertEqual(runner.calls[0]["cmd"], ["open", "-a", "WeChat"])
-        self.assertEqual(runner.calls[3]["cmd"], ["pbcopy"])
-        self.assertEqual(runner.calls[3]["input_text"], "honker")
+        self.assertIn("key code 19 using command down", runner.calls[3]["cmd"][-1])
+        self.assertEqual(runner.calls[4]["cmd"], ["pbcopy"])
+        self.assertEqual(runner.calls[4]["input_text"], "honker")
         scripts = "\n".join(call["cmd"][-1] for call in runner.calls if call["cmd"][0] == "osascript")
         self.assertNotIn("click at", scripts)
         self.assertNotIn('keystroke "f"', scripts)
@@ -497,6 +498,35 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertNotIn("发起群聊", scripts)
         self.assertIn('keystroke "v"', scripts)
         self.assertEqual(clicker.points, [(260, 228), (340, 228), (260, 308)])
+
+    def test_mac_ui_automation_open_chat_switches_to_chats_tab_before_search(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+        ])
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=FakeClicker(),
+            screen_text_reader=lambda rect: [],
+        )
+
+        self.assertTrue(automation.open_chat("honker"))
+
+        tab_switch_indexes = [
+            index for index, call in enumerate(runner.calls)
+            if call["cmd"][0] == "osascript"
+            and "key code 19 using command down" in call["cmd"][-1]
+        ]
+        pbcopy_index = next(
+            index for index, call in enumerate(runner.calls)
+            if call["cmd"] == ["pbcopy"]
+        )
+        self.assertEqual(tab_switch_indexes, [3])
+        self.assertLess(tab_switch_indexes[0], pbcopy_index)
 
     def test_mac_ui_automation_open_chat_returns_when_current_title_already_matches(self):
         runner = FakeRunner([
@@ -618,7 +648,9 @@ class MacOSAdaptationTests(unittest.TestCase):
             FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
             FakeCompletedProcess(),
             FakeCompletedProcess(),
+            FakeCompletedProcess(),
             FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+            FakeCompletedProcess(),
             FakeCompletedProcess(),
             FakeCompletedProcess(),
         ])

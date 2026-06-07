@@ -777,6 +777,20 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertEqual(point, {"x": 396.0, "y": 737.0})
 
+    def test_mac_ui_search_result_picker_matches_ocr_traditional_variant(self):
+        entries = [
+            {"text": "群聊", "x": 168, "y": 280, "w": 80, "h": 24},
+            {"text": "ai 群聊測试", "x": 220, "y": 330, "w": 160, "h": 30},
+        ]
+
+        point = MacUIAutomation._search_result_click_point(
+            entries,
+            "ai群聊测试",
+            expected_is_group=True,
+        )
+
+        self.assertEqual(point, {"x": 300.0, "y": 345.0})
+
     def test_mac_ui_search_result_picker_refuses_network_only_result(self):
         entries = [
             {"text": "搜索网络结果", "x": 200, "y": 300, "w": 160, "h": 24},
@@ -909,6 +923,13 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertTrue(MacUIAutomation._texts_match_chat_title(
             ["honker233粉丝微信纯享版（31）"],
             "honker",
+            expected_is_group=True,
+        ))
+
+    def test_mac_ui_group_title_match_accepts_ocr_traditional_variant(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["ai群聊測试（2）"],
+            "ai群聊测试",
             expected_is_group=True,
         ))
 

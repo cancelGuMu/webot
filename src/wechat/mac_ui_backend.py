@@ -26,6 +26,11 @@ SEARCH_FIELD_Y_OFFSET = 28
 SEARCH_CLEAR_X_OFFSET = 240
 TOP_CHAT_RESULT_Y_OFFSET = 108
 GROUP_CHAT_RESULT_Y_OFFSET = 310
+OCR_TITLE_TRANSLATION = str.maketrans({
+    "測": "测",
+    "試": "试",
+    "羣": "群",
+})
 
 
 class MacUIAutomation:
@@ -776,7 +781,7 @@ print(String(data: data, encoding: .utf8)!)
 
     @staticmethod
     def _normalize_title(value: str) -> str:
-        return "".join(str(value or "").strip().split())
+        return "".join(str(value or "").strip().translate(OCR_TITLE_TRANSLATION).split())
 
     def _bring_wechat_frontmost(self) -> bool:
         if not self._run(["open", "-a", self._app_name], timeout=8):

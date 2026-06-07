@@ -259,7 +259,7 @@ class MacUIAutomation:
                 continue
             y = float(entry.get("y", 0))
             item = {**entry, "text": text, "normalized": normalized, "y": y}
-            if normalized in {"群聊", "最常使用", "搜索网络结果"}:
+            if normalized in {"群聊", "最常使用"} or cls._is_search_network_label(normalized):
                 labels.append(item)
             if normalized == target:
                 candidates.append(item)
@@ -269,7 +269,7 @@ class MacUIAutomation:
 
         group_y = cls._label_y(labels, "群聊")
         frequent_y = cls._label_y(labels, "最常使用")
-        network_y = cls._label_y(labels, "搜索网络结果")
+        network_y = cls._network_label_y(labels)
 
         if expected_is_group and group_y is not None:
             group_candidates = [c for c in candidates if c["y"] > group_y]
@@ -298,9 +298,22 @@ class MacUIAutomation:
     @classmethod
     def _has_search_network_result(cls, entries: list[dict]) -> bool:
         return any(
-            cls._normalize_title(str(entry.get("text") or "")) == "搜索网络结果"
+            cls._is_search_network_label(cls._normalize_title(str(entry.get("text") or "")))
             for entry in entries or []
         )
+
+    @classmethod
+    def _network_label_y(cls, entries: list[dict]) -> float | None:
+        values = [
+            float(entry["y"])
+            for entry in entries
+            if cls._is_search_network_label(str(entry.get("normalized") or ""))
+        ]
+        return min(values) if values else None
+
+    @staticmethod
+    def _is_search_network_label(normalized: str) -> bool:
+        return normalized in {"搜索网络结果", "搜一搜", "搜一搜网络结果"}
 
     @classmethod
     def _label_y(cls, entries: list[dict], label: str) -> float | None:

@@ -845,6 +845,22 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertEqual(point, {"x": 300.0, "y": 345.0})
 
+    def test_mac_ui_search_result_picker_matches_group_when_ocr_drops_corner_quotes(self):
+        entries = [
+            {"text": "搜一搜", "x": 168, "y": 180, "w": 100, "h": 24},
+            {"text": "下一代 求职 与 创业", "x": 220, "y": 240, "w": 260, "h": 30},
+            {"text": "群聊", "x": 168, "y": 300, "w": 80, "h": 24},
+            {"text": "下一代 求职 与 创业", "x": 220, "y": 370, "w": 260, "h": 30},
+        ]
+
+        point = MacUIAutomation._search_result_click_point(
+            entries,
+            "下一代「求职」与「创业」",
+            expected_is_group=True,
+        )
+
+        self.assertEqual(point, {"x": 350.0, "y": 385.0})
+
     def test_mac_ui_search_result_picker_refuses_network_only_result(self):
         entries = [
             {"text": "搜索网络结果", "x": 200, "y": 300, "w": 160, "h": 24},
@@ -984,6 +1000,13 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertTrue(MacUIAutomation._texts_match_chat_title(
             ["ai群聊測试（2）"],
             "ai群聊测试",
+            expected_is_group=True,
+        ))
+
+    def test_mac_ui_group_title_match_accepts_ocr_missing_corner_quotes(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["下一代 求职 与 创业"],
+            "下一代「求职」与「创业」",
             expected_is_group=True,
         ))
 

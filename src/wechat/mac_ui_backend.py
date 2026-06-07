@@ -31,6 +31,7 @@ OCR_TITLE_TRANSLATION = str.maketrans({
     "試": "试",
     "羣": "群",
 })
+OCR_TITLE_LOOSE_DROP_CHARS = str.maketrans("", "", "「」『』“”‘’\"'")
 
 
 class MacUIAutomation:
@@ -305,6 +306,7 @@ class MacUIAutomation:
         expected_is_group: bool = False,
     ) -> dict | None:
         target = cls._normalize_title(chat_name)
+        loose_target = cls._normalize_title_loose(chat_name)
         if not target:
             return None
 
@@ -314,16 +316,29 @@ class MacUIAutomation:
         for entry in entries or []:
             text = str(entry.get("text") or "").strip()
             normalized = cls._normalize_title(text)
+            loose_normalized = cls._normalize_title_loose(text)
             if not normalized:
                 continue
             y = float(entry.get("y", 0))
-            item = {**entry, "text": text, "normalized": normalized, "y": y}
+            item = {
+                **entry,
+                "text": text,
+                "normalized": normalized,
+                "loose_normalized": loose_normalized,
+                "y": y,
+            }
             if cls._is_search_section_label(normalized):
                 labels.append(item)
                 continue
-            if normalized == target:
+            if normalized == target or (loose_target and loose_normalized == loose_target):
                 candidates.append(item)
-            elif target in normalized and not cls._is_search_result_metadata(normalized):
+            elif (
+                (
+                    target in normalized
+                    or (loose_target and loose_target in loose_normalized)
+                )
+                and not cls._is_search_result_metadata(normalized)
+            ):
                 partial_candidates.append(item)
 
         group_y = cls._label_y(labels, "群聊")
@@ -756,14 +771,21 @@ print(String(data: data, encoding: .utf8)!)
         require_group_marker: bool = False,
     ) -> bool:
         expected = cls._normalize_title(expected_title)
+        loose_expected = cls._normalize_title_loose(expected_title)
         if not expected:
             return False
         for text in texts:
             actual = cls._normalize_title(text)
+            loose_actual = cls._normalize_title_loose(text)
             if not actual:
                 continue
             if require_group_marker:
                 if actual.startswith(expected + "(") or actual.startswith(expected + "（"):
+                    return True
+                if loose_expected and (
+                    loose_actual.startswith(loose_expected + "(")
+                    or loose_actual.startswith(loose_expected + "（")
+                ):
                     return True
                 continue
             if expected_is_group:
@@ -772,16 +794,30 @@ print(String(data: data, encoding: .utf8)!)
                     or actual.startswith(expected + "(")
                     or actual.startswith(expected + "（")
                     or (len(expected) >= 3 and actual.startswith(expected))
+                    or (loose_expected and loose_actual == loose_expected)
+                    or (loose_expected and loose_actual.startswith(loose_expected + "("))
+                    or (loose_expected and loose_actual.startswith(loose_expected + "（"))
+                    or (
+                        loose_expected
+                        and len(loose_expected) >= 3
+                        and loose_actual.startswith(loose_expected)
+                    )
                 ):
                     return True
                 continue
             if actual == expected:
+                return True
+            if loose_expected and loose_actual == loose_expected:
                 return True
         return False
 
     @staticmethod
     def _normalize_title(value: str) -> str:
         return "".join(str(value or "").strip().translate(OCR_TITLE_TRANSLATION).split())
+
+    @classmethod
+    def _normalize_title_loose(cls, value: str) -> str:
+        return cls._normalize_title(value).translate(OCR_TITLE_LOOSE_DROP_CHARS)
 
     def _bring_wechat_frontmost(self) -> bool:
         if not self._run(["open", "-a", self._app_name], timeout=8):

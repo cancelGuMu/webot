@@ -256,6 +256,13 @@ class MacUIAutomation:
             )
             return None
 
+        if expected_is_group or prefer_group:
+            logger.warning(
+                "Refusing to blind-click macOS WeChat group search result without OCR match: %s",
+                chat_name,
+            )
+            return None
+
         offset = GROUP_CHAT_RESULT_Y_OFFSET if prefer_group else TOP_CHAT_RESULT_Y_OFFSET
         return {"x": window["x"] + SEARCH_FIELD_X_OFFSET, "y": window["y"] + offset}
 
@@ -318,10 +325,10 @@ class MacUIAutomation:
         frequent_y = cls._label_y(labels, "最常使用")
         network_y = cls._network_label_y(labels)
 
-        if expected_is_group and group_y is not None:
+        if (expected_is_group or prefer_group) and group_y is not None:
             group_candidates = [c for c in candidates if c["y"] > group_y]
             if group_candidates:
-                return cls._entry_center(min(group_candidates, key=lambda c: c["y"]))
+                return min(group_candidates, key=lambda c: c["y"])
             group_boundary = cls._next_label_y(labels, group_y)
             group_partial_candidates = [
                 c for c in partial_candidates

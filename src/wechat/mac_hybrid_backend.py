@@ -10,7 +10,9 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 from urllib.error import URLError
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CHATLOG_BASE_URL = "http://127.0.0.1:5030"
 DEFAULT_POLL_SEC = 1.0
 DEFAULT_LIMIT = 200
+SENT_TITLE_RE = re.compile(r"Sent macOS WeChat reply to (?P<username>\S+) via '(?P<title>[^']+)'")
 
 
 class ChatlogClient:
@@ -100,8 +103,14 @@ class MacHybridBackend(AbstractWeChatBackend):
         self._title_entries: dict[str, dict[str, bool]] = {}
         self._chat_titles_loaded = False
         self._manual_chat_titles = _parse_chat_title_map(os.getenv("MAC_CHAT_TITLE_MAP", ""))
+        self._load_cached_chat_titles()
         for username, title in self._manual_chat_titles.items():
-            self._remember_chat_session(username, title, str(username).endswith("@chatroom"))
+            self._remember_chat_session(
+                username,
+                title,
+                str(username).endswith("@chatroom"),
+                force=True,
+            )
 
     def start(self, callback: MessageCallback) -> None:
         self._running = True
@@ -149,6 +158,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             return False
         sent = self._automation.send_text(content)
         if sent:
+            self._persist_chat_title(chat_id, target, is_group)
             logger.info("Sent macOS WeChat reply to %s via %r", chat_id[:20], target)
         else:
             logger.warning("Failed to send macOS WeChat reply to %s", chat_id[:20])
@@ -371,14 +381,90 @@ class MacHybridBackend(AbstractWeChatBackend):
                 self._remember_chat_session(username, title, _session_is_group(item, username))
         self._chat_titles_loaded = True
 
-    def _remember_chat_session(self, username: str, title: str, is_group: bool) -> None:
+    def _remember_chat_session(
+        self,
+        username: str,
+        title: str,
+        is_group: bool,
+        force: bool = False,
+    ) -> None:
         if not username:
             return
         if title:
-            self._chat_titles[username] = title
+            existing = self._chat_titles.get(username, "")
+            if force or _should_replace_chat_title(existing, title):
+                self._chat_titles[username] = title
         self._chat_is_group[username] = bool(is_group)
-        if title and not _looks_internal_chat_id(title):
-            self._title_entries.setdefault(title, {})[username] = bool(is_group)
+        remembered = self._chat_titles.get(username, title)
+        if remembered and not _looks_internal_chat_id(remembered):
+            self._title_entries.setdefault(remembered, {})[username] = bool(is_group)
+
+    def _load_cached_chat_titles(self) -> None:
+        for path in _chat_title_cache_paths():
+            try:
+                if not path.exists():
+                    continue
+                data = json.loads(path.read_text(encoding="utf-8") or "{}")
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.debug("Failed to load cached macOS chat titles from %s: %s", path, exc)
+                continue
+            if not isinstance(data, dict):
+                continue
+            for username, title in data.items():
+                username = str(username).strip()
+                title = str(title).strip()
+                if username and title and not _looks_internal_chat_id(title):
+                    self._remember_chat_session(
+                        username,
+                        title,
+                        str(username).endswith("@chatroom"),
+                        force=True,
+                    )
+
+        for path in _chat_title_log_paths():
+            try:
+                if not path.exists():
+                    continue
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError as exc:
+                logger.debug("Failed to scan macOS chat title log %s: %s", path, exc)
+                continue
+            for line in lines:
+                match = SENT_TITLE_RE.search(line)
+                if not match:
+                    continue
+                username = match.group("username").strip()
+                title = match.group("title").strip()
+                if username and title and not _looks_internal_chat_id(title):
+                    self._remember_chat_session(
+                        username,
+                        title,
+                        str(username).endswith("@chatroom"),
+                        force=True,
+                    )
+
+    def _persist_chat_title(self, username: str, title: str, is_group: bool) -> None:
+        if not is_group or not username or not title or _looks_internal_chat_id(title):
+            return
+        path = _preferred_chat_title_cache_path()
+        if path is None:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            data = {}
+            if path.exists():
+                loaded = json.loads(path.read_text(encoding="utf-8") or "{}")
+                if isinstance(loaded, dict):
+                    data = {str(k): str(v) for k, v in loaded.items()}
+            data[str(username)] = str(title)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            tmp.replace(path)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.debug("Failed to persist macOS chat title cache: %s", exc)
 
     def _should_prefer_group_result(self, username: str, title: str) -> bool:
         if not title or _looks_internal_chat_id(title):
@@ -414,6 +500,69 @@ def _looks_internal_chat_id(value: str) -> bool:
 
 def _normalize_chat_title(value: str) -> str:
     return "".join(str(value or "").strip().split()).lower()
+
+
+def _should_replace_chat_title(existing: str, incoming: str) -> bool:
+    incoming = str(incoming or "").strip()
+    existing = str(existing or "").strip()
+    if not incoming or _looks_internal_chat_id(incoming):
+        return False
+    if not existing or _looks_internal_chat_id(existing):
+        return True
+    old = _normalize_chat_title(existing)
+    new = _normalize_chat_title(incoming)
+    if not old:
+        return True
+    if not new:
+        return False
+    if old in new and len(new) > len(old):
+        return True
+    if new in old:
+        return False
+    return False
+
+
+def _chat_title_cache_paths() -> list[Path]:
+    paths: list[Path] = []
+    explicit = os.getenv("MAC_CHAT_TITLE_CACHE_FILE", "").strip()
+    if explicit:
+        paths.append(Path(explicit))
+    app_home = os.getenv("WEBOT_APP_HOME", "").strip()
+    if app_home:
+        paths.append(Path(app_home) / "data" / "group_names.json")
+        paths.append(Path("data") / "group_names.json")
+    return _unique_paths(paths)
+
+
+def _chat_title_log_paths() -> list[Path]:
+    paths: list[Path] = []
+    app_home = os.getenv("WEBOT_APP_HOME", "").strip()
+    if app_home:
+        paths.append(Path(app_home) / "data" / "bot.log")
+        paths.append(Path("data") / "bot.log")
+    return _unique_paths(paths)
+
+
+def _preferred_chat_title_cache_path() -> Path | None:
+    explicit = os.getenv("MAC_CHAT_TITLE_CACHE_FILE", "").strip()
+    if explicit:
+        return Path(explicit)
+    app_home = os.getenv("WEBOT_APP_HOME", "").strip()
+    if app_home:
+        return Path(app_home) / "data" / "group_names.json"
+    return None
+
+
+def _unique_paths(paths: list[Path]) -> list[Path]:
+    seen = set()
+    unique = []
+    for path in paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
 
 
 def _to_bool(value) -> bool:

@@ -38,7 +38,7 @@ function renderHighlightedMsg(msg) {
         }
         if (/^\d+(?:\.\d+)?(?:ms|s|毫秒|秒)$/.test(part)) {
           return (
-            <span key={i} className="px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-300 text-[11px] font-semibold font-mono mx-0.5">
+            <span key={i} className="px-1.5 py-0.5 rounded-full bg-bg-main/60 dark:bg-white/5 border border-border-main dark:border-white/10 text-text-main dark:text-zinc-300 text-[11px] font-semibold font-mono mx-0.5">
               {part}
             </span>
           )
@@ -191,19 +191,19 @@ export default function LogViewer() {
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}
         ref={scrollRef}
         onScroll={handleScroll}
-        className="bg-[#0d0d0d] dark:bg-[#141414] border border-border-main rounded-2xl overflow-hidden max-h-[600px] overflow-y-auto font-mono text-[13px] leading-relaxed p-4 divide-y divide-white/5 shadow-sm text-zinc-300"
+        className="bg-bg-raised dark:bg-[#141414] border border-border-main rounded-2xl overflow-hidden max-h-[600px] overflow-y-auto font-mono text-[13px] leading-relaxed p-4 divide-y divide-border-main shadow-sm text-text-main"
       >
         {filtered.length === 0 ? (
           clearedManually ? (
-            <div className="p-16 text-center text-zinc-500">
-              <p className="text-base font-semibold text-zinc-400 font-mono">Terminal Cleared</p>
-              <p className="text-xs mt-1.5 font-medium text-zinc-500">等待新事件写入日志文件...</p>
+            <div className="p-16 text-center text-text-muted">
+              <p className="text-base font-semibold text-text-main font-mono">Terminal Cleared</p>
+              <p className="text-xs mt-1.5 font-medium text-text-muted">等待新事件写入日志文件...</p>
             </div>
           ) : (
-            <div className="p-16 text-center text-zinc-500">
-              <p className="text-base font-semibold text-zinc-400 font-mono">Console Offline</p>
-              <p className="text-xs mt-1.5 font-medium text-zinc-500">启动机器人后，日志数据流将在此输出</p>
-              <p className="text-xs mt-1 font-mono text-zinc-600">位置: data/bot.log</p>
+            <div className="p-16 text-center text-text-muted">
+              <p className="text-base font-semibold text-text-main font-mono">Console Offline</p>
+              <p className="text-xs mt-1.5 font-medium text-text-muted">启动机器人后，日志数据流将在此输出</p>
+              <p className="text-xs mt-1 font-mono text-text-muted/65">位置: data/bot.log</p>
             </div>
           )
         ) : (
@@ -213,22 +213,22 @@ export default function LogViewer() {
               initial={{ opacity: 0, x: -4 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: Math.min(i * 0.003, 0.2) }}
-              className="flex items-center gap-4 px-4 py-2 hover:bg-white/5 transition-colors border-0"
+              className="flex items-center gap-4 px-4 py-2 hover:bg-bg-main/50 dark:hover:bg-white/5 transition-colors border-0"
             >
-              <span className="text-zinc-500 shrink-0 text-xs font-mono" style={{ width: 70 }}>{log.ts}</span>
+              <span className="text-text-muted shrink-0 text-xs font-mono" style={{ width: 70 }}>{log.ts}</span>
               <span
                 className="shrink-0 font-bold rounded-full text-center text-[10px] tracking-wider inline-flex items-center justify-center border font-mono uppercase"
                 style={{
                   width: 68,
                   height: 20,
                   color: LEVEL_STYLES[log.level]?.color || '#888888',
-                  backgroundColor: LEVEL_STYLES[log.level]?.bg || 'rgba(255,255,255,0.02)',
-                  borderColor: LEVEL_STYLES[log.level]?.color ? `${LEVEL_STYLES[log.level].color}25` : 'rgba(255,255,255,0.05)',
+                  backgroundColor: LEVEL_STYLES[log.level]?.bg || 'var(--bg-main)',
+                  borderColor: LEVEL_STYLES[log.level]?.color ? `${LEVEL_STYLES[log.level].color}25` : 'var(--border-main)',
                 }}
               >
                 {log.level}
               </span>
-              <span className="text-zinc-300 break-all select-all font-mono">{renderHighlightedMsg(log.msg)}</span>
+              <span className="text-text-main break-all select-all font-mono">{renderHighlightedMsg(log.msg)}</span>
             </motion.div>
           ))
         )}

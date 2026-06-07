@@ -175,6 +175,41 @@ class MacUIAutomation:
                 "Could not switch macOS WeChat to chats tab before search; "
                 "will search from current view",
             )
+        if not self._replace_search_text(window, chat_name):
+            return False
+        time.sleep(0.4)
+
+        point = self._find_existing_chat_search_result(
+            window,
+            chat_name,
+            prefer_group=prefer_group,
+            expected_is_group=expected_is_group,
+        )
+        if not point:
+            return False
+        resolved_title = self._resolved_group_title_from_point(point, chat_name)
+        if expected_is_group and resolved_title:
+            logger.info(
+                "Resolved macOS WeChat search target %r to group title %r",
+                chat_name,
+                resolved_title,
+            )
+            if self._replace_search_text(window, resolved_title):
+                time.sleep(0.4)
+                refined = self._find_existing_chat_search_result(
+                    window,
+                    resolved_title,
+                    prefer_group=prefer_group,
+                    expected_is_group=expected_is_group,
+                )
+                if refined:
+                    point = refined
+        if not self._click_screen(point["x"], point["y"]):
+            return False
+        time.sleep(0.25)
+        return True
+
+    def _replace_search_text(self, window: dict, text: str) -> bool:
         if not self._click_screen(
             window["x"] + SEARCH_FIELD_X_OFFSET,
             window["y"] + SEARCH_FIELD_Y_OFFSET,
@@ -190,24 +225,9 @@ class MacUIAutomation:
         if not self._select_focused_text():
             return False
         time.sleep(0.05)
-        if not self._run(["pbcopy"], input_text=chat_name):
+        if not self._run(["pbcopy"], input_text=text):
             return False
-        if not self._paste_clipboard(send=False):
-            return False
-        time.sleep(0.4)
-
-        point = self._find_existing_chat_search_result(
-            window,
-            chat_name,
-            prefer_group=prefer_group,
-            expected_is_group=expected_is_group,
-        )
-        if not point:
-            return False
-        if not self._click_screen(point["x"], point["y"]):
-            return False
-        time.sleep(0.25)
-        return True
+        return self._paste_clipboard(send=False)
 
     def _find_existing_chat_search_result(
         self,
@@ -218,13 +238,15 @@ class MacUIAutomation:
     ) -> dict | None:
         rect = self._search_results_capture_rect(window)
         entries = self._screen_text_reader(rect)
-        point = self._search_result_click_point(
+        match = self._search_result_match(
             entries,
             chat_name,
             prefer_group=prefer_group,
             expected_is_group=expected_is_group,
         )
-        if point:
+        if match:
+            point = self._entry_center(match)
+            point["resolved_title"] = match.get("text", "")
             return point
 
         if self._has_search_network_result(entries):
@@ -254,6 +276,22 @@ class MacUIAutomation:
         prefer_group: bool = False,
         expected_is_group: bool = False,
     ) -> dict | None:
+        match = cls._search_result_match(
+            entries,
+            chat_name,
+            prefer_group=prefer_group,
+            expected_is_group=expected_is_group,
+        )
+        return cls._entry_center(match) if match else None
+
+    @classmethod
+    def _search_result_match(
+        cls,
+        entries: list[dict],
+        chat_name: str,
+        prefer_group: bool = False,
+        expected_is_group: bool = False,
+    ) -> dict | None:
         target = cls._normalize_title(chat_name)
         if not target:
             return None
@@ -276,9 +314,6 @@ class MacUIAutomation:
             elif target in normalized and not cls._is_search_result_metadata(normalized):
                 partial_candidates.append(item)
 
-        if not candidates:
-            return None
-
         group_y = cls._label_y(labels, "群聊")
         frequent_y = cls._label_y(labels, "最常使用")
         network_y = cls._network_label_y(labels)
@@ -293,7 +328,10 @@ class MacUIAutomation:
                 if c["y"] > group_y and (group_boundary is None or c["y"] < group_boundary)
             ]
             if group_partial_candidates:
-                return cls._entry_center(min(group_partial_candidates, key=lambda c: c["y"]))
+                return min(group_partial_candidates, key=lambda c: c["y"])
+
+        if not candidates:
+            return None
 
         if prefer_group:
             return None
@@ -304,15 +342,29 @@ class MacUIAutomation:
                 if c["y"] > frequent_y and (network_y is None or c["y"] < network_y)
             ]
             if frequent_candidates:
-                return cls._entry_center(min(frequent_candidates, key=lambda c: c["y"]))
+                return min(frequent_candidates, key=lambda c: c["y"])
 
         if network_y is not None:
             safe_candidates = [c for c in candidates if c["y"] < network_y]
             if safe_candidates:
-                return cls._entry_center(min(safe_candidates, key=lambda c: c["y"]))
+                return min(safe_candidates, key=lambda c: c["y"])
             return None
 
-        return cls._entry_center(min(candidates, key=lambda c: c["y"]))
+        return min(candidates, key=lambda c: c["y"])
+
+    @classmethod
+    def _resolved_group_title_from_point(cls, point: dict, chat_name: str) -> str | None:
+        title = str(point.get("resolved_title") or "").strip()
+        normalized_title = cls._normalize_title(title)
+        normalized_query = cls._normalize_title(chat_name)
+        if (
+            title
+            and normalized_query
+            and normalized_title != normalized_query
+            and normalized_query in normalized_title
+        ):
+            return title
+        return None
 
     @classmethod
     def _has_search_network_result(cls, entries: list[dict]) -> bool:

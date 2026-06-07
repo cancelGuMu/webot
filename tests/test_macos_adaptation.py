@@ -561,6 +561,47 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertLess(select_index, pbcopy_index)
         self.assertEqual(runner.calls[pbcopy_index]["input_text"], "honker233粉丝微信纯享版")
 
+    def test_mac_ui_automation_open_chat_resolves_partial_group_title_then_researches_full_title(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+        ])
+        clicker = FakeClicker()
+        screen_batches = iter([
+            [
+                {"text": "联系人", "x": 168, "y": 302, "w": 100, "h": 24},
+                {"text": "honker", "x": 256, "y": 522, "w": 100, "h": 30},
+                {"text": "群聊", "x": 168, "y": 624, "w": 80, "h": 24},
+                {"text": "honker233粉丝微信纯享版", "x": 256, "y": 720, "w": 280, "h": 34},
+            ],
+            [
+                {"text": "群聊", "x": 168, "y": 180, "w": 80, "h": 24},
+                {"text": "honker233粉丝微信纯享版", "x": 256, "y": 250, "w": 280, "h": 34},
+            ],
+        ])
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=clicker,
+            screen_text_reader=lambda rect: next(screen_batches),
+        )
+
+        self.assertTrue(automation.open_chat("honker", expected_is_group=True))
+
+        pasted = [
+            call["input_text"] for call in runner.calls
+            if call["cmd"] == ["pbcopy"]
+        ]
+        self.assertEqual(pasted, ["honker", "honker233粉丝微信纯享版"])
+        self.assertEqual(clicker.points[-1], (396.0, 267.0))
+
     def test_mac_ui_automation_open_chat_returns_when_current_title_already_matches(self):
         runner = FakeRunner([
             FakeCompletedProcess(),

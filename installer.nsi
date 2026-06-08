@@ -10,7 +10,7 @@ Unicode true
 !define PRODUCT_NAME "webot"
 !define PRODUCT_DESC "微信 AI 群聊助手"
 !ifndef PRODUCT_VERSION
-!define PRODUCT_VERSION "1.0.1"
+!define PRODUCT_VERSION "1.1.0"
 !endif
 !define PRODUCT_PUBLISHER "cancelGuMu"
 !define PRODUCT_URL "https://github.com/cancelGuMu/webot"
@@ -91,11 +91,12 @@ SectionEnd
 
 ; ── Uninstall Section ──────────────────────────────────────────────────
 Section "Uninstall"
-  ; Remove installed files
+  ; Remove installed files (preserve user data: .env, data/*)
   Delete "$INSTDIR\webot.exe"
   Delete "$INSTDIR\.env.example"
   Delete "$INSTDIR\uninstall.exe"
-  RMDir /r "$INSTDIR\data"
+  ; data/ directory contains user data (messages.db, bot.log, lots.json, etc.)
+  ; and is NOT removed — the user keeps their chat history and configuration.
 
   ; Remove shortcuts
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"

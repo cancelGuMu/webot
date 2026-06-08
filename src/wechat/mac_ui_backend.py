@@ -791,16 +791,24 @@ print(String(data: data, encoding: .utf8)!)
     ) -> bool:
         expected = cls._normalize_title(expected_title)
         loose_expected = cls._normalize_title_loose(expected_title)
+        folded_expected = cls._normalize_title_folded(expected_title)
+        loose_folded_expected = cls._normalize_title_loose_folded(expected_title)
         expected_base = cls._strip_unread_suffix(expected)
         loose_expected_base = cls._strip_unread_suffix(loose_expected)
+        folded_expected_base = cls._strip_unread_suffix(folded_expected)
+        loose_folded_expected_base = cls._strip_unread_suffix(loose_folded_expected)
         connectorless_expected_base = cls._normalize_title_connectorless(loose_expected_base)
         if not expected:
             return False
         for text in cls._title_text_candidates(texts, expected_title=expected_title):
             actual = cls._normalize_title(text)
             loose_actual = cls._normalize_title_loose(text)
+            folded_actual = cls._normalize_title_folded(text)
+            loose_folded_actual = cls._normalize_title_loose_folded(text)
             actual_base = cls._strip_unread_suffix(actual)
             loose_actual_base = cls._strip_unread_suffix(loose_actual)
+            folded_actual_base = cls._strip_unread_suffix(folded_actual)
+            loose_folded_actual_base = cls._strip_unread_suffix(loose_folded_actual)
             connectorless_actual_base = cls._normalize_title_connectorless(loose_actual_base)
             if not actual:
                 continue
@@ -810,6 +818,11 @@ print(String(data: data, encoding: .utf8)!)
                 if loose_expected and (
                     loose_actual.startswith(loose_expected + "(")
                     or loose_actual.startswith(loose_expected + "（")
+                ):
+                    return True
+                if folded_expected and (
+                    folded_actual.startswith(folded_expected + "(")
+                    or folded_actual.startswith(folded_expected + "（")
                 ):
                     return True
                 continue
@@ -822,6 +835,13 @@ print(String(data: data, encoding: .utf8)!)
                     or (len(expected) >= 3 and actual.startswith(expected))
                     or (loose_expected and loose_actual == loose_expected)
                     or (loose_expected_base and loose_actual_base == loose_expected_base)
+                    or (folded_expected and folded_actual == folded_expected)
+                    or (folded_expected_base and folded_actual_base == folded_expected_base)
+                    or (loose_folded_expected and loose_folded_actual == loose_folded_expected)
+                    or (
+                        loose_folded_expected_base
+                        and loose_folded_actual_base == loose_folded_expected_base
+                    )
                     or (
                         connectorless_expected_base
                         and connectorless_actual_base == connectorless_expected_base
@@ -829,9 +849,21 @@ print(String(data: data, encoding: .utf8)!)
                     or (loose_expected and loose_actual.startswith(loose_expected + "("))
                     or (loose_expected and loose_actual.startswith(loose_expected + "（"))
                     or (
+                        folded_expected
+                        and (
+                            folded_actual.startswith(folded_expected + "(")
+                            or folded_actual.startswith(folded_expected + "（")
+                        )
+                    )
+                    or (
                         loose_expected
                         and len(loose_expected) >= 3
                         and loose_actual.startswith(loose_expected)
+                    )
+                    or (
+                        loose_folded_expected
+                        and len(loose_folded_expected) >= 3
+                        and loose_folded_actual.startswith(loose_folded_expected)
                     )
                 ):
                     return True
@@ -839,6 +871,10 @@ print(String(data: data, encoding: .utf8)!)
             if actual == expected:
                 return True
             if loose_expected and loose_actual == loose_expected:
+                return True
+            if folded_expected and folded_actual == folded_expected:
+                return True
+            if loose_folded_expected and loose_folded_actual == loose_folded_expected:
                 return True
         return False
 
@@ -878,6 +914,14 @@ print(String(data: data, encoding: .utf8)!)
     @classmethod
     def _normalize_title_loose(cls, value: str) -> str:
         return cls._normalize_title(value).translate(OCR_TITLE_LOOSE_DROP_CHARS)
+
+    @classmethod
+    def _normalize_title_folded(cls, value: str) -> str:
+        return cls._normalize_title(value).casefold()
+
+    @classmethod
+    def _normalize_title_loose_folded(cls, value: str) -> str:
+        return cls._normalize_title_loose(value).casefold()
 
     @staticmethod
     def _normalize_title_connectorless(value: str) -> str:

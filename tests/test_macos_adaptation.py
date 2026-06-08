@@ -1068,6 +1068,13 @@ class MacOSAdaptationTests(unittest.TestCase):
             expected_is_group=True,
         ))
 
+    def test_mac_ui_group_title_match_accepts_ocr_latin_case_variant(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["YunshuLink (9)", "Q", "待开发项目..."],
+            "YunShuLink",
+            expected_is_group=True,
+        ))
+
     def test_mac_ui_group_title_match_accepts_ocr_traditional_variant(self):
         self.assertTrue(MacUIAutomation._texts_match_chat_title(
             ["ai群聊測试（2）"],

@@ -96,7 +96,7 @@ Section "Uninstall"
   Delete "$INSTDIR\.env.example"
   Delete "$INSTDIR\uninstall.exe"
   ; data/ directory contains user data (messages.db, bot.log, lots.json, etc.)
-  ; and is NOT removed — the user keeps their chat history and configuration.
+  ; and is NOT removed -- the user keeps their chat history and configuration.
 
   ; Remove shortcuts
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"

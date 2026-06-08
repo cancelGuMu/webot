@@ -781,7 +781,7 @@ print(String(data: data, encoding: .utf8)!)
         loose_expected_base = cls._strip_unread_suffix(loose_expected)
         if not expected:
             return False
-        for text in texts:
+        for text in cls._title_text_candidates(texts):
             actual = cls._normalize_title(text)
             loose_actual = cls._normalize_title_loose(text)
             actual_base = cls._strip_unread_suffix(actual)
@@ -821,6 +821,17 @@ print(String(data: data, encoding: .utf8)!)
             if loose_expected and loose_actual == loose_expected:
                 return True
         return False
+
+    @staticmethod
+    def _title_text_candidates(texts: list[str]) -> list[str]:
+        clean = [str(text or "").strip() for text in texts if str(text or "").strip()]
+        candidates = list(clean)
+        for start in range(len(clean)):
+            combined = clean[start]
+            for end in range(start + 1, min(start + 3, len(clean))):
+                combined += clean[end]
+                candidates.append(combined)
+        return candidates
 
     @staticmethod
     def _normalize_title(value: str) -> str:

@@ -35,6 +35,7 @@ OCR_TITLE_TRANSLATION = str.maketrans({
 })
 OCR_TITLE_LOOSE_DROP_CHARS = str.maketrans("", "", "「」『』“”‘’\"'")
 UNREAD_SUFFIX_RE = re.compile(r"[\(（][0-9]+[\)）]$")
+TITLE_CONNECTOR_DROP_CHARS = str.maketrans("", "", "与和及&+、·")
 
 
 class MacUIAutomation:
@@ -779,6 +780,7 @@ print(String(data: data, encoding: .utf8)!)
         loose_expected = cls._normalize_title_loose(expected_title)
         expected_base = cls._strip_unread_suffix(expected)
         loose_expected_base = cls._strip_unread_suffix(loose_expected)
+        connectorless_expected_base = cls._normalize_title_connectorless(loose_expected_base)
         if not expected:
             return False
         for text in cls._title_text_candidates(texts):
@@ -786,6 +788,7 @@ print(String(data: data, encoding: .utf8)!)
             loose_actual = cls._normalize_title_loose(text)
             actual_base = cls._strip_unread_suffix(actual)
             loose_actual_base = cls._strip_unread_suffix(loose_actual)
+            connectorless_actual_base = cls._normalize_title_connectorless(loose_actual_base)
             if not actual:
                 continue
             if require_group_marker:
@@ -806,6 +809,10 @@ print(String(data: data, encoding: .utf8)!)
                     or (len(expected) >= 3 and actual.startswith(expected))
                     or (loose_expected and loose_actual == loose_expected)
                     or (loose_expected_base and loose_actual_base == loose_expected_base)
+                    or (
+                        connectorless_expected_base
+                        and connectorless_actual_base == connectorless_expected_base
+                    )
                     or (loose_expected and loose_actual.startswith(loose_expected + "("))
                     or (loose_expected and loose_actual.startswith(loose_expected + "（"))
                     or (
@@ -845,6 +852,10 @@ print(String(data: data, encoding: .utf8)!)
     @classmethod
     def _normalize_title_loose(cls, value: str) -> str:
         return cls._normalize_title(value).translate(OCR_TITLE_LOOSE_DROP_CHARS)
+
+    @staticmethod
+    def _normalize_title_connectorless(value: str) -> str:
+        return str(value or "").translate(TITLE_CONNECTOR_DROP_CHARS)
 
     @staticmethod
     def _strip_unread_suffix(value: str) -> str:

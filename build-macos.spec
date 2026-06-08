@@ -39,6 +39,7 @@ a = Analysis(
         "src.integrations.feishu",
         "src.integrations.feishu.client",
         "src.integrations.feishu.exporter",
+        "src.integrations.feishu.knowledge",
         "src.memory",
         "src.memory.consolidator",
         "src.nickname",

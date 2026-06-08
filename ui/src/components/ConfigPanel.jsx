@@ -413,7 +413,7 @@ function FeishuSection({ form, update }) {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
-  const mode = form.feishu_export_mode || 'spreadsheet'
+  const mode = form.feishu_export_mode || 'knowledge'
   const modeLabel = mode === 'bitable' ? '多维表格' : mode === 'docx' ? '文档' : '电子表格'
 
   function addKeyword(value) {
@@ -437,8 +437,8 @@ function FeishuSection({ form, update }) {
       <div className="py-4 border-b border-border-main/50">
         <div className="flex items-center justify-between">
           <div className="flex-1 mr-8">
-            <p className="text-[15px] text-text-main font-medium">飞书同步</p>
-            <p className="text-sm text-text-muted mt-1.5">@机器人说触发词后，将最近群聊摘要写入飞书</p>
+            <p className="text-[15px] text-text-main font-medium">飞书知识库</p>
+            <p className="text-sm text-text-muted mt-1.5">自动创建多维表格，把群聊沉淀为摘要、待办、需求和日常记录</p>
           </div>
           <Toggle enabled={form.feishu_export_enabled} onChange={v => update('feishu_export_enabled', v)} />
         </div>
@@ -454,11 +454,12 @@ function FeishuSection({ form, update }) {
               </Field>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <ParamRow label="写入目标" hint="选择摘要沉淀到哪种飞书资产">
+                <ParamRow label="沉淀模式" hint="推荐自动知识库；已有资产写入保留为高级兼容模式">
                   <Select value={mode} onChange={v => update('feishu_export_mode', v)} options={[
-                    { value: 'spreadsheet', desc: '电子表格', hint: '追加一行摘要' },
-                    { value: 'bitable', desc: '多维表格', hint: '创建一条记录' },
-                    { value: 'docx', desc: '文档', hint: '创建一篇摘要文档' },
+                    { value: 'knowledge', desc: '自动知识库', hint: '自动建表并分类沉淀' },
+                    { value: 'bitable', desc: '已有多维表格', hint: '高级：写入指定表' },
+                    { value: 'spreadsheet', desc: '已有电子表格', hint: '高级：追加一行摘要' },
+                    { value: 'docx', desc: '文档', hint: '高级：创建摘要文档' },
                   ]} />
                 </ParamRow>
                 <ParamRow label="同步窗口" hint="拉取触发前 N 小时消息，范围 1-168">
@@ -467,10 +468,34 @@ function FeishuSection({ form, update }) {
                 </ParamRow>
               </div>
 
+              {mode === 'knowledge' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <ParamRow label="知识库名称" hint="首次同步时自动创建这个多维表格">
+                    <Input value={form.feishu_knowledge_base_name || 'webot 群聊沉淀'}
+                      onChange={v => update('feishu_knowledge_base_name', v)} placeholder="webot 群聊沉淀" />
+                  </ParamRow>
+                  <ParamRow label="飞书文件夹 Token" hint="可选；留空则创建到应用默认位置">
+                    <Input value={form.feishu_knowledge_folder_token || ''}
+                      onChange={v => update('feishu_knowledge_folder_token', v)} placeholder="fldxxxxxxxxxxxx" />
+                  </ParamRow>
+                  <ParamRow label="自动沉淀" hint="开启后聊天达到阈值会无感写入飞书">
+                    <Toggle enabled={form.feishu_auto_sync_enabled} onChange={v => update('feishu_auto_sync_enabled', v)} />
+                  </ParamRow>
+                  <ParamRow label="自动阈值" hint="最近窗口内至少 N 条消息才自动沉淀">
+                    <Input type="number" value={String(form.feishu_auto_sync_min_messages || 20)}
+                      onChange={v => update('feishu_auto_sync_min_messages', Math.max(1, Math.min(500, parseInt(v) || 20)))} />
+                  </ParamRow>
+                  <ParamRow label="自动冷却" hint="同一群两次自动沉淀的最短间隔（秒）">
+                    <Input type="number" value={String(form.feishu_auto_sync_cooldown_sec || 1800)}
+                      onChange={v => update('feishu_auto_sync_cooldown_sec', Math.max(60, Math.min(86400, parseInt(v) || 1800)))} />
+                  </ParamRow>
+                </div>
+              )}
+
               <div>
                 <p className="text-[14px] text-text-main font-medium">飞书触发词</p>
                 <p className="text-xs text-text-muted mt-0.5 mb-2">
-                  @机器人后的文本包含任一触发词时，会执行飞书同步。
+                  手动兜底命令。@机器人后的文本包含任一触发词时，会立即沉淀最近群聊。
                 </p>
                 <div className="flex flex-wrap gap-2 mb-2">
                   {keywords.map((kw, i) => (
@@ -511,8 +536,9 @@ function FeishuSection({ form, update }) {
                 </div>
               </div>
 
+              {mode !== 'knowledge' && (
               <div className="border-t border-border-main/50 pt-4">
-                <p className="text-[14px] text-text-main font-medium mb-3">{modeLabel}参数</p>
+                <p className="text-[14px] text-text-main font-medium mb-3">高级兼容：{modeLabel}参数</p>
                 {mode === 'spreadsheet' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <ParamRow label="Spreadsheet Token" hint="飞书电子表格 URL 中的 spreadsheetToken">
@@ -539,6 +565,7 @@ function FeishuSection({ form, update }) {
                   </ParamRow>
                 )}
               </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -1801,7 +1828,10 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     summarize_enabled: true, fallback_window_hours: 8, trigger_keywords: [],
     welcome_enabled: false,
     feishu_export_enabled: false, feishu_app_id: '', feishu_app_secret: '',
-    feishu_export_mode: 'spreadsheet', feishu_export_window_hours: 8,
+    feishu_export_mode: 'knowledge', feishu_export_window_hours: 8,
+    feishu_auto_sync_enabled: false, feishu_auto_sync_min_messages: 20,
+    feishu_auto_sync_cooldown_sec: 1800,
+    feishu_knowledge_base_name: 'webot 群聊沉淀', feishu_knowledge_folder_token: '',
     feishu_export_trigger_keywords: ['同步到飞书', '导出到飞书', '写到飞书', '沉淀到飞书'],
     feishu_spreadsheet_token: '', feishu_spreadsheet_range: 'Sheet1!A:H',
     feishu_bitable_app_token: '', feishu_bitable_table_id: '',
@@ -1928,6 +1958,11 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           feishu_app_secret: form.feishu_app_secret,
           feishu_export_mode: form.feishu_export_mode,
           feishu_export_window_hours: form.feishu_export_window_hours,
+          feishu_auto_sync_enabled: form.feishu_auto_sync_enabled,
+          feishu_auto_sync_min_messages: form.feishu_auto_sync_min_messages,
+          feishu_auto_sync_cooldown_sec: form.feishu_auto_sync_cooldown_sec,
+          feishu_knowledge_base_name: form.feishu_knowledge_base_name,
+          feishu_knowledge_folder_token: form.feishu_knowledge_folder_token,
           feishu_export_trigger_keywords: form.feishu_export_trigger_keywords,
           feishu_spreadsheet_token: form.feishu_spreadsheet_token,
           feishu_spreadsheet_range: form.feishu_spreadsheet_range,

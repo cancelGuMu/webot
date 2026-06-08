@@ -103,6 +103,44 @@ class FeishuClient:
         self._raise_for_error(data)
         return data
 
+    def create_bitable_app(self, name: str, folder_token: str = "") -> dict:
+        """Create a Feishu Bitable app and return the API response."""
+        body: dict[str, object] = {"name": name}
+        if folder_token:
+            body["folder_token"] = folder_token
+        data = self._request_json(
+            "POST",
+            "/open-apis/bitable/v1/apps",
+            body,
+            self.tenant_access_token(),
+            None,
+        )
+        self._raise_for_error(data)
+        return data
+
+    def create_bitable_table(
+        self,
+        app_token: str,
+        table_name: str,
+        fields: list[dict],
+    ) -> dict:
+        """Create a Bitable table with the fields used by webot."""
+        data = self._request_json(
+            "POST",
+            f"/open-apis/bitable/v1/apps/{app_token}/tables",
+            {
+                "table": {
+                    "name": table_name,
+                    "default_view_name": "默认视图",
+                },
+                "fields": fields,
+            },
+            self.tenant_access_token(),
+            None,
+        )
+        self._raise_for_error(data)
+        return data
+
     def create_docx_document(self, title: str, folder_token: str = "") -> dict:
         """Create a Feishu docx document and return the API response."""
         body: dict[str, object] = {"title": title}

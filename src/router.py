@@ -205,6 +205,12 @@ class MessageRouter:
                 reply = self._handle_chat(msg, clean_content)
 
         else:
+            if self._feishu_export is not None:
+                try:
+                    self._feishu_export.maybe_auto_export(msg)
+                except Exception:
+                    logger.exception("Automatic Feishu knowledge sync failed")
+
             # ── Proactive path (rate-based ambient participation) ─
             should_speak, mode, reason = self._proactive.should_speak(msg)
             if should_speak and mode is not None:

@@ -6,6 +6,15 @@ import time
 from dataclasses import dataclass
 
 from .client import FeishuClient
+from .knowledge import (
+    DAILY_TABLE_KEY,
+    KNOWLEDGE_TABLES,
+    REQUIREMENT_TABLE_KEY,
+    SUMMARY_TABLE_KEY,
+    TODO_TABLE_KEY,
+    FeishuResourceStore,
+    KnowledgeClassifier,
+)
 
 
 @dataclass
@@ -18,11 +27,22 @@ class FeishuExportResult:
 class FeishuExportService:
     """Coordinates message lookup, AI summarization, and Feishu writes."""
 
-    def __init__(self, config, store, summarizer, client: FeishuClient | None = None):
+    def __init__(
+        self,
+        config,
+        store,
+        summarizer,
+        client: FeishuClient | None = None,
+        resource_store: FeishuResourceStore | None = None,
+        classifier: KnowledgeClassifier | None = None,
+    ):
         self._config = config
         self._store = store
         self._summarizer = summarizer
         self._client = client
+        self._resource_store = resource_store or FeishuResourceStore()
+        self._classifier = classifier or KnowledgeClassifier()
+        self._last_auto_export_ts_by_chat: dict[str, int] = {}
 
     def is_export_command(self, content: str) -> bool:
         """Return True when a cleaned @mention asks to sync to Feishu."""
@@ -53,17 +73,7 @@ class FeishuExportService:
 
         trigger_ts = int(trigger_msg.get("timestamp") or time.time())
         since_ts = trigger_ts - self._config.feishu_export_window_hours * 3600
-        messages = self._store.get_messages_since(
-            trigger_msg["chat_id"],
-            since_ts,
-            until_ts=trigger_ts,
-            limit=self._config.max_messages_for_summary,
-        )
-        messages = [
-            m for m in messages
-            if m.get("message_id") != trigger_msg.get("message_id")
-            and str(m.get("content", "")).strip()
-        ]
+        messages = self._recent_messages(trigger_msg, since_ts, trigger_ts)
         if not messages:
             return FeishuExportResult(
                 ok=False,
@@ -73,6 +83,14 @@ class FeishuExportService:
         summary = self._summarizer.summarize(messages, requester)
         client = self._get_client()
         mode = self._config.feishu_export_mode
+        if mode == "knowledge":
+            response = self._export_knowledge(client, trigger_msg, messages, summary)
+            return FeishuExportResult(
+                ok=True,
+                reply_text=f"@{requester} 已沉淀到飞书知识库，共 {len(messages)} 条消息。",
+                response=response,
+            )
+
         if mode == "spreadsheet":
             response = client.append_spreadsheet_rows(
                 spreadsheet_token=self._config.feishu_spreadsheet_token,
@@ -108,6 +126,33 @@ class FeishuExportService:
             response=response,
         )
 
+    def maybe_auto_export(self, msg: dict) -> FeishuExportResult | None:
+        """Silently export recent chat when auto knowledge sync is enabled."""
+        if (
+            not self._config.feishu_export_enabled
+            or not self._config.feishu_auto_sync_enabled
+            or self._config.feishu_export_mode != "knowledge"
+        ):
+            return None
+        if self._validate_target():
+            return None
+
+        trigger_ts = int(msg.get("timestamp") or time.time())
+        chat_id = str(msg.get("chat_id", ""))
+        last_export_ts = self._last_auto_export_ts_by_chat.get(chat_id, 0)
+        if trigger_ts - last_export_ts < self._config.feishu_auto_sync_cooldown_sec:
+            return None
+
+        since_ts = trigger_ts - self._config.feishu_export_window_hours * 3600
+        messages = self._recent_messages(msg, since_ts, trigger_ts, include_trigger=True)
+        if len(messages) < self._config.feishu_auto_sync_min_messages:
+            return None
+
+        summary = self._summarizer.summarize(messages, msg.get("sender_name", "群友"))
+        response = self._export_knowledge(self._get_client(), msg, messages, summary)
+        self._last_auto_export_ts_by_chat[chat_id] = trigger_ts
+        return FeishuExportResult(ok=True, reply_text="", response=response)
+
     def _get_client(self) -> FeishuClient:
         if self._client is None:
             self._client = FeishuClient(
@@ -124,6 +169,8 @@ class FeishuExportService:
             return "飞书应用 App ID / App Secret 还没配置。"
 
         mode = self._config.feishu_export_mode
+        if mode == "knowledge":
+            return ""
         if mode == "spreadsheet":
             if not self._config.feishu_spreadsheet_token:
                 return "飞书电子表格 token 还没配置。"
@@ -135,6 +182,117 @@ class FeishuExportService:
             if not self._config.feishu_bitable_table_id:
                 return "飞书多维表格 table_id 还没配置。"
         return ""
+
+    def _recent_messages(
+        self,
+        trigger_msg: dict,
+        since_ts: int,
+        trigger_ts: int,
+        *,
+        include_trigger: bool = False,
+    ) -> list[dict]:
+        messages = self._store.get_messages_since(
+            trigger_msg["chat_id"],
+            since_ts,
+            until_ts=trigger_ts,
+            limit=self._config.max_messages_for_summary,
+        )
+        group_name = trigger_msg.get("group_name") or trigger_msg.get("chat_id", "")
+        normalized = []
+        for msg in messages:
+            if (
+                not include_trigger
+                and msg.get("message_id") == trigger_msg.get("message_id")
+            ):
+                continue
+            if not str(msg.get("content", "")).strip():
+                continue
+            copied = dict(msg)
+            copied.setdefault("group_name", group_name)
+            normalized.append(copied)
+        return normalized
+
+    def _export_knowledge(self, client, trigger_msg: dict, messages: list[dict], summary) -> dict:
+        resources = self._ensure_knowledge_resources(client)
+        app_token = resources["app_token"]
+        tables = resources["tables"]
+        responses = {
+            SUMMARY_TABLE_KEY: client.create_bitable_record(
+                app_token=app_token,
+                table_id=tables[SUMMARY_TABLE_KEY],
+                fields=self._bitable_fields(trigger_msg, messages, summary),
+            )
+        }
+        classified = self._classifier.classify(messages)
+        for table_key in (TODO_TABLE_KEY, REQUIREMENT_TABLE_KEY, DAILY_TABLE_KEY):
+            table_id = tables.get(table_key)
+            if not table_id:
+                continue
+            created = []
+            for fields in classified.get(table_key, []):
+                created.append(client.create_bitable_record(
+                    app_token=app_token,
+                    table_id=table_id,
+                    fields=fields,
+                ))
+            responses[table_key] = created
+        return {"resources": resources, "records": responses}
+
+    def _ensure_knowledge_resources(self, client) -> dict:
+        resources = self._resource_store.load()
+        app_token = str(resources.get("app_token", "")).strip()
+        tables = dict(resources.get("tables", {}))
+        missing_tables = [table for table in KNOWLEDGE_TABLES if not tables.get(table.key)]
+        if app_token and not missing_tables:
+            return {"app_token": app_token, "tables": tables}
+
+        if not app_token:
+            created = client.create_bitable_app(
+                name=self._config.feishu_knowledge_base_name or "webot 群聊沉淀",
+                folder_token=self._config.feishu_knowledge_folder_token,
+            )
+            app_token = self._extract_app_token(created)
+
+        for table in KNOWLEDGE_TABLES:
+            if tables.get(table.key):
+                continue
+            created_table = client.create_bitable_table(
+                app_token=app_token,
+                table_name=table.name,
+                fields=table.fields,
+            )
+            tables[table.key] = self._extract_table_id(created_table)
+
+        resources = {"app_token": app_token, "tables": tables}
+        self._resource_store.save(resources)
+        return resources
+
+    @staticmethod
+    def _extract_app_token(response: dict) -> str:
+        data = response.get("data", {})
+        candidates = [
+            data.get("app_token"),
+            data.get("app", {}).get("app_token") if isinstance(data.get("app"), dict) else "",
+            data.get("bitable", {}).get("app_token") if isinstance(data.get("bitable"), dict) else "",
+        ]
+        for candidate in candidates:
+            token = str(candidate or "").strip()
+            if token:
+                return token
+        raise RuntimeError("飞书创建多维表格成功但没有返回 app_token")
+
+    @staticmethod
+    def _extract_table_id(response: dict) -> str:
+        data = response.get("data", {})
+        candidates = [
+            data.get("table_id"),
+            data.get("table", {}).get("table_id") if isinstance(data.get("table"), dict) else "",
+        ]
+        for candidate in candidates:
+            table_id = str(candidate or "").strip()
+            if table_id:
+                return table_id
+        raise RuntimeError("飞书创建数据表成功但没有返回 table_id")
 
     def _spreadsheet_row(self, trigger_msg: dict, messages: list[dict], summary) -> list[object]:
         start_ts = int(messages[0]["timestamp"])

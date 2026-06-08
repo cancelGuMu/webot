@@ -138,11 +138,25 @@ def _feishu_config_from_raw(raw: dict[str, str]) -> dict:
         ),
         "feishu_app_id": raw.get("FEISHU_APP_ID", ""),
         "feishu_app_secret": raw.get("FEISHU_APP_SECRET", ""),
-        "feishu_export_mode": raw.get("FEISHU_EXPORT_MODE", "spreadsheet"),
+        "feishu_export_mode": raw.get("FEISHU_EXPORT_MODE", "knowledge"),
         "feishu_export_window_hours": _int_env(
             raw.get("FEISHU_EXPORT_WINDOW_HOURS", "8"),
             8,
         ),
+        "feishu_auto_sync_enabled": _bool_env(
+            raw.get("FEISHU_AUTO_SYNC_ENABLED", "false"),
+            False,
+        ),
+        "feishu_auto_sync_min_messages": _int_env(
+            raw.get("FEISHU_AUTO_SYNC_MIN_MESSAGES", "20"),
+            20,
+        ),
+        "feishu_auto_sync_cooldown_sec": _int_env(
+            raw.get("FEISHU_AUTO_SYNC_COOLDOWN_SEC", "1800"),
+            1800,
+        ),
+        "feishu_knowledge_base_name": raw.get("FEISHU_KNOWLEDGE_BASE_NAME", "webot 群聊沉淀"),
+        "feishu_knowledge_folder_token": raw.get("FEISHU_KNOWLEDGE_FOLDER_TOKEN", ""),
         "feishu_export_trigger_keywords": _split_csv(
             raw.get("FEISHU_EXPORT_TRIGGER_KEYWORDS", _DEFAULT_FEISHU_TRIGGER_KEYWORDS)
         ),
@@ -169,6 +183,11 @@ def _feishu_updates_from_config(config: dict) -> dict[str, str | None]:
         "feishu_app_secret": "FEISHU_APP_SECRET",
         "feishu_export_mode": "FEISHU_EXPORT_MODE",
         "feishu_export_window_hours": "FEISHU_EXPORT_WINDOW_HOURS",
+        "feishu_auto_sync_enabled": "FEISHU_AUTO_SYNC_ENABLED",
+        "feishu_auto_sync_min_messages": "FEISHU_AUTO_SYNC_MIN_MESSAGES",
+        "feishu_auto_sync_cooldown_sec": "FEISHU_AUTO_SYNC_COOLDOWN_SEC",
+        "feishu_knowledge_base_name": "FEISHU_KNOWLEDGE_BASE_NAME",
+        "feishu_knowledge_folder_token": "FEISHU_KNOWLEDGE_FOLDER_TOKEN",
         "feishu_export_trigger_keywords": "FEISHU_EXPORT_TRIGGER_KEYWORDS",
         "feishu_spreadsheet_token": "FEISHU_SPREADSHEET_TOKEN",
         "feishu_spreadsheet_range": "FEISHU_SPREADSHEET_RANGE",
@@ -179,10 +198,19 @@ def _feishu_updates_from_config(config: dict) -> dict[str, str | None]:
     for field, env_key in field_map.items():
         if field not in config:
             continue
-        if field == "feishu_export_enabled":
+        if field in ("feishu_export_enabled", "feishu_auto_sync_enabled"):
             updates[env_key] = str(config.get(field, False)).lower()
-        elif field == "feishu_export_window_hours":
-            updates[env_key] = str(config.get(field, 8))
+        elif field in (
+            "feishu_export_window_hours",
+            "feishu_auto_sync_min_messages",
+            "feishu_auto_sync_cooldown_sec",
+        ):
+            default = {
+                "feishu_export_window_hours": 8,
+                "feishu_auto_sync_min_messages": 20,
+                "feishu_auto_sync_cooldown_sec": 1800,
+            }[field]
+            updates[env_key] = str(config.get(field, default))
         elif field == "feishu_export_trigger_keywords":
             updates[env_key] = keywords_value
         else:

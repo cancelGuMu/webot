@@ -66,6 +66,7 @@ a = Analysis(
         'src.memory', 'src.memory.consolidator',
         'src.integrations', 'src.integrations.feishu',
         'src.integrations.feishu.client', 'src.integrations.feishu.exporter',
+        'src.integrations.feishu.knowledge',
         'src.wechat', 'src.wechat.base', 'src.wechat.wcdb_backend',
         'src.wechat.wcdb_client', 'src.wechat.mac_hybrid_backend',
         'src.wechat.mac_weflow_client',

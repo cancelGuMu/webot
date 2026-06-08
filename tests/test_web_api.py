@@ -1063,8 +1063,13 @@ class ApiConfigEndpointTests(unittest.TestCase):
                 "FEISHU_EXPORT_ENABLED=true\n"
                 "FEISHU_APP_ID=cli_test\n"
                 "FEISHU_APP_SECRET=secret_test\n"
-                "FEISHU_EXPORT_MODE=bitable\n"
+                "FEISHU_EXPORT_MODE=knowledge\n"
                 "FEISHU_EXPORT_WINDOW_HOURS=6\n"
+                "FEISHU_AUTO_SYNC_ENABLED=true\n"
+                "FEISHU_AUTO_SYNC_MIN_MESSAGES=7\n"
+                "FEISHU_AUTO_SYNC_COOLDOWN_SEC=900\n"
+                "FEISHU_KNOWLEDGE_BASE_NAME=webot 自动知识库\n"
+                "FEISHU_KNOWLEDGE_FOLDER_TOKEN=fld_knowledge\n"
                 "FEISHU_EXPORT_TRIGGER_KEYWORDS=同步到飞书,导出到飞书\n"
                 "FEISHU_SPREADSHEET_TOKEN=sht_test\n"
                 "FEISHU_SPREADSHEET_RANGE=Sheet1!A:H\n"
@@ -1082,8 +1087,13 @@ class ApiConfigEndpointTests(unittest.TestCase):
         self.assertTrue(config["feishu_export_enabled"])
         self.assertEqual(config["feishu_app_id"], "cli_test")
         self.assertEqual(config["feishu_app_secret"], "secret_test")
-        self.assertEqual(config["feishu_export_mode"], "bitable")
+        self.assertEqual(config["feishu_export_mode"], "knowledge")
         self.assertEqual(config["feishu_export_window_hours"], 6)
+        self.assertTrue(config["feishu_auto_sync_enabled"])
+        self.assertEqual(config["feishu_auto_sync_min_messages"], 7)
+        self.assertEqual(config["feishu_auto_sync_cooldown_sec"], 900)
+        self.assertEqual(config["feishu_knowledge_base_name"], "webot 自动知识库")
+        self.assertEqual(config["feishu_knowledge_folder_token"], "fld_knowledge")
         self.assertEqual(config["feishu_export_trigger_keywords"], ["同步到飞书", "导出到飞书"])
         self.assertEqual(config["feishu_spreadsheet_token"], "sht_test")
         self.assertEqual(config["feishu_spreadsheet_range"], "Sheet1!A:H")
@@ -1205,8 +1215,13 @@ class ApiConfigEndpointTests(unittest.TestCase):
                 "feishu_export_enabled": True,
                 "feishu_app_id": "cli_test",
                 "feishu_app_secret": "secret_test",
-                "feishu_export_mode": "docx",
+                "feishu_export_mode": "knowledge",
                 "feishu_export_window_hours": 12,
+                "feishu_auto_sync_enabled": True,
+                "feishu_auto_sync_min_messages": 9,
+                "feishu_auto_sync_cooldown_sec": 1200,
+                "feishu_knowledge_base_name": "webot 群聊沉淀",
+                "feishu_knowledge_folder_token": "fld_knowledge",
                 "feishu_export_trigger_keywords": ["同步到飞书", "飞书沉淀"],
                 "feishu_spreadsheet_token": "sht_test",
                 "feishu_spreadsheet_range": "Sheet1!A:H",
@@ -1229,8 +1244,13 @@ class ApiConfigEndpointTests(unittest.TestCase):
             self.assertIn("FEISHU_EXPORT_ENABLED=true", saved)
             self.assertIn("FEISHU_APP_ID=cli_test", saved)
             self.assertIn("FEISHU_APP_SECRET=secret_test", saved)
-            self.assertIn("FEISHU_EXPORT_MODE=docx", saved)
+            self.assertIn("FEISHU_EXPORT_MODE=knowledge", saved)
             self.assertIn("FEISHU_EXPORT_WINDOW_HOURS=12", saved)
+            self.assertIn("FEISHU_AUTO_SYNC_ENABLED=true", saved)
+            self.assertIn("FEISHU_AUTO_SYNC_MIN_MESSAGES=9", saved)
+            self.assertIn("FEISHU_AUTO_SYNC_COOLDOWN_SEC=1200", saved)
+            self.assertIn("FEISHU_KNOWLEDGE_BASE_NAME=webot 群聊沉淀", saved)
+            self.assertIn("FEISHU_KNOWLEDGE_FOLDER_TOKEN=fld_knowledge", saved)
             self.assertIn("FEISHU_EXPORT_TRIGGER_KEYWORDS=同步到飞书,飞书沉淀", saved)
             self.assertIn("FEISHU_SPREADSHEET_TOKEN=sht_test", saved)
             self.assertIn("FEISHU_SPREADSHEET_RANGE=Sheet1!A:H", saved)
@@ -1245,7 +1265,12 @@ class ApiConfigEndpointTests(unittest.TestCase):
 
             config = body["config"]
             self.assertTrue(config["feishu_export_enabled"])
-            self.assertEqual(config["feishu_export_mode"], "docx")
+            self.assertEqual(config["feishu_export_mode"], "knowledge")
+            self.assertTrue(config["feishu_auto_sync_enabled"])
+            self.assertEqual(config["feishu_auto_sync_min_messages"], 9)
+            self.assertEqual(config["feishu_auto_sync_cooldown_sec"], 1200)
+            self.assertEqual(config["feishu_knowledge_base_name"], "webot 群聊沉淀")
+            self.assertEqual(config["feishu_knowledge_folder_token"], "fld_knowledge")
             self.assertEqual(config["feishu_export_trigger_keywords"], ["同步到飞书", "飞书沉淀"])
         finally:
             tmp_env.unlink(missing_ok=True)

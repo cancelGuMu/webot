@@ -1038,6 +1038,13 @@ class MacOSAdaptationTests(unittest.TestCase):
             expected_is_group=True,
         ))
 
+    def test_mac_ui_group_title_match_accepts_four_piece_split_ocr_header(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["下一代", "「求职」", "与", "「创业」(10)", "瑞宝没有故事", "昇"],
+            "下一代「求职」与「创业」",
+            expected_is_group=True,
+        ))
+
     def test_mac_ui_automation_title_ocr_crops_right_chat_header_only(self):
         runner = FakeRunner([
             FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":1000,"h":600}}'),

@@ -28,6 +28,7 @@ SEARCH_FIELD_Y_OFFSET = 28
 SEARCH_CLEAR_X_OFFSET = 240
 TOP_CHAT_RESULT_Y_OFFSET = 108
 GROUP_CHAT_RESULT_Y_OFFSET = 310
+TITLE_OCR_MAX_JOIN_PARTS = 5
 OCR_TITLE_TRANSLATION = str.maketrans({
     "測": "测",
     "試": "试",
@@ -835,7 +836,7 @@ print(String(data: data, encoding: .utf8)!)
         candidates = list(clean)
         for start in range(len(clean)):
             combined = clean[start]
-            for end in range(start + 1, min(start + 3, len(clean))):
+            for end in range(start + 1, min(start + TITLE_OCR_MAX_JOIN_PARTS, len(clean))):
                 combined += clean[end]
                 candidates.append(combined)
         return candidates

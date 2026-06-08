@@ -268,14 +268,11 @@ class MacUIAutomation:
             )
             return None
 
-        if expected_is_group or prefer_group:
-            logger.warning(
-                "Refusing to blind-click macOS WeChat group search result without OCR match: %s",
-                chat_name,
-            )
-            return None
-
         offset = GROUP_CHAT_RESULT_Y_OFFSET if prefer_group else TOP_CHAT_RESULT_Y_OFFSET
+        logger.info(
+            "Clicking default macOS WeChat search result without OCR match: %s",
+            chat_name,
+        )
         return {"x": window["x"] + SEARCH_FIELD_X_OFFSET, "y": window["y"] + offset}
 
     @staticmethod

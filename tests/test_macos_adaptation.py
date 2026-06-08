@@ -700,7 +700,34 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertEqual(pasted, ["honker", "honker233粉丝微信纯享版"])
         self.assertEqual(clicker.points[-1], (396.0, 267.0))
 
-    def test_mac_ui_automation_open_chat_does_not_blind_click_when_group_ocr_has_no_match(self):
+    def test_mac_ui_automation_open_chat_blind_clicks_group_result_when_ocr_has_no_match(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+        ])
+        clicker = FakeClicker()
+        titles = iter([[], ["honker（2）"]])
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=clicker,
+            title_reader=lambda: next(titles, []),
+            screen_text_reader=lambda rect: [],
+        )
+
+        self.assertTrue(automation.open_chat(
+            "honker",
+            expected_title="honker",
+            expected_is_group=True,
+        ))
+
+        self.assertEqual(clicker.points, [(260, 228), (340, 228), (260, 308)])
+
+    def test_mac_ui_automation_blind_group_click_still_requires_title_match(self):
         runner = FakeRunner([
             FakeCompletedProcess(),
             FakeCompletedProcess(stdout='{"front":"WeChat"}'),
@@ -714,12 +741,17 @@ class MacOSAdaptationTests(unittest.TestCase):
             app_name="WeChat",
             runner=runner,
             clicker=clicker,
+            title_reader=lambda: ["别的群（2）"],
             screen_text_reader=lambda rect: [],
         )
 
-        self.assertFalse(automation.open_chat("honker", expected_is_group=True))
+        self.assertFalse(automation.open_chat(
+            "honker",
+            expected_title="honker",
+            expected_is_group=True,
+        ))
 
-        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
+        self.assertEqual(clicker.points, [(260, 228), (340, 228), (260, 308)])
 
     def test_mac_ui_automation_open_chat_returns_when_current_title_already_matches(self):
         runner = FakeRunner([

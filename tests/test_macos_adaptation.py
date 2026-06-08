@@ -746,6 +746,30 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertNotIn("发起群聊", scripts)
         self.assertEqual(clicker.points, [])
 
+    def test_mac_ui_automation_open_chat_returns_on_four_piece_current_title(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+        ])
+        clicker = FakeClicker()
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=clicker,
+            title_reader=lambda: [
+                "下一代", "「求职」", "与", "「创业」(10)", "瑞宝没有故事", "昇",
+            ],
+        )
+
+        self.assertTrue(automation.open_chat(
+            "下一代「求职」与「创业」",
+            expected_title="下一代「求职」与「创业」",
+            expected_is_group=True,
+        ))
+
+        self.assertFalse(any(call["cmd"] == ["pbcopy"] for call in runner.calls))
+        self.assertEqual(clicker.points, [])
+
     def test_mac_ui_automation_open_chat_rejects_internal_chat_ids(self):
         runner = FakeRunner()
         clicker = FakeClicker()

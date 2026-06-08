@@ -28,7 +28,8 @@ SEARCH_FIELD_Y_OFFSET = 28
 SEARCH_CLEAR_X_OFFSET = 240
 TOP_CHAT_RESULT_Y_OFFSET = 108
 GROUP_CHAT_RESULT_Y_OFFSET = 310
-TITLE_OCR_MAX_JOIN_PARTS = 5
+TITLE_OCR_MIN_JOIN_PARTS = 5
+TITLE_OCR_MAX_JOIN_PARTS = 8
 OCR_TITLE_TRANSLATION = str.maketrans({
     "測": "测",
     "試": "试",
@@ -784,7 +785,7 @@ print(String(data: data, encoding: .utf8)!)
         connectorless_expected_base = cls._normalize_title_connectorless(loose_expected_base)
         if not expected:
             return False
-        for text in cls._title_text_candidates(texts):
+        for text in cls._title_text_candidates(texts, expected_title=expected_title):
             actual = cls._normalize_title(text)
             loose_actual = cls._normalize_title_loose(text)
             actual_base = cls._strip_unread_suffix(actual)
@@ -830,16 +831,29 @@ print(String(data: data, encoding: .utf8)!)
                 return True
         return False
 
-    @staticmethod
-    def _title_text_candidates(texts: list[str]) -> list[str]:
+    @classmethod
+    def _title_text_candidates(
+        cls,
+        texts: list[str],
+        expected_title: str = "",
+    ) -> list[str]:
         clean = [str(text or "").strip() for text in texts if str(text or "").strip()]
         candidates = list(clean)
+        max_join_parts = cls._title_join_part_limit(expected_title)
         for start in range(len(clean)):
             combined = clean[start]
-            for end in range(start + 1, min(start + TITLE_OCR_MAX_JOIN_PARTS, len(clean))):
+            for end in range(start + 1, min(start + max_join_parts, len(clean))):
                 combined += clean[end]
                 candidates.append(combined)
         return candidates
+
+    @classmethod
+    def _title_join_part_limit(cls, expected_title: str) -> int:
+        normalized = cls._normalize_title(expected_title)
+        if not normalized:
+            return TITLE_OCR_MIN_JOIN_PARTS
+        estimated_parts = max(TITLE_OCR_MIN_JOIN_PARTS, min(len(normalized), TITLE_OCR_MAX_JOIN_PARTS))
+        return estimated_parts
 
     @staticmethod
     def _normalize_title(value: str) -> str:

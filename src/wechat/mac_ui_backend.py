@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import time
 import ctypes
+import unicodedata
 from ctypes import c_double, c_int64, c_void_p, Structure
 from typing import Optional
 
@@ -598,11 +599,13 @@ JSON.stringify([...new Set(values)]);
         ):
             return True
         logger.warning(
-            "macOS WeChat title verification failed: expected=%r group=%s marker=%s texts=%s",
+            "macOS WeChat title verification failed: expected=%r normalized=%r group=%s marker=%s texts=%s normalized_texts=%s",
             expected_title,
+            self._normalize_title(expected_title),
             expected_is_group,
             require_group_marker,
             texts[:10],
+            [self._normalize_title(text) for text in texts[:10]],
         )
         return False
 
@@ -813,7 +816,11 @@ print(String(data: data, encoding: .utf8)!)
 
     @staticmethod
     def _normalize_title(value: str) -> str:
-        return "".join(str(value or "").strip().translate(OCR_TITLE_TRANSLATION).split())
+        compact = "".join(str(value or "").strip().translate(OCR_TITLE_TRANSLATION).split())
+        return "".join(
+            ch for ch in compact
+            if unicodedata.category(ch) not in {"Cc", "Cf"}
+        )
 
     @classmethod
     def _normalize_title_loose(cls, value: str) -> str:

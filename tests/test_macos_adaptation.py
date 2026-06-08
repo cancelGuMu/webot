@@ -1010,6 +1010,13 @@ class MacOSAdaptationTests(unittest.TestCase):
             expected_is_group=True,
         ))
 
+    def test_mac_ui_group_title_match_strips_invisible_format_chars(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["AI聊\u200b天 (3)"],
+            "AI聊天",
+            expected_is_group=True,
+        ))
+
     def test_mac_ui_automation_title_ocr_crops_right_chat_header_only(self):
         runner = FakeRunner([
             FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":1000,"h":600}}'),

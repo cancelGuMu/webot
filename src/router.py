@@ -178,8 +178,17 @@ class MessageRouter:
                 and self._feishu_export is not None
                 and self._feishu_export.is_export_command(clean_content)
             ):
-                result = self._feishu_export.export_recent_chat(msg)
-                reply = result.reply_text
+                try:
+                    export_msg = dict(msg)
+                    export_msg["content"] = clean_content
+                    result = self._feishu_export.export_recent_chat(export_msg)
+                    reply = result.reply_text
+                except Exception:
+                    logger.exception("Manual Feishu knowledge sync failed")
+                    reply = (
+                        f"@{msg['sender_name']} 飞书同步失败了："
+                        "AI 总结或飞书写入临时不可用，稍后再试一次。"
+                    )
 
             if reply is None and clean_content.strip() in ("帮助", "help", "命令"):
                 reply = self._admin.handle(clean_content, msg["sender_name"])

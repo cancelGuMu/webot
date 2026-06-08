@@ -185,6 +185,91 @@ class FeishuClientTests(unittest.TestCase):
         self.assertNotIn("fields", body)
 
 
+class KnowledgeClassifierTests(unittest.TestCase):
+    def test_project_list_extracts_structured_records_not_raw_chat_dump(self):
+        from src.integrations.feishu.knowledge import (
+            DAILY_TABLE_KEY,
+            PROJECT_TABLE_KEY,
+            REQUIREMENT_TABLE_KEY,
+            TODO_TABLE_KEY,
+            KnowledgeClassifier,
+        )
+
+        content = (
+            "待开发项目\n"
+            "1. 人机恋 app（思路提供：金）\n"
+            "开发中项目\n"
+            "1. 记账 app（思路+开发：王）\n"
+            "2. 云枢智元，yunshulink（开发：王；宣传：金、马、许）\n"
+            "3. 微信 chatbot（开发：王+金；致谢：马）\n"
+            "@群聊小助手 同步到飞书"
+        )
+
+        result = KnowledgeClassifier().classify([{
+            "message_id": "project-list",
+            "chat_id": "chat1@chatroom",
+            "group_name": "产品群",
+            "sender_name": "王",
+            "content": content,
+            "timestamp": 123,
+        }])
+
+        projects = result[PROJECT_TABLE_KEY]
+        self.assertEqual(
+            [(item["项目"], item["阶段"], item["负责人"], item["协作人"]) for item in projects],
+            [
+                ("人机恋 app", "待开发", "", "金"),
+                ("记账 app", "开发中", "王", "王"),
+                ("云枢智元，yunshulink", "开发中", "王", "王、金、马、许"),
+                ("微信 chatbot", "开发中", "王、金", "王、金、马"),
+            ],
+        )
+        self.assertEqual(projects[2]["角色分工"], "开发：王；宣传：金、马、许")
+
+        requirements = result[REQUIREMENT_TABLE_KEY]
+        self.assertEqual(
+            [(item["需求"], item["状态"]) for item in requirements],
+            [
+                ("人机恋 app", "待开发"),
+                ("记账 app", "开发中"),
+                ("云枢智元，yunshulink", "开发中"),
+                ("微信 chatbot", "开发中"),
+            ],
+        )
+        self.assertNotIn("待开发项目\n1.", requirements[0]["需求"])
+
+        todos = result[TODO_TABLE_KEY]
+        self.assertEqual(
+            [(item["事项"], item["负责人"], item["状态"]) for item in todos],
+            [
+                ("开发：记账 app", "王", "进行中"),
+                ("开发：云枢智元，yunshulink", "王", "进行中"),
+                ("宣传：云枢智元，yunshulink", "金、马、许", "进行中"),
+                ("开发：微信 chatbot", "王、金", "进行中"),
+            ],
+        )
+
+        daily = result[DAILY_TABLE_KEY]
+        self.assertEqual(len(daily), 1)
+        self.assertIn("待开发 1 个", daily[0]["记录"])
+        self.assertIn("开发中 3 个", daily[0]["记录"])
+        self.assertNotIn("@群聊小助手", daily[0]["记录"])
+
+    def test_command_only_message_does_not_become_daily_record(self):
+        from src.integrations.feishu.knowledge import DAILY_TABLE_KEY, KnowledgeClassifier
+
+        result = KnowledgeClassifier().classify([{
+            "message_id": "cmd",
+            "chat_id": "chat1@chatroom",
+            "group_name": "产品群",
+            "sender_name": "王",
+            "content": "@群聊小助手 同步到飞书",
+            "timestamp": 123,
+        }])
+
+        self.assertEqual(result[DAILY_TABLE_KEY], [])
+
+
 class FeishuExportServiceTests(unittest.TestCase):
     def _store_with_messages(self):
         from src.db import MessageStore, initialize_db
@@ -219,6 +304,15 @@ class FeishuExportServiceTests(unittest.TestCase):
             "msg_type": 1,
             "timestamp": base + 60,
         })
+        return store
+
+    def _store_with_custom_messages(self, messages):
+        from src.db import MessageStore, initialize_db
+
+        conn = initialize_db(":memory:")
+        store = MessageStore(conn)
+        for msg in messages:
+            store.insert_message(msg)
         return store
 
     def _tmp_resource_store(self):
@@ -332,6 +426,7 @@ class FeishuExportServiceTests(unittest.TestCase):
             {"data": {"table_id": "tbl_todo"}},
             {"data": {"table_id": "tbl_requirement"}},
             {"data": {"table_id": "tbl_daily"}},
+            {"data": {"table_id": "tbl_project"}},
         ]
         client.create_bitable_record.return_value = {"code": 0}
         service = FeishuExportService(
@@ -360,13 +455,14 @@ class FeishuExportServiceTests(unittest.TestCase):
             call.kwargs["table_name"]
             for call in client.create_bitable_table.call_args_list
         ]
-        self.assertEqual(created_table_names, ["群聊摘要", "待办", "需求", "日常记录"])
+        self.assertEqual(created_table_names, ["群聊摘要", "待办", "需求", "日常记录", "项目"])
         persisted = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(persisted["app_token"], "base_auto")
         self.assertEqual(persisted["tables"]["summary"], "tbl_summary")
         self.assertEqual(persisted["tables"]["todo"], "tbl_todo")
         self.assertEqual(persisted["tables"]["requirement"], "tbl_requirement")
         self.assertEqual(persisted["tables"]["daily"], "tbl_daily")
+        self.assertEqual(persisted["tables"]["project"], "tbl_project")
         called_table_ids = {
             call.kwargs["table_id"]
             for call in client.create_bitable_record.call_args_list
@@ -389,6 +485,7 @@ class FeishuExportServiceTests(unittest.TestCase):
                 "todo": "tbl_todo",
                 "requirement": "tbl_requirement",
                 "daily": "tbl_daily",
+                "project": "tbl_project",
             },
         }), encoding="utf-8")
         cfg = BotConfig(
@@ -423,6 +520,56 @@ class FeishuExportServiceTests(unittest.TestCase):
         client.create_bitable_app.assert_not_called()
         client.create_bitable_table.assert_not_called()
         self.assertGreaterEqual(client.create_bitable_record.call_count, 1)
+
+    def test_knowledge_base_adds_project_table_to_existing_resources(self):
+        from src.config import BotConfig
+        from src.integrations.feishu.exporter import FeishuExportService
+        from src.summarize.models import SummaryResult
+
+        resource_store, path = self._tmp_resource_store()
+        path.write_text(json.dumps({
+            "app_token": "base_saved",
+            "tables": {
+                "summary": "tbl_summary",
+                "todo": "tbl_todo",
+                "requirement": "tbl_requirement",
+                "daily": "tbl_daily",
+            },
+        }), encoding="utf-8")
+        summarizer = MagicMock()
+        summarizer.summarize.return_value = SummaryResult(
+            summary_text="摘要",
+            topics=[],
+            participants=[],
+        )
+        client = MagicMock()
+        client.create_bitable_table.return_value = {"data": {"table_id": "tbl_project"}}
+        client.create_bitable_record.return_value = {"code": 0}
+        service = FeishuExportService(
+            BotConfig(
+                feishu_export_enabled=True,
+                feishu_export_mode="knowledge",
+            ),
+            self._store_with_messages(),
+            summarizer,
+            client=client,
+            resource_store=resource_store,
+        )
+
+        result = service.export_recent_chat({
+            "chat_id": "chat1@chatroom",
+            "group_name": "摸鱼群",
+            "sender_name": "管理员",
+            "sender_id": "admin",
+            "timestamp": int(time.time()),
+        })
+
+        self.assertTrue(result.ok)
+        client.create_bitable_app.assert_not_called()
+        client.create_bitable_table.assert_called_once()
+        self.assertEqual(client.create_bitable_table.call_args.kwargs["table_name"], "项目")
+        persisted = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(persisted["tables"]["project"], "tbl_project")
 
     def test_auto_export_uses_no_reply_and_respects_minimum_message_count(self):
         from src.config import BotConfig
@@ -470,6 +617,7 @@ class FeishuExportServiceTests(unittest.TestCase):
             {"data": {"table_id": "tbl_todo"}},
             {"data": {"table_id": "tbl_requirement"}},
             {"data": {"table_id": "tbl_daily"}},
+            {"data": {"table_id": "tbl_project"}},
         ]
         client.create_bitable_record.return_value = {"code": 0}
 
@@ -577,6 +725,90 @@ class FeishuExportServiceTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("飞书同步还没开启", result.reply_text)
 
+    def test_export_includes_meaningful_trigger_message_content(self):
+        from src.config import BotConfig
+        from src.integrations.feishu.exporter import FeishuExportService
+        from src.summarize.models import SummaryResult
+
+        now = int(time.time())
+        trigger_content = (
+            "待开发项目\n"
+            "1. 人机恋 app（思路提供：金）\n"
+            "开发中项目\n"
+            "1. 记账 app（思路+开发：王）\n"
+            "2. 云枢智元，yunshulink（开发：王；宣传：金、马、许）\n"
+            "3. 微信 chatbot（开发：王+金；致谢：马）\n"
+            "@群聊小助手 同步到飞书"
+        )
+        store = self._store_with_custom_messages([{
+            "message_id": "trigger-project-list",
+            "chat_id": "chat1@chatroom",
+            "sender_id": "admin",
+            "sender_name": "王",
+            "content": trigger_content,
+            "msg_type": 1,
+            "timestamp": now,
+        }])
+        resource_store, path = self._tmp_resource_store()
+        path.write_text(json.dumps({
+            "app_token": "base_saved",
+            "tables": {
+                "summary": "tbl_summary",
+                "todo": "tbl_todo",
+                "requirement": "tbl_requirement",
+                "daily": "tbl_daily",
+                "project": "tbl_project",
+            },
+        }), encoding="utf-8")
+        summarizer = MagicMock()
+        summarizer.summarize.return_value = SummaryResult(
+            summary_text=trigger_content,
+            topics=[],
+            participants=[],
+        )
+        client = MagicMock()
+        client.create_bitable_record.return_value = {"code": 0}
+        service = FeishuExportService(
+            BotConfig(
+                feishu_export_enabled=True,
+                feishu_export_mode="knowledge",
+                bot_display_name="群聊小助手",
+            ),
+            store,
+            summarizer,
+            client=client,
+            resource_store=resource_store,
+        )
+
+        result = service.export_recent_chat({
+            "message_id": "trigger-project-list",
+            "chat_id": "chat1@chatroom",
+            "group_name": "产品群",
+            "sender_id": "admin",
+            "sender_name": "王",
+            "content": trigger_content,
+            "msg_type": 1,
+            "timestamp": now,
+        })
+
+        self.assertTrue(result.ok)
+        summarized_messages = summarizer.summarize.call_args.args[0]
+        self.assertEqual(len(summarized_messages), 1)
+        self.assertIn("待开发项目", summarized_messages[0]["content"])
+        self.assertNotIn("同步到飞书", summarized_messages[0]["content"])
+        summary_call = client.create_bitable_record.call_args_list[0]
+        self.assertEqual(summary_call.kwargs["table_id"], "tbl_summary")
+        self.assertIn("项目台账更新", summary_call.kwargs["fields"]["摘要"])
+        self.assertIn("人机恋 app", summary_call.kwargs["fields"]["摘要"])
+        self.assertNotIn("待开发项目\n1.", summary_call.kwargs["fields"]["摘要"])
+        project_calls = [
+            call for call in client.create_bitable_record.call_args_list
+            if call.kwargs["table_id"] == "tbl_project"
+        ]
+        self.assertEqual(len(project_calls), 4)
+        self.assertEqual(project_calls[0].kwargs["fields"]["项目"], "人机恋 app")
+        self.assertEqual(project_calls[0].kwargs["fields"]["阶段"], "待开发")
+
 
 class FeishuRouterTests(unittest.TestCase):
     def test_at_mention_export_command_uses_export_service(self):
@@ -674,6 +906,50 @@ class FeishuRouterTests(unittest.TestCase):
 
         self.assertIsNone(reply)
         export_service.maybe_auto_export.assert_called_once()
+
+    def test_manual_export_failure_returns_clear_reply_without_crashing(self):
+        from src.config import BotConfig
+        from src.router import MessageRouter
+        from src.trigger import TriggerDetector
+
+        class Store:
+            def insert_message(self, msg):
+                return True
+
+            def get_group_memory(self, chat_id):
+                return None
+
+        export_service = MagicMock()
+        export_service.is_export_command.return_value = True
+        export_service.export_recent_chat.side_effect = RuntimeError("Connection error")
+        router = MessageRouter(
+            store=Store(),
+            detector=TriggerDetector(["总结一下"], "群聊小助手"),
+            summarizer=MagicMock(),
+            admin_handler=MagicMock(),
+            nickname_service=MagicMock(),
+            config=BotConfig(
+                bot_display_name="群聊小助手",
+                feishu_export_enabled=True,
+            ),
+            feishu_export_service=export_service,
+        )
+
+        reply = router.handle({
+            "message_id": "trigger-fail",
+            "chat_id": "chat1@chatroom",
+            "group_name": "摸鱼群",
+            "sender_id": "admin",
+            "sender_name": "管理员",
+            "content": "@群聊小助手 同步到飞书",
+            "msg_type": 1,
+            "timestamp": int(time.time()),
+            "is_at_mentioned": True,
+            "is_group": True,
+        })
+
+        self.assertIn("@管理员 飞书同步失败", reply)
+        export_service.export_recent_chat.assert_called_once()
 
 
 class FeishuWebApiTests(unittest.TestCase):

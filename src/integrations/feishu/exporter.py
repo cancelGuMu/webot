@@ -9,11 +9,13 @@ from .client import FeishuClient
 from .knowledge import (
     DAILY_TABLE_KEY,
     KNOWLEDGE_TABLES,
+    PROJECT_TABLE_KEY,
     REQUIREMENT_TABLE_KEY,
     SUMMARY_TABLE_KEY,
     TODO_TABLE_KEY,
     FeishuResourceStore,
     KnowledgeClassifier,
+    strip_feishu_sync_command,
 )
 
 
@@ -204,6 +206,9 @@ class FeishuExportService:
                 not include_trigger
                 and msg.get("message_id") == trigger_msg.get("message_id")
             ):
+                copied = self._clean_trigger_message(msg, group_name)
+                if copied is not None:
+                    normalized.append(copied)
                 continue
             if not str(msg.get("content", "")).strip():
                 continue
@@ -212,19 +217,36 @@ class FeishuExportService:
             normalized.append(copied)
         return normalized
 
+    def _clean_trigger_message(self, msg: dict, group_name: str) -> dict | None:
+        content = strip_feishu_sync_command(
+            str(msg.get("content", "")),
+            bot_display_name=getattr(self._config, "bot_display_name", ""),
+        )
+        if not content:
+            return None
+        copied = dict(msg)
+        copied["content"] = content
+        copied.setdefault("group_name", group_name)
+        return copied
+
     def _export_knowledge(self, client, trigger_msg: dict, messages: list[dict], summary) -> dict:
         resources = self._ensure_knowledge_resources(client)
         app_token = resources["app_token"]
         tables = resources["tables"]
+        classified = self._classifier.classify(messages)
+        summary_fields = self._bitable_fields(trigger_msg, messages, summary)
+        structured_summary = self._knowledge_summary_text(classified)
+        if structured_summary:
+            summary_fields["摘要"] = structured_summary
+            summary_fields["主题"] = self._knowledge_topics(classified)
         responses = {
             SUMMARY_TABLE_KEY: client.create_bitable_record(
                 app_token=app_token,
                 table_id=tables[SUMMARY_TABLE_KEY],
-                fields=self._bitable_fields(trigger_msg, messages, summary),
+                fields=summary_fields,
             )
         }
-        classified = self._classifier.classify(messages)
-        for table_key in (TODO_TABLE_KEY, REQUIREMENT_TABLE_KEY, DAILY_TABLE_KEY):
+        for table_key in (TODO_TABLE_KEY, REQUIREMENT_TABLE_KEY, DAILY_TABLE_KEY, PROJECT_TABLE_KEY):
             table_id = tables.get(table_key)
             if not table_id:
                 continue
@@ -237,6 +259,67 @@ class FeishuExportService:
                 ))
             responses[table_key] = created
         return {"resources": resources, "records": responses}
+
+    def _knowledge_summary_text(self, classified: dict[str, list[dict]]) -> str:
+        parts = []
+        projects = classified.get(PROJECT_TABLE_KEY, [])
+        if projects:
+            stage_counts: dict[str, int] = {}
+            for project in projects:
+                stage = str(project.get("阶段", "")).strip() or "未定"
+                stage_counts[stage] = stage_counts.get(stage, 0) + 1
+            count_text = "；".join(f"{stage} {count} 个" for stage, count in stage_counts.items())
+            project_texts = []
+            for project in projects[:8]:
+                meta = []
+                if project.get("负责人"):
+                    meta.append(f"负责人：{project['负责人']}")
+                if project.get("协作人"):
+                    meta.append(f"协作人：{project['协作人']}")
+                suffix = f"，{'，'.join(meta)}" if meta else ""
+                project_texts.append(f"{project.get('项目', '')}（{project.get('阶段', '未定')}{suffix}）")
+            parts.append(f"项目台账更新：{count_text}。项目：{'；'.join(project_texts)}。")
+
+        requirements = classified.get(REQUIREMENT_TABLE_KEY, [])
+        if requirements:
+            req_text = "；".join(
+                f"{item.get('需求', '')}（{item.get('状态', '待评估')}）"
+                for item in requirements[:8]
+            )
+            parts.append(f"需求沉淀：{req_text}。")
+
+        todos = classified.get(TODO_TABLE_KEY, [])
+        if todos:
+            todo_text = "；".join(
+                f"{item.get('事项', '')}"
+                + (f" -> {item.get('负责人')}" if item.get("负责人") else "")
+                for item in todos[:8]
+            )
+            parts.append(f"待办提取：{todo_text}。")
+
+        daily = classified.get(DAILY_TABLE_KEY, [])
+        non_project_daily = [
+            item for item in daily
+            if item.get("分类") != "项目进展"
+        ]
+        if non_project_daily:
+            daily_text = "；".join(str(item.get("记录", "")) for item in non_project_daily[:5])
+            parts.append(f"日常记录：{daily_text}。")
+
+        return "\n".join(part for part in parts if part).strip()
+
+    @staticmethod
+    def _knowledge_topics(classified: dict[str, list[dict]]) -> str:
+        topics = []
+        if classified.get(PROJECT_TABLE_KEY):
+            topics.append("项目台账")
+        if classified.get(REQUIREMENT_TABLE_KEY):
+            topics.append("需求")
+        if classified.get(TODO_TABLE_KEY):
+            topics.append("待办")
+        if classified.get(DAILY_TABLE_KEY):
+            topics.append("日常记录")
+        return ", ".join(topics)
 
     def _ensure_knowledge_resources(self, client) -> dict:
         resources = self._resource_store.load()

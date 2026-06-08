@@ -191,6 +191,9 @@ class MacUIAutomation:
             return False
         time.sleep(0.4)
 
+        if not prefer_group and self._select_search_result():
+            return True
+
         point = self._find_existing_chat_search_result(
             window,
             chat_name,
@@ -220,6 +223,17 @@ class MacUIAutomation:
             return False
         time.sleep(0.25)
         return True
+
+    def _select_search_result(self) -> bool:
+        ok = self._run_wechat_process_script(
+            '''
+  key code 36
+''',
+            timeout=3,
+        )
+        if ok:
+            time.sleep(0.25)
+        return ok
 
     def _replace_search_text(self, window: dict, text: str) -> bool:
         if not self._click_screen(

@@ -597,7 +597,39 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertNotIn("发起会话", scripts)
         self.assertNotIn("发起群聊", scripts)
         self.assertIn('keystroke "v"', scripts)
-        self.assertEqual(clicker.points, [(260, 228), (340, 228), (270.0, 345.0)])
+        self.assertIn("key code 36", scripts)
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
+
+    def test_mac_ui_automation_open_chat_uses_enter_before_ocr_search_result_click(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+        ])
+        clicker = FakeClicker()
+        screen_reads = []
+        titles = iter([[], ["YunShuLink（9）"]])
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=clicker,
+            title_reader=lambda: next(titles, []),
+            screen_text_reader=lambda rect: screen_reads.append(rect) or [],
+        )
+
+        self.assertTrue(automation.open_chat(
+            "YunShuLink",
+            expected_title="YunShuLink",
+            expected_is_group=True,
+        ))
+
+        scripts = "\n".join(call["cmd"][-1] for call in runner.calls if call["cmd"][0] == "osascript")
+        self.assertIn("key code 36", scripts)
+        self.assertEqual(screen_reads, [])
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
 
     def test_mac_ui_automation_open_chat_switches_to_chats_tab_before_search(self):
         runner = FakeRunner([
@@ -659,7 +691,7 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertLess(select_index, pbcopy_index)
         self.assertEqual(runner.calls[pbcopy_index]["input_text"], "honker233粉丝微信纯享版")
 
-    def test_mac_ui_automation_open_chat_resolves_partial_group_title_then_researches_full_title(self):
+    def test_mac_ui_automation_open_chat_uses_enter_without_resolving_partial_group_title(self):
         runner = FakeRunner([
             FakeCompletedProcess(),
             FakeCompletedProcess(stdout='{"front":"WeChat"}'),
@@ -697,8 +729,10 @@ class MacOSAdaptationTests(unittest.TestCase):
             call["input_text"] for call in runner.calls
             if call["cmd"] == ["pbcopy"]
         ]
-        self.assertEqual(pasted, ["honker", "honker233粉丝微信纯享版"])
-        self.assertEqual(clicker.points[-1], (396.0, 267.0))
+        self.assertEqual(pasted, ["honker"])
+        scripts = "\n".join(call["cmd"][-1] for call in runner.calls if call["cmd"][0] == "osascript")
+        self.assertIn("key code 36", scripts)
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
 
     def test_mac_ui_automation_open_chat_blind_clicks_group_result_when_ocr_has_no_match(self):
         runner = FakeRunner([
@@ -725,7 +759,7 @@ class MacOSAdaptationTests(unittest.TestCase):
             expected_is_group=True,
         ))
 
-        self.assertEqual(clicker.points, [(260, 228), (340, 228), (260, 308)])
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
 
     def test_mac_ui_automation_blind_group_click_still_requires_title_match(self):
         runner = FakeRunner([
@@ -751,7 +785,7 @@ class MacOSAdaptationTests(unittest.TestCase):
             expected_is_group=True,
         ))
 
-        self.assertEqual(clicker.points, [(260, 228), (340, 228), (260, 308)])
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
 
     def test_mac_ui_automation_open_chat_returns_when_current_title_already_matches(self):
         runner = FakeRunner([
@@ -977,7 +1011,7 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertIsNone(point)
 
-    def test_mac_ui_automation_open_chat_retries_group_result_after_top_mismatch(self):
+    def test_mac_ui_automation_open_chat_rejects_enter_result_title_mismatch(self):
         runner = FakeRunner([
             FakeCompletedProcess(),
             FakeCompletedProcess(stdout='{"front":"WeChat"}'),
@@ -993,7 +1027,7 @@ class MacOSAdaptationTests(unittest.TestCase):
             FakeCompletedProcess(),
         ])
         clicker = FakeClicker()
-        titles = iter([["别的群（2）"], ["错的会话"], ["honker（2）"]])
+        titles = iter([["别的群（2）"], ["错的会话"]])
         automation = MacUIAutomation(
             app_name="WeChat",
             runner=runner,
@@ -1007,16 +1041,15 @@ class MacOSAdaptationTests(unittest.TestCase):
             ],
         )
 
-        self.assertTrue(automation.open_chat(
+        self.assertFalse(automation.open_chat(
             "honker",
             expected_title="honker",
             expected_is_group=True,
         ))
 
-        self.assertEqual(clicker.points, [
-            (260, 228), (340, 228), (270.0, 445.0),
-            (260, 228), (340, 228), (270.0, 445.0),
-        ])
+        scripts = "\n".join(call["cmd"][-1] for call in runner.calls if call["cmd"][0] == "osascript")
+        self.assertIn("key code 36", scripts)
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
 
     def test_mac_ui_automation_open_chat_can_click_sidebar_session_index(self):
         runner = FakeRunner([

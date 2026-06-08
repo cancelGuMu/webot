@@ -310,6 +310,8 @@ class MacUIAutomation:
     ) -> dict | None:
         target = cls._normalize_title(chat_name)
         loose_target = cls._normalize_title_loose(chat_name)
+        folded_target = cls._normalize_title_folded(chat_name)
+        loose_folded_target = cls._normalize_title_loose_folded(chat_name)
         if not target:
             return None
 
@@ -320,6 +322,8 @@ class MacUIAutomation:
             text = str(entry.get("text") or "").strip()
             normalized = cls._normalize_title(text)
             loose_normalized = cls._normalize_title_loose(text)
+            folded_normalized = cls._normalize_title_folded(text)
+            loose_folded_normalized = cls._normalize_title_loose_folded(text)
             if not normalized:
                 continue
             y = float(entry.get("y", 0))
@@ -328,17 +332,29 @@ class MacUIAutomation:
                 "text": text,
                 "normalized": normalized,
                 "loose_normalized": loose_normalized,
+                "folded_normalized": folded_normalized,
+                "loose_folded_normalized": loose_folded_normalized,
                 "y": y,
             }
             if cls._is_search_section_label(normalized):
                 labels.append(item)
                 continue
-            if normalized == target or (loose_target and loose_normalized == loose_target):
+            if (
+                normalized == target
+                or (loose_target and loose_normalized == loose_target)
+                or (folded_target and folded_normalized == folded_target)
+                or (loose_folded_target and loose_folded_normalized == loose_folded_target)
+            ):
                 candidates.append(item)
             elif (
                 (
                     target in normalized
                     or (loose_target and loose_target in loose_normalized)
+                    or (folded_target and folded_target in folded_normalized)
+                    or (
+                        loose_folded_target
+                        and loose_folded_target in loose_folded_normalized
+                    )
                 )
                 and not cls._is_search_result_metadata(normalized)
             ):

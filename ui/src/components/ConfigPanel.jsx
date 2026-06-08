@@ -1200,32 +1200,34 @@ function WelcomeSection({ form, update }) {
               <p className="text-[13px] text-text-main font-medium mb-2">欢迎词模板</p>
               <div className="flex flex-wrap items-center gap-1.5 mb-3">
                 {templates.map((tpl, i) => (
-                  <div key={tpl.id} className="flex items-center">
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab(i)}
-                      className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors cursor-pointer ${
-                        i === activeTab
-                          ? 'bg-brand-green text-[#0d0d0d]'
-                          : 'bg-bg-main border border-border-main text-text-muted hover:text-text-main hover:border-text-muted/40'
-                      }`}
-                    >
-                      {tpl.name}
-                    </button>
+                  <span
+                    key={tpl.id}
+                    onClick={() => setActiveTab(i)}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[13px] font-medium transition-colors cursor-pointer select-none ${
+                      i === activeTab
+                        ? 'bg-brand-green text-[#0d0d0d]'
+                        : 'bg-bg-main border border-border-main text-text-muted hover:text-text-main hover:border-text-muted/40'
+                    }`}
+                  >
+                    {tpl.name}
                     {templates.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => deleteTemplate(i)}
-                        className="ml-0.5 text-text-muted/50 hover:text-[#d45656] text-sm leading-none cursor-pointer transition-colors"
+                        onClick={e => { e.stopPropagation(); deleteTemplate(i) }}
+                        className={`ml-0.5 leading-none text-base transition-colors cursor-pointer ${
+                          i === activeTab
+                            ? 'text-[#0d0d0d]/60 hover:text-[#d45656]'
+                            : 'text-text-muted/50 hover:text-[#d45656]'
+                        }`}
                         title="删除模板"
                       >&times;</button>
                     )}
-                  </div>
+                  </span>
                 ))}
                 <button
                   type="button"
                   onClick={addTemplate}
-                  className="px-3 py-1.5 rounded-full text-[13px] font-medium bg-bg-main border border-dashed border-border-main text-text-muted hover:border-brand-green hover:text-brand-green-hover transition-colors cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg text-[13px] font-medium bg-bg-main border border-dashed border-border-main text-text-muted hover:border-brand-green hover:text-brand-green-hover transition-colors cursor-pointer"
                 >
                   + 新建
                 </button>
@@ -1310,21 +1312,13 @@ function WelcomeSection({ form, update }) {
                 </div>
               ))}
 
-              {/* Add group assignment */}
+              {/* Add group assignment — dropdown picker */}
               {unassignedGroups.length > 0 && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (unassignedGroups.length > 0) {
-                        updateGroupMapping(unassignedGroups[0].chat_id, defaultTemplate)
-                      }
-                    }}
-                    className="px-3 py-2 rounded-xl text-[12px] text-text-muted bg-bg-main border border-dashed border-border-main hover:border-brand-green hover:text-brand-green-hover transition-colors cursor-pointer w-full text-left"
-                  >
-                    + 为群聊单独配置（{unassignedGroups.length} 个群聊未配置）
-                  </button>
-                </div>
+                <AddGroupPicker
+                  unassignedGroups={unassignedGroups}
+                  defaultTemplate={defaultTemplate}
+                  onAdd={(chatId, templateId) => updateGroupMapping(chatId, templateId)}
+                />
               )}
             </div>
 
@@ -1358,6 +1352,90 @@ function WelcomeSection({ form, update }) {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ── AddGroupPicker — dropdown to pick an unassigned group ──────────
+
+function AddGroupPicker({ unassignedGroups, defaultTemplate, onAdd }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef(null)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  useEffect(() => {
+    if (open && inputRef.current) {
+      inputRef.current.focus()
+      setSearch('')
+    }
+  }, [open])
+
+  const filtered = unassignedGroups.filter(g => {
+    if (!search.trim()) return true
+    const q = search.trim().toLowerCase()
+    return (g.group_name || g.chat_id).toLowerCase().includes(q)
+  })
+
+  function handleSelect(chatId) {
+    onAdd(chatId, defaultTemplate)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="px-3 py-2 rounded-xl text-[12px] text-text-muted bg-bg-main border border-dashed border-border-main hover:border-brand-green hover:text-brand-green-hover transition-colors cursor-pointer w-full text-left"
+      >
+        + 为群聊单独配置（{unassignedGroups.length} 个群聊未配置）
+      </button>
+      {open && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-bg-card border border-border-main rounded-xl shadow-lg overflow-hidden">
+          {/* Search input */}
+          <div className="px-3 py-2 border-b border-border-main/40">
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="搜索群聊名称..."
+              className="w-full bg-bg-main border border-border-main rounded-lg px-3 py-1.5 text-[12px] text-text-main placeholder:text-text-muted/55 focus:outline-none focus:border-brand-green transition-colors"
+            />
+          </div>
+          {/* Group list */}
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-[12px] text-text-muted text-center">
+                {search.trim() ? '无匹配群聊' : '所有群聊已配置'}
+              </div>
+            ) : (
+              filtered.map(g => (
+                <button
+                  key={g.chat_id}
+                  type="button"
+                  onClick={() => handleSelect(g.chat_id)}
+                  className="w-full text-left px-3 py-2 text-[12px] text-text-main hover:bg-bg-raised transition-colors cursor-pointer flex items-center justify-between"
+                >
+                  <span className="truncate font-mono" title={g.group_name || g.chat_id}>
+                    {g.group_name || g.chat_id}
+                  </span>
+                  <span className="text-[10px] text-text-muted shrink-0 ml-2">
+                    {g.member_count ? `${g.member_count} 人` : ''}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

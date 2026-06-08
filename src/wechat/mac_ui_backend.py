@@ -9,6 +9,7 @@ import logging
 import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -33,6 +34,7 @@ OCR_TITLE_TRANSLATION = str.maketrans({
     "羣": "群",
 })
 OCR_TITLE_LOOSE_DROP_CHARS = str.maketrans("", "", "「」『』“”‘’\"'")
+UNREAD_SUFFIX_RE = re.compile(r"[\(（][0-9]+[\)）]$")
 
 
 class MacUIAutomation:
@@ -775,11 +777,15 @@ print(String(data: data, encoding: .utf8)!)
     ) -> bool:
         expected = cls._normalize_title(expected_title)
         loose_expected = cls._normalize_title_loose(expected_title)
+        expected_base = cls._strip_unread_suffix(expected)
+        loose_expected_base = cls._strip_unread_suffix(loose_expected)
         if not expected:
             return False
         for text in texts:
             actual = cls._normalize_title(text)
             loose_actual = cls._normalize_title_loose(text)
+            actual_base = cls._strip_unread_suffix(actual)
+            loose_actual_base = cls._strip_unread_suffix(loose_actual)
             if not actual:
                 continue
             if require_group_marker:
@@ -794,10 +800,12 @@ print(String(data: data, encoding: .utf8)!)
             if expected_is_group:
                 if (
                     actual == expected
+                    or actual_base == expected_base
                     or actual.startswith(expected + "(")
                     or actual.startswith(expected + "（")
                     or (len(expected) >= 3 and actual.startswith(expected))
                     or (loose_expected and loose_actual == loose_expected)
+                    or (loose_expected_base and loose_actual_base == loose_expected_base)
                     or (loose_expected and loose_actual.startswith(loose_expected + "("))
                     or (loose_expected and loose_actual.startswith(loose_expected + "（"))
                     or (
@@ -816,7 +824,8 @@ print(String(data: data, encoding: .utf8)!)
 
     @staticmethod
     def _normalize_title(value: str) -> str:
-        compact = "".join(str(value or "").strip().translate(OCR_TITLE_TRANSLATION).split())
+        normalized = unicodedata.normalize("NFKC", str(value or ""))
+        compact = "".join(normalized.strip().translate(OCR_TITLE_TRANSLATION).split())
         return "".join(
             ch for ch in compact
             if unicodedata.category(ch) not in {"Cc", "Cf"}
@@ -825,6 +834,10 @@ print(String(data: data, encoding: .utf8)!)
     @classmethod
     def _normalize_title_loose(cls, value: str) -> str:
         return cls._normalize_title(value).translate(OCR_TITLE_LOOSE_DROP_CHARS)
+
+    @staticmethod
+    def _strip_unread_suffix(value: str) -> str:
+        return UNREAD_SUFFIX_RE.sub("", str(value or ""))
 
     def _bring_wechat_frontmost(self) -> bool:
         if not self._run(["open", "-a", self._app_name], timeout=8):

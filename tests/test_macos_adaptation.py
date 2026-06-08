@@ -885,6 +885,22 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertEqual(point, {"x": 350.0, "y": 385.0})
 
+    def test_mac_ui_search_result_picker_accepts_partial_frequent_match_before_network(self):
+        entries = [
+            {"text": "最常使用", "x": 168, "y": 180, "w": 120, "h": 24},
+            {"text": "YunShuLink Q", "x": 220, "y": 240, "w": 180, "h": 30},
+            {"text": "更多", "x": 168, "y": 308, "w": 80, "h": 24},
+            {"text": "网络查找微信号： YunShuLink", "x": 220, "y": 370, "w": 260, "h": 30},
+        ]
+
+        point = MacUIAutomation._search_result_click_point(
+            entries,
+            "YunShuLink",
+            expected_is_group=True,
+        )
+
+        self.assertEqual(point, {"x": 310.0, "y": 255.0})
+
     def test_mac_ui_search_result_picker_refuses_network_only_result(self):
         entries = [
             {"text": "搜索网络结果", "x": 200, "y": 300, "w": 160, "h": 24},

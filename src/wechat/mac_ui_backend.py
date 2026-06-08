@@ -363,12 +363,6 @@ class MacUIAutomation:
             if group_partial_candidates:
                 return min(group_partial_candidates, key=lambda c: c["y"])
 
-        if not candidates:
-            return None
-
-        if prefer_group:
-            return None
-
         if frequent_y is not None:
             frequent_candidates = [
                 c for c in candidates
@@ -376,6 +370,21 @@ class MacUIAutomation:
             ]
             if frequent_candidates:
                 return min(frequent_candidates, key=lambda c: c["y"])
+            frequent_boundary = cls._next_label_y(labels, frequent_y)
+            frequent_partial_candidates = [
+                c for c in partial_candidates
+                if c["y"] > frequent_y
+                and (frequent_boundary is None or c["y"] < frequent_boundary)
+                and (network_y is None or c["y"] < network_y)
+            ]
+            if frequent_partial_candidates:
+                return min(frequent_partial_candidates, key=lambda c: c["y"])
+
+        if not candidates:
+            return None
+
+        if prefer_group:
+            return None
 
         if network_y is not None:
             safe_candidates = [c for c in candidates if c["y"] < network_y]
@@ -421,11 +430,16 @@ class MacUIAutomation:
 
     @classmethod
     def _is_search_section_label(cls, normalized: str) -> bool:
-        return normalized in {"群聊", "最常使用", "联系人", "聊天记录"} or cls._is_search_network_label(normalized)
+        return normalized in {"群聊", "最常使用", "联系人", "聊天记录", "更多"} or cls._is_search_network_label(normalized)
 
     @staticmethod
     def _is_search_result_metadata(normalized: str) -> bool:
-        return normalized.startswith("包含:") or normalized.startswith("包含：")
+        return (
+            normalized.startswith("包含:")
+            or normalized.startswith("包含：")
+            or normalized.startswith("网络查找微信号:")
+            or normalized.startswith("网络查找微信号：")
+        )
 
     @staticmethod
     def _next_label_y(labels: list[dict], after_y: float) -> float | None:

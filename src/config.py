@@ -173,6 +173,22 @@ class BotConfig:
     summarize_enabled: bool = True
     fallback_window_hours: int = 8
 
+    # === Feishu / Lark Export ===
+    feishu_export_enabled: bool = False
+    feishu_app_id: str = ""
+    feishu_app_secret: str = ""
+    # spreadsheet, bitable, or docx
+    feishu_export_mode: str = "spreadsheet"
+    feishu_export_window_hours: int = 8
+    feishu_export_trigger_keywords: list[str] = field(default_factory=lambda: [
+        "同步到飞书", "导出到飞书", "写到飞书", "沉淀到飞书",
+    ])
+    feishu_spreadsheet_token: str = ""
+    feishu_spreadsheet_range: str = "Sheet1!A:H"
+    feishu_bitable_app_token: str = ""
+    feishu_bitable_table_id: str = ""
+    feishu_doc_folder_token: str = ""
+
     # === Database ===
     db_path: str = "data/messages.db"
 
@@ -300,6 +316,22 @@ def _validate_config(kwargs: dict) -> None:
                 f"MAX_RETRIES must be between 1 and 10, got {max_retries}"
             )
 
+    # feishu_export_mode
+    feishu_export_mode = kwargs.get("feishu_export_mode", "spreadsheet")
+    if feishu_export_mode not in ("spreadsheet", "bitable", "docx"):
+        errors.append(
+            "FEISHU_EXPORT_MODE must be one of spreadsheet, bitable, docx, "
+            f"got {feishu_export_mode}"
+        )
+
+    # feishu_export_window_hours
+    feishu_export_window_hours = kwargs.get("feishu_export_window_hours", 8)
+    if not (1 <= feishu_export_window_hours <= 168):
+        errors.append(
+            "FEISHU_EXPORT_WINDOW_HOURS must be between 1 and 168, "
+            f"got {feishu_export_window_hours}"
+        )
+
     if errors:
         msg = "配置值无效:\n" + "\n".join(f"  - {err}" for err in errors)
         raise RuntimeError(msg)
@@ -332,6 +364,12 @@ def load_config() -> BotConfig:
         if keywords_str
         else None  # let the dataclass default apply
     )
+    feishu_keywords_str = os.getenv("FEISHU_EXPORT_TRIGGER_KEYWORDS", "").strip()
+    feishu_export_trigger_keywords = (
+        [kw.strip() for kw in feishu_keywords_str.split(",") if kw.strip()]
+        if feishu_keywords_str
+        else None
+    )
 
     kwargs: dict = {
         "ai_backend": ai_backend,
@@ -352,6 +390,16 @@ def load_config() -> BotConfig:
         "max_messages_for_summary": int(os.getenv("MAX_MESSAGES_FOR_SUMMARY", "5000")),
         "chunk_size": int(os.getenv("CHUNK_SIZE", "400")),
         "fallback_window_hours": int(os.getenv("FALLBACK_WINDOW_HOURS", "8")),
+        "feishu_export_enabled": os.getenv("FEISHU_EXPORT_ENABLED", "false").strip().lower() == "true",
+        "feishu_app_id": os.getenv("FEISHU_APP_ID", "").strip(),
+        "feishu_app_secret": os.getenv("FEISHU_APP_SECRET", "").strip(),
+        "feishu_export_mode": os.getenv("FEISHU_EXPORT_MODE", "spreadsheet").strip().lower(),
+        "feishu_export_window_hours": int(os.getenv("FEISHU_EXPORT_WINDOW_HOURS", "8")),
+        "feishu_spreadsheet_token": os.getenv("FEISHU_SPREADSHEET_TOKEN", "").strip(),
+        "feishu_spreadsheet_range": os.getenv("FEISHU_SPREADSHEET_RANGE", "Sheet1!A:H").strip(),
+        "feishu_bitable_app_token": os.getenv("FEISHU_BITABLE_APP_TOKEN", "").strip(),
+        "feishu_bitable_table_id": os.getenv("FEISHU_BITABLE_TABLE_ID", "").strip(),
+        "feishu_doc_folder_token": os.getenv("FEISHU_DOC_FOLDER_TOKEN", "").strip(),
         "fun_enabled": os.getenv("FUN_ENABLED", "true").strip().lower() == "true",
         "summarize_enabled": os.getenv("SUMMARIZE_ENABLED", "true").strip().lower() == "true",
         "proactive_enabled": os.getenv("PROACTIVE_ENABLED", "false").strip().lower() == "true",
@@ -377,6 +425,8 @@ def load_config() -> BotConfig:
 
     if trigger_keywords is not None:
         kwargs["trigger_keywords"] = trigger_keywords
+    if feishu_export_trigger_keywords is not None:
+        kwargs["feishu_export_trigger_keywords"] = feishu_export_trigger_keywords
 
     _validate_config(kwargs)
 

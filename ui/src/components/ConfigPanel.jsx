@@ -406,6 +406,147 @@ function FeaturesSection({ form, update }) {
   )
 }
 
+function FeishuSection({ form, update }) {
+  const keywords = Array.isArray(form.feishu_export_trigger_keywords)
+    ? form.feishu_export_trigger_keywords
+    : String(form.feishu_export_trigger_keywords || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+  const mode = form.feishu_export_mode || 'spreadsheet'
+  const modeLabel = mode === 'bitable' ? '多维表格' : mode === 'docx' ? '文档' : '电子表格'
+
+  function addKeyword(value) {
+    const val = value.trim()
+    if (val && !keywords.includes(val)) {
+      update('feishu_export_trigger_keywords', [...keywords, val])
+    }
+  }
+
+  function removeKeyword(index) {
+    if (keywords.length <= 1) return
+    update('feishu_export_trigger_keywords', keywords.filter((_, i) => i !== index))
+  }
+
+  function clampWindow(value) {
+    return Math.max(1, Math.min(168, parseInt(value) || 8))
+  }
+
+  return (
+    <div>
+      <div className="py-4 border-b border-border-main/50">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 mr-8">
+            <p className="text-[15px] text-text-main font-medium">飞书同步</p>
+            <p className="text-sm text-text-muted mt-1.5">@机器人说触发词后，将最近群聊摘要写入飞书</p>
+          </div>
+          <Toggle enabled={form.feishu_export_enabled} onChange={v => update('feishu_export_enabled', v)} />
+        </div>
+        <AnimatePresence>
+          {form.feishu_export_enabled && (
+            <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
+              className="mt-3 p-4 bg-bg-raised rounded-lg space-y-4">
+              <Field label="飞书应用凭证" hint="使用企业自建应用的 App ID 和 App Secret">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Input value={form.feishu_app_id || ''} onChange={v => update('feishu_app_id', v)} placeholder="cli_xxxxxxxxxxxxxxxx" />
+                  <Input type="password" value={form.feishu_app_secret || ''} onChange={v => update('feishu_app_secret', v)} placeholder="App Secret" />
+                </div>
+              </Field>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <ParamRow label="写入目标" hint="选择摘要沉淀到哪种飞书资产">
+                  <Select value={mode} onChange={v => update('feishu_export_mode', v)} options={[
+                    { value: 'spreadsheet', desc: '电子表格', hint: '追加一行摘要' },
+                    { value: 'bitable', desc: '多维表格', hint: '创建一条记录' },
+                    { value: 'docx', desc: '文档', hint: '创建一篇摘要文档' },
+                  ]} />
+                </ParamRow>
+                <ParamRow label="同步窗口" hint="拉取触发前 N 小时消息，范围 1-168">
+                  <Input type="number" value={String(form.feishu_export_window_hours || 8)}
+                    onChange={v => update('feishu_export_window_hours', clampWindow(v))} />
+                </ParamRow>
+              </div>
+
+              <div>
+                <p className="text-[14px] text-text-main font-medium">飞书触发词</p>
+                <p className="text-xs text-text-muted mt-0.5 mb-2">
+                  @机器人后的文本包含任一触发词时，会执行飞书同步。
+                </p>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {keywords.map((kw, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green">
+                      {kw}
+                      <button type="button"
+                        disabled={keywords.length <= 1}
+                        onClick={() => removeKeyword(i)}
+                        className={`ml-0.5 leading-none text-base transition-colors ${
+                          keywords.length <= 1
+                            ? 'text-text-muted cursor-not-allowed'
+                            : 'text-brand-green-hover/60 hover:text-[#d45656] cursor-pointer'
+                        }`}>&times;</button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input type="text" id="new-feishu-keyword-input"
+                    placeholder="输入新触发词，回车添加"
+                    className="flex-1 bg-bg-main border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all duration-200"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addKeyword(e.target.value)
+                        e.target.value = ''
+                      }
+                    }} />
+                  <button type="button"
+                    onClick={() => {
+                      const input = document.getElementById('new-feishu-keyword-input')
+                      if (!input) return
+                      addKeyword(input.value)
+                      input.value = ''
+                    }}
+                    className="px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer">
+                    添加
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-border-main/50 pt-4">
+                <p className="text-[14px] text-text-main font-medium mb-3">{modeLabel}参数</p>
+                {mode === 'spreadsheet' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <ParamRow label="Spreadsheet Token" hint="飞书电子表格 URL 中的 spreadsheetToken">
+                      <Input value={form.feishu_spreadsheet_token || ''} onChange={v => update('feishu_spreadsheet_token', v)} placeholder="shtcnxxxxxxxxxxxx" />
+                    </ParamRow>
+                    <ParamRow label="写入范围" hint="追加写入的 sheet 范围">
+                      <Input value={form.feishu_spreadsheet_range || 'Sheet1!A:H'} onChange={v => update('feishu_spreadsheet_range', v)} placeholder="Sheet1!A:H" />
+                    </ParamRow>
+                  </div>
+                )}
+                {mode === 'bitable' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <ParamRow label="Bitable App Token" hint="多维表格 URL 中的 app_token">
+                      <Input value={form.feishu_bitable_app_token || ''} onChange={v => update('feishu_bitable_app_token', v)} placeholder="base_xxxxxxxxxxxx" />
+                    </ParamRow>
+                    <ParamRow label="Table ID" hint="目标数据表 table_id">
+                      <Input value={form.feishu_bitable_table_id || ''} onChange={v => update('feishu_bitable_table_id', v)} placeholder="tblxxxxxxxxxxxx" />
+                    </ParamRow>
+                  </div>
+                )}
+                {mode === 'docx' && (
+                  <ParamRow label="Folder Token" hint="可选。填写后文档会创建到指定飞书文件夹">
+                    <Input value={form.feishu_doc_folder_token || ''} onChange={v => update('feishu_doc_folder_token', v)} placeholder="fldxxxxxxxxxxxx" />
+                  </ParamRow>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+}
+
 // ── Lots Editor (抽签配置编辑器) ─────────────────────────────────────────
 
 function LotsEditor() {
@@ -666,8 +807,8 @@ function LotsEditor() {
   )
 }
 
-const sectionTitles = { ai: 'AI 后端配置', identity: '机器人身份', data: '数据路径', features: '功能开关', sandbox: '提示词沙箱' }
-const sectionAccents = { ai: '#18E299', identity: '#3772cf', data: '#18E299', features: '#c37d0d', sandbox: '#8b5cf6' }
+const sectionTitles = { ai: 'AI 后端配置', identity: '机器人身份', data: '数据路径', features: '功能开关', feishu: '飞书同步', sandbox: '提示词沙箱' }
+const sectionAccents = { ai: '#18E299', identity: '#3772cf', data: '#18E299', features: '#c37d0d', feishu: '#3772cf', sandbox: '#8b5cf6' }
 
 // ── Data Path Section (微信数据目录配置) ──────────────────────────────
 
@@ -1659,6 +1800,12 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     sticky_mention_enabled: true, sticky_mention_ttl_sec: 60,
     summarize_enabled: true, fallback_window_hours: 8, trigger_keywords: [],
     welcome_enabled: false,
+    feishu_export_enabled: false, feishu_app_id: '', feishu_app_secret: '',
+    feishu_export_mode: 'spreadsheet', feishu_export_window_hours: 8,
+    feishu_export_trigger_keywords: ['同步到飞书', '导出到飞书', '写到飞书', '沉淀到飞书'],
+    feishu_spreadsheet_token: '', feishu_spreadsheet_range: 'Sheet1!A:H',
+    feishu_bitable_app_token: '', feishu_bitable_table_id: '',
+    feishu_doc_folder_token: '',
     log_level: 'INFO', wechat_data_dir: '',
   })
 
@@ -1776,6 +1923,17 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           fallback_window_hours: form.fallback_window_hours,
           trigger_keywords: form.trigger_keywords,
           welcome_enabled: form.welcome_enabled,
+          feishu_export_enabled: form.feishu_export_enabled,
+          feishu_app_id: form.feishu_app_id,
+          feishu_app_secret: form.feishu_app_secret,
+          feishu_export_mode: form.feishu_export_mode,
+          feishu_export_window_hours: form.feishu_export_window_hours,
+          feishu_export_trigger_keywords: form.feishu_export_trigger_keywords,
+          feishu_spreadsheet_token: form.feishu_spreadsheet_token,
+          feishu_spreadsheet_range: form.feishu_spreadsheet_range,
+          feishu_bitable_app_token: form.feishu_bitable_app_token,
+          feishu_bitable_table_id: form.feishu_bitable_table_id,
+          feishu_doc_folder_token: form.feishu_doc_folder_token,
           log_level: form.log_level,
           wechat_data_dir: form.wechat_data_dir,
         }),
@@ -1846,6 +2004,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
                 {activeSection === 'identity' && <IdentitySection form={form} update={update} />}
                 {activeSection === 'data' && <DataPathSection form={form} update={update} detectedDataDir={detectedDataDir} />}
                 {activeSection === 'features' && <FeaturesSection form={form} update={update} />}
+                {activeSection === 'feishu' && <FeishuSection form={form} update={update} />}
                 {activeSection === 'sandbox' && <SandboxSection form={form} />}
               </div>
             </div>

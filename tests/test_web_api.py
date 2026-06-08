@@ -1054,6 +1054,43 @@ class ApiConfigEndpointTests(unittest.TestCase):
             self.assertEqual(config["bot_display_name"], "MyBot")
             self.assertFalse(config["fun_enabled"])
 
+    def test_load_config_reads_feishu_export_values(self):
+        """GET /api/load-config reads Feishu export settings from .env."""
+        with patch("src.web.server._find_or_create_env") as mock_find:
+            fake_env = MagicMock()
+            fake_env.exists.return_value = True
+            fake_env.read_text.return_value = (
+                "FEISHU_EXPORT_ENABLED=true\n"
+                "FEISHU_APP_ID=cli_test\n"
+                "FEISHU_APP_SECRET=secret_test\n"
+                "FEISHU_EXPORT_MODE=bitable\n"
+                "FEISHU_EXPORT_WINDOW_HOURS=6\n"
+                "FEISHU_EXPORT_TRIGGER_KEYWORDS=同步到飞书,导出到飞书\n"
+                "FEISHU_SPREADSHEET_TOKEN=sht_test\n"
+                "FEISHU_SPREADSHEET_RANGE=Sheet1!A:H\n"
+                "FEISHU_BITABLE_APP_TOKEN=base_test\n"
+                "FEISHU_BITABLE_TABLE_ID=tbl_test\n"
+                "FEISHU_DOC_FOLDER_TOKEN=fld_test\n"
+            )
+            mock_find.return_value = fake_env
+
+            handler, sock = _build_handler("/api/load-config")
+            parts = sock.get_response_text().split("\r\n\r\n", 1)
+            body = json.loads(parts[1])
+
+        config = body["config"]
+        self.assertTrue(config["feishu_export_enabled"])
+        self.assertEqual(config["feishu_app_id"], "cli_test")
+        self.assertEqual(config["feishu_app_secret"], "secret_test")
+        self.assertEqual(config["feishu_export_mode"], "bitable")
+        self.assertEqual(config["feishu_export_window_hours"], 6)
+        self.assertEqual(config["feishu_export_trigger_keywords"], ["同步到飞书", "导出到飞书"])
+        self.assertEqual(config["feishu_spreadsheet_token"], "sht_test")
+        self.assertEqual(config["feishu_spreadsheet_range"], "Sheet1!A:H")
+        self.assertEqual(config["feishu_bitable_app_token"], "base_test")
+        self.assertEqual(config["feishu_bitable_table_id"], "tbl_test")
+        self.assertEqual(config["feishu_doc_folder_token"], "fld_test")
+
     def test_load_config_empty_env_returns_defaults(self):
         """GET /api/load-config with empty env returns defaults."""
         with patch("src.web.server._find_or_create_env") as mock_find:
@@ -1152,6 +1189,64 @@ class ApiConfigEndpointTests(unittest.TestCase):
             self.assertIn("BOT_DISPLAY_NAME=new-name", saved_content)
             self.assertIn("FUN_ENABLED=false", saved_content)
             self.assertIn("AI_BACKEND=deepseek", saved_content)
+        finally:
+            tmp_env.unlink(missing_ok=True)
+            for f in tmp_dir.glob("*"):
+                f.unlink(missing_ok=True)
+            tmp_dir.rmdir()
+
+    def test_save_config_roundtrip_feishu_export_values(self):
+        """POST /api/config persists Feishu settings and load-config reads them."""
+        tmp_dir = Path(tempfile.mkdtemp())
+        tmp_env = tmp_dir / ".env"
+        tmp_env.write_text("AI_BACKEND=deepseek\n", encoding="utf-8")
+        try:
+            save_body = json.dumps({
+                "feishu_export_enabled": True,
+                "feishu_app_id": "cli_test",
+                "feishu_app_secret": "secret_test",
+                "feishu_export_mode": "docx",
+                "feishu_export_window_hours": 12,
+                "feishu_export_trigger_keywords": ["同步到飞书", "飞书沉淀"],
+                "feishu_spreadsheet_token": "sht_test",
+                "feishu_spreadsheet_range": "Sheet1!A:H",
+                "feishu_bitable_app_token": "base_test",
+                "feishu_bitable_table_id": "tbl_test",
+                "feishu_doc_folder_token": "fld_test",
+            }).encode()
+            with patch("src.web.server._find_or_create_env", return_value=tmp_env):
+                handler, sock = _build_handler(
+                    "/api/config", method="POST",
+                    body=save_body,
+                    headers={"Content-Type": "application/json",
+                             "Content-Length": str(len(save_body))},
+                )
+                parts = sock.get_response_text().split("\r\n\r\n", 1)
+                result = json.loads(parts[1])
+                self.assertTrue(result["ok"])
+
+            saved = tmp_env.read_text(encoding="utf-8")
+            self.assertIn("FEISHU_EXPORT_ENABLED=true", saved)
+            self.assertIn("FEISHU_APP_ID=cli_test", saved)
+            self.assertIn("FEISHU_APP_SECRET=secret_test", saved)
+            self.assertIn("FEISHU_EXPORT_MODE=docx", saved)
+            self.assertIn("FEISHU_EXPORT_WINDOW_HOURS=12", saved)
+            self.assertIn("FEISHU_EXPORT_TRIGGER_KEYWORDS=同步到飞书,飞书沉淀", saved)
+            self.assertIn("FEISHU_SPREADSHEET_TOKEN=sht_test", saved)
+            self.assertIn("FEISHU_SPREADSHEET_RANGE=Sheet1!A:H", saved)
+            self.assertIn("FEISHU_BITABLE_APP_TOKEN=base_test", saved)
+            self.assertIn("FEISHU_BITABLE_TABLE_ID=tbl_test", saved)
+            self.assertIn("FEISHU_DOC_FOLDER_TOKEN=fld_test", saved)
+
+            with patch("src.web.server._find_or_create_env", return_value=tmp_env):
+                handler, sock = _build_handler("/api/load-config")
+                parts = sock.get_response_text().split("\r\n\r\n", 1)
+                body = json.loads(parts[1])
+
+            config = body["config"]
+            self.assertTrue(config["feishu_export_enabled"])
+            self.assertEqual(config["feishu_export_mode"], "docx")
+            self.assertEqual(config["feishu_export_trigger_keywords"], ["同步到飞书", "飞书沉淀"])
         finally:
             tmp_env.unlink(missing_ok=True)
             for f in tmp_dir.glob("*"):

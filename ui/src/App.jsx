@@ -19,6 +19,7 @@ const TABS = [
       { id: 'ai', label: 'AI 后端配置' },
       { id: 'identity', label: '机器人身份' },
       { id: 'features', label: '功能开关' },
+      { id: 'feishu', label: '飞书同步' },
       { id: 'data', label: '数据路径' },
       { id: 'sandbox', label: '提示词沙箱' },
     ],

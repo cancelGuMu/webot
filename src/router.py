@@ -52,7 +52,7 @@ class MessageRouter:
     """
 
     def __init__(self, store, detector, summarizer, admin_handler,
-                 nickname_service, config):
+                 nickname_service, config, feishu_export_service=None):
         """
         Args:
             store: MessageStore instance for persistence and queries.
@@ -61,6 +61,7 @@ class MessageRouter:
             admin_handler: AdminCommandHandler instance.
             nickname_service: NicknameService instance.
             config: BotConfig instance.
+            feishu_export_service: Optional FeishuExportService instance.
         """
         self._store = store
         self._detector = detector
@@ -68,6 +69,7 @@ class MessageRouter:
         self._admin = admin_handler
         self._nicks = nickname_service
         self._config = config
+        self._feishu_export = feishu_export_service
         self._proactive = ProactiveGate(config)
         self._sticky = StickyMentionTracker(
             ttl_sec=config.sticky_mention_ttl_sec,
@@ -171,7 +173,15 @@ class MessageRouter:
                     self._config.sticky_mention_ttl_sec,
                 )
 
-            if clean_content.strip() in ("帮助", "help", "命令"):
+            if (
+                reply is None
+                and self._feishu_export is not None
+                and self._feishu_export.is_export_command(clean_content)
+            ):
+                result = self._feishu_export.export_recent_chat(msg)
+                reply = result.reply_text
+
+            if reply is None and clean_content.strip() in ("帮助", "help", "命令"):
                 reply = self._admin.handle(clean_content, msg["sender_name"])
 
             elif self._config.fun_enabled and clean_content.strip() == "抽签":

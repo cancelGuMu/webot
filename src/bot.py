@@ -19,6 +19,7 @@ from .trigger import TriggerDetector
 from .nickname import NicknameService
 from .admin import AdminCommandHandler
 from .router import MessageRouter
+from .integrations.feishu import FeishuExportService
 from .utils.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -215,6 +216,11 @@ class Bot:
         summarizer = create_summarizer(config)
         nickname_service = NicknameService()
         admin_handler = AdminCommandHandler(nickname_service)
+        feishu_export_service = FeishuExportService(
+            config=config,
+            store=store,
+            summarizer=summarizer,
+        )
 
         router = MessageRouter(
             store=store,
@@ -223,6 +229,7 @@ class Bot:
             admin_handler=admin_handler,
             nickname_service=nickname_service,
             config=config,
+            feishu_export_service=feishu_export_service,
         )
 
         # ── 4. Web UI status ────────────────────────────────────

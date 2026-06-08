@@ -181,7 +181,8 @@ class FeishuClientTests(unittest.TestCase):
         self.assertEqual(token, "t-test")
         self.assertEqual(body["table"]["name"], "群聊摘要")
         self.assertEqual(body["table"]["default_view_name"], "默认视图")
-        self.assertEqual(body["fields"][0]["field_name"], "群聊")
+        self.assertEqual(body["table"]["fields"][0]["field_name"], "群聊")
+        self.assertNotIn("fields", body)
 
 
 class FeishuExportServiceTests(unittest.TestCase):

@@ -132,8 +132,8 @@ class FeishuClient:
                 "table": {
                     "name": table_name,
                     "default_view_name": "默认视图",
+                    "fields": fields,
                 },
-                "fields": fields,
             },
             self.tenant_access_token(),
             None,

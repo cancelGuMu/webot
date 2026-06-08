@@ -109,6 +109,10 @@ class MessageRouter:
         # Check memory consolidation trigger (fast no-op unless threshold hit)
         self._memory.check_and_consolidate(msg["chat_id"])
 
+        # ── Welcome new member ────────────────────────────────────
+        if msg.get("is_system_join") and self._config.welcome_enabled:
+            return self._handle_welcome(msg)
+
         # ── Route: @mention vs proactive ─────────────────────────
         # Sticky mention: if the user previously sent an empty @mention,
         # their next message is treated as if it were @mentioned (one-shot).
@@ -373,6 +377,40 @@ class MessageRouter:
         except Exception as e:
             logger.error("AI chat failed: %s", e)
             return f"@{display_name} 大脑短路了，稍等再试～"
+
+    # ── Welcome handler ─────────────────────────────────────────
+
+    def _handle_welcome(self, msg: dict) -> str | None:
+        """Send a welcome message for a new group member.
+
+        Resolves the appropriate welcome template for the group,
+        replaces ``{new_member}`` with the new member's identifier,
+        and returns the final text.  Returns None if the group has
+        explicitly disabled welcome or no template matches.
+        """
+        from .welcome import get_welcome_manager
+
+        new_member = msg.get("new_member_id", "")
+        if not new_member:
+            logger.warning("Welcome: missing new_member_id in join event")
+            return None
+
+        chat_id = msg["chat_id"]
+        wm = get_welcome_manager()
+        welcome_text = wm.resolve_message(chat_id, new_member)
+
+        if not welcome_text:
+            logger.info(
+                "Welcome: skipped for '%s' in %s (disabled or no template)",
+                new_member, msg.get("group_name", chat_id[:20]),
+            )
+            return None
+
+        logger.info(
+            "Welcome: new member '%s' in %s → '%s'",
+            new_member, msg.get("group_name", chat_id[:20]), welcome_text[:40],
+        )
+        return welcome_text
 
     # ── Proactive chat handler ────────────────────────────────────
 

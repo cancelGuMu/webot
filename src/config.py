@@ -192,6 +192,12 @@ class BotConfig:
     proactive_rate_lively: float = 6.5    # CASUAL → LIVELY boundary
     proactive_rate_burst: float = 8.5     # LIVELY → BURST  boundary
 
+    # === Welcome New Member ===
+    # Master switch — automatically send a welcome message when a new
+    # member joins a group chat.  Welcome templates and per-group settings
+    # are stored in data/welcome_templates.json.
+    welcome_enabled: bool = False
+
     # === Sticky Mention ===
     # When a user sends @bot with no message text, enter sticky listening
     # mode.  The user's next message in the same group is treated as if it
@@ -354,6 +360,7 @@ def load_config() -> BotConfig:
         "proactive_rate_casual": float(os.getenv("PROACTIVE_RATE_CASUAL", "4.0")),
         "proactive_rate_lively": float(os.getenv("PROACTIVE_RATE_LIVELY", "6.5")),
         "proactive_rate_burst": float(os.getenv("PROACTIVE_RATE_BURST", "8.5")),
+        "welcome_enabled": os.getenv("WELCOME_ENABLED", "false").strip().lower() == "true",
         "sticky_mention_enabled": os.getenv("STICKY_MENTION_ENABLED", "true").strip().lower() == "true",
         "sticky_mention_ttl_sec": int(os.getenv("STICKY_MENTION_TTL_SEC", "60")),
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),

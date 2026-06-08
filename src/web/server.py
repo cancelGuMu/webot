@@ -844,6 +844,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
         # Only delegate specific API paths; return 405 for unknown POST paths
         if self.path in ("/api/config", "/api/config/import", "/api/start", "/api/stop",
                          "/api/nicknames",
+                         "/api/welcome/templates",
                          "/api/onboarding/reset",
                          "/api/onboarding/step1", "/api/onboarding/step2",
                          "/api/onboarding/step3", "/api/onboarding/step4",
@@ -937,6 +938,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "proactive_rate_casual": float(raw.get("PROACTIVE_RATE_CASUAL", "4.0")),
                     "proactive_rate_lively": float(raw.get("PROACTIVE_RATE_LIVELY", "6.5")),
                     "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
+                    "welcome_enabled": raw.get("WELCOME_ENABLED", "false").lower() == "true",
                     "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
                     "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
                     "summarize_enabled": raw.get("SUMMARIZE_ENABLED", "true").lower() == "true",
@@ -982,6 +984,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "proactive_rate_casual": float(raw.get("PROACTIVE_RATE_CASUAL", "4.0")),
                     "proactive_rate_lively": float(raw.get("PROACTIVE_RATE_LIVELY", "6.5")),
                     "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
+                    "welcome_enabled": raw.get("WELCOME_ENABLED", "false").lower() == "true",
                     "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
                     "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
                     "summarize_enabled": raw.get("SUMMARIZE_ENABLED", "true").lower() == "true",
@@ -1035,6 +1038,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         "PROACTIVE_RATE_CASUAL": str(config.get("proactive_rate_casual", 4.0)),
                         "PROACTIVE_RATE_LIVELY": str(config.get("proactive_rate_lively", 6.5)),
                         "PROACTIVE_RATE_BURST": str(config.get("proactive_rate_burst", 8.5)),
+                        "WELCOME_ENABLED": str(config.get("welcome_enabled", False)).lower(),
                         "STICKY_MENTION_ENABLED": str(config.get("sticky_mention_enabled", True)).lower(),
                         "STICKY_MENTION_TTL_SEC": str(config.get("sticky_mention_ttl_sec", 60)),
                         "SUMMARIZE_ENABLED": str(config.get("summarize_enabled", True)).lower(),
@@ -1107,6 +1111,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "PROACTIVE_RATE_CASUAL": str(config.get("proactive_rate_casual", 4.0)),
                     "PROACTIVE_RATE_LIVELY": str(config.get("proactive_rate_lively", 6.5)),
                     "PROACTIVE_RATE_BURST": str(config.get("proactive_rate_burst", 8.5)),
+                    "WELCOME_ENABLED": str(config.get("welcome_enabled", False)).lower(),
                     "STICKY_MENTION_ENABLED": str(config.get("sticky_mention_enabled", True)).lower(),
                     "STICKY_MENTION_TTL_SEC": str(config.get("sticky_mention_ttl_sec", 60)),
                     "SUMMARIZE_ENABLED": str(config.get("summarize_enabled", True)).lower(),
@@ -1342,6 +1347,32 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     self.send_json({"ok": False, "error": str(e)})
                 except Exception as e:
                     logger.exception("Failed to save lots config")
+                    self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Get / Save welcome templates ─────────────────────────
+        if self.path == "/api/welcome/templates":
+            if self.command == "GET":
+                try:
+                    from src.welcome import get_welcome_manager
+                    wm = get_welcome_manager()
+                    data = wm.load()
+                    self.send_json({"ok": True, "data": data})
+                except Exception as e:
+                    logger.exception("Failed to load welcome templates")
+                    self.send_json({"ok": False, "error": str(e)})
+            else:
+                # POST — save welcome templates + group mappings
+                content_len = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_len) if content_len else b"{}"
+                try:
+                    data = json.loads(body)
+                    from src.welcome import get_welcome_manager
+                    wm = get_welcome_manager()
+                    wm.save(data)
+                    self.send_json({"ok": True})
+                except Exception as e:
+                    logger.exception("Failed to save welcome templates")
                     self.send_json({"ok": False, "error": str(e)})
             return
 

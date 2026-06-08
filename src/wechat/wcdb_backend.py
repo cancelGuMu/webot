@@ -436,14 +436,30 @@ class WcdbBackend(AbstractWeChatBackend):
         if not content:
             return None
 
-        # Skip system messages
-        sys_keywords = (
-            "修改群名", "加入了群聊", "退出了群聊",
-            "撤回了一条消息", "被移除", "开启了朋友验证",
-            "邀请", "移出了群聊",
-        )
-        if any(kw in content for kw in sys_keywords):
-            return None
+        # ── System message handling ───────────────────────────────
+        # Extract "xxx joined the group" events → welcome feature.
+        # Pattern matches: "wxid_abc"加入了群聊 / "张三"通过扫描二维码加入了群聊
+        _JOIN_PATTERN = re.compile(r'"(.+?)"(?:通过.+?)?加入了群聊')
+        join_match = _JOIN_PATTERN.search(content)
+        new_member_id: str = ""
+        is_system_join: bool = False
+        if join_match:
+            new_member_id = join_match.group(1)
+            is_system_join = True
+            logger.info(
+                "Join event detected: new_member=%s group=%s",
+                new_member_id, group_name[:20],
+            )
+
+        # Filter other system messages (but NOT join events)
+        if not is_system_join:
+            _FILTER_KEYWORDS = (
+                "修改群名", "退出了群聊",
+                "撤回了一条消息", "被移除", "开启了朋友验证",
+                "邀请", "移出了群聊",
+            )
+            if any(kw in content for kw in _FILTER_KEYWORDS):
+                return None
 
         # Parse timestamp
         ts = msg.get("create_time", msg.get("createTime", msg.get("timestamp", 0)))
@@ -496,6 +512,8 @@ class WcdbBackend(AbstractWeChatBackend):
             "timestamp": ts,
             "is_at_mentioned": is_at,
             "is_group": True,
+            "is_system_join": is_system_join,
+            "new_member_id": new_member_id,
         }
 
     def _trim_dedup(self) -> None:

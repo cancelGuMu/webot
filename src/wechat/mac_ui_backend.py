@@ -28,6 +28,8 @@ SEARCH_FIELD_Y_OFFSET = 28
 SEARCH_CLEAR_X_OFFSET = 240
 TOP_CHAT_RESULT_Y_OFFSET = 108
 GROUP_CHAT_RESULT_Y_OFFSET = 310
+TITLE_OCR_MIN_JOIN_PARTS = 5
+TITLE_OCR_MAX_JOIN_PARTS = 8
 OCR_TITLE_TRANSLATION = str.maketrans({
     "測": "测",
     "試": "试",
@@ -35,6 +37,7 @@ OCR_TITLE_TRANSLATION = str.maketrans({
 })
 OCR_TITLE_LOOSE_DROP_CHARS = str.maketrans("", "", "「」『』“”‘’\"'")
 UNREAD_SUFFIX_RE = re.compile(r"[\(（][0-9]+[\)）]$")
+TITLE_CONNECTOR_DROP_CHARS = str.maketrans("", "", "与和及&+、·")
 
 
 class MacUIAutomation:
@@ -188,6 +191,9 @@ class MacUIAutomation:
             return False
         time.sleep(0.4)
 
+        if not prefer_group and self._select_search_result():
+            return True
+
         point = self._find_existing_chat_search_result(
             window,
             chat_name,
@@ -217,6 +223,17 @@ class MacUIAutomation:
             return False
         time.sleep(0.25)
         return True
+
+    def _select_search_result(self) -> bool:
+        ok = self._run_wechat_process_script(
+            '''
+  key code 36
+''',
+            timeout=3,
+        )
+        if ok:
+            time.sleep(0.25)
+        return ok
 
     def _replace_search_text(self, window: dict, text: str) -> bool:
         if not self._click_screen(
@@ -265,14 +282,11 @@ class MacUIAutomation:
             )
             return None
 
-        if expected_is_group or prefer_group:
-            logger.warning(
-                "Refusing to blind-click macOS WeChat group search result without OCR match: %s",
-                chat_name,
-            )
-            return None
-
         offset = GROUP_CHAT_RESULT_Y_OFFSET if prefer_group else TOP_CHAT_RESULT_Y_OFFSET
+        logger.info(
+            "Clicking default macOS WeChat search result without OCR match: %s",
+            chat_name,
+        )
         return {"x": window["x"] + SEARCH_FIELD_X_OFFSET, "y": window["y"] + offset}
 
     @staticmethod
@@ -310,6 +324,8 @@ class MacUIAutomation:
     ) -> dict | None:
         target = cls._normalize_title(chat_name)
         loose_target = cls._normalize_title_loose(chat_name)
+        folded_target = cls._normalize_title_folded(chat_name)
+        loose_folded_target = cls._normalize_title_loose_folded(chat_name)
         if not target:
             return None
 
@@ -320,6 +336,8 @@ class MacUIAutomation:
             text = str(entry.get("text") or "").strip()
             normalized = cls._normalize_title(text)
             loose_normalized = cls._normalize_title_loose(text)
+            folded_normalized = cls._normalize_title_folded(text)
+            loose_folded_normalized = cls._normalize_title_loose_folded(text)
             if not normalized:
                 continue
             y = float(entry.get("y", 0))
@@ -328,17 +346,29 @@ class MacUIAutomation:
                 "text": text,
                 "normalized": normalized,
                 "loose_normalized": loose_normalized,
+                "folded_normalized": folded_normalized,
+                "loose_folded_normalized": loose_folded_normalized,
                 "y": y,
             }
             if cls._is_search_section_label(normalized):
                 labels.append(item)
                 continue
-            if normalized == target or (loose_target and loose_normalized == loose_target):
+            if (
+                normalized == target
+                or (loose_target and loose_normalized == loose_target)
+                or (folded_target and folded_normalized == folded_target)
+                or (loose_folded_target and loose_folded_normalized == loose_folded_target)
+            ):
                 candidates.append(item)
             elif (
                 (
                     target in normalized
                     or (loose_target and loose_target in loose_normalized)
+                    or (folded_target and folded_target in folded_normalized)
+                    or (
+                        loose_folded_target
+                        and loose_folded_target in loose_folded_normalized
+                    )
                 )
                 and not cls._is_search_result_metadata(normalized)
             ):
@@ -360,12 +390,6 @@ class MacUIAutomation:
             if group_partial_candidates:
                 return min(group_partial_candidates, key=lambda c: c["y"])
 
-        if not candidates:
-            return None
-
-        if prefer_group:
-            return None
-
         if frequent_y is not None:
             frequent_candidates = [
                 c for c in candidates
@@ -373,6 +397,21 @@ class MacUIAutomation:
             ]
             if frequent_candidates:
                 return min(frequent_candidates, key=lambda c: c["y"])
+            frequent_boundary = cls._next_label_y(labels, frequent_y)
+            frequent_partial_candidates = [
+                c for c in partial_candidates
+                if c["y"] > frequent_y
+                and (frequent_boundary is None or c["y"] < frequent_boundary)
+                and (network_y is None or c["y"] < network_y)
+            ]
+            if frequent_partial_candidates:
+                return min(frequent_partial_candidates, key=lambda c: c["y"])
+
+        if not candidates:
+            return None
+
+        if prefer_group:
+            return None
 
         if network_y is not None:
             safe_candidates = [c for c in candidates if c["y"] < network_y]
@@ -418,11 +457,16 @@ class MacUIAutomation:
 
     @classmethod
     def _is_search_section_label(cls, normalized: str) -> bool:
-        return normalized in {"群聊", "最常使用", "联系人", "聊天记录"} or cls._is_search_network_label(normalized)
+        return normalized in {"群聊", "最常使用", "联系人", "聊天记录", "更多"} or cls._is_search_network_label(normalized)
 
     @staticmethod
     def _is_search_result_metadata(normalized: str) -> bool:
-        return normalized.startswith("包含:") or normalized.startswith("包含：")
+        return (
+            normalized.startswith("包含:")
+            or normalized.startswith("包含：")
+            or normalized.startswith("网络查找微信号:")
+            or normalized.startswith("网络查找微信号：")
+        )
 
     @staticmethod
     def _next_label_y(labels: list[dict], after_y: float) -> float | None:
@@ -777,15 +821,25 @@ print(String(data: data, encoding: .utf8)!)
     ) -> bool:
         expected = cls._normalize_title(expected_title)
         loose_expected = cls._normalize_title_loose(expected_title)
+        folded_expected = cls._normalize_title_folded(expected_title)
+        loose_folded_expected = cls._normalize_title_loose_folded(expected_title)
         expected_base = cls._strip_unread_suffix(expected)
         loose_expected_base = cls._strip_unread_suffix(loose_expected)
+        folded_expected_base = cls._strip_unread_suffix(folded_expected)
+        loose_folded_expected_base = cls._strip_unread_suffix(loose_folded_expected)
+        connectorless_expected_base = cls._normalize_title_connectorless(loose_expected_base)
         if not expected:
             return False
-        for text in texts:
+        for text in cls._title_text_candidates(texts, expected_title=expected_title):
             actual = cls._normalize_title(text)
             loose_actual = cls._normalize_title_loose(text)
+            folded_actual = cls._normalize_title_folded(text)
+            loose_folded_actual = cls._normalize_title_loose_folded(text)
             actual_base = cls._strip_unread_suffix(actual)
             loose_actual_base = cls._strip_unread_suffix(loose_actual)
+            folded_actual_base = cls._strip_unread_suffix(folded_actual)
+            loose_folded_actual_base = cls._strip_unread_suffix(loose_folded_actual)
+            connectorless_actual_base = cls._normalize_title_connectorless(loose_actual_base)
             if not actual:
                 continue
             if require_group_marker:
@@ -794,6 +848,11 @@ print(String(data: data, encoding: .utf8)!)
                 if loose_expected and (
                     loose_actual.startswith(loose_expected + "(")
                     or loose_actual.startswith(loose_expected + "（")
+                ):
+                    return True
+                if folded_expected and (
+                    folded_actual.startswith(folded_expected + "(")
+                    or folded_actual.startswith(folded_expected + "（")
                 ):
                     return True
                 continue
@@ -806,12 +865,35 @@ print(String(data: data, encoding: .utf8)!)
                     or (len(expected) >= 3 and actual.startswith(expected))
                     or (loose_expected and loose_actual == loose_expected)
                     or (loose_expected_base and loose_actual_base == loose_expected_base)
+                    or (folded_expected and folded_actual == folded_expected)
+                    or (folded_expected_base and folded_actual_base == folded_expected_base)
+                    or (loose_folded_expected and loose_folded_actual == loose_folded_expected)
+                    or (
+                        loose_folded_expected_base
+                        and loose_folded_actual_base == loose_folded_expected_base
+                    )
+                    or (
+                        connectorless_expected_base
+                        and connectorless_actual_base == connectorless_expected_base
+                    )
                     or (loose_expected and loose_actual.startswith(loose_expected + "("))
                     or (loose_expected and loose_actual.startswith(loose_expected + "（"))
+                    or (
+                        folded_expected
+                        and (
+                            folded_actual.startswith(folded_expected + "(")
+                            or folded_actual.startswith(folded_expected + "（")
+                        )
+                    )
                     or (
                         loose_expected
                         and len(loose_expected) >= 3
                         and loose_actual.startswith(loose_expected)
+                    )
+                    or (
+                        loose_folded_expected
+                        and len(loose_folded_expected) >= 3
+                        and loose_folded_actual.startswith(loose_folded_expected)
                     )
                 ):
                     return True
@@ -820,7 +902,35 @@ print(String(data: data, encoding: .utf8)!)
                 return True
             if loose_expected and loose_actual == loose_expected:
                 return True
+            if folded_expected and folded_actual == folded_expected:
+                return True
+            if loose_folded_expected and loose_folded_actual == loose_folded_expected:
+                return True
         return False
+
+    @classmethod
+    def _title_text_candidates(
+        cls,
+        texts: list[str],
+        expected_title: str = "",
+    ) -> list[str]:
+        clean = [str(text or "").strip() for text in texts if str(text or "").strip()]
+        candidates = list(clean)
+        max_join_parts = cls._title_join_part_limit(expected_title)
+        for start in range(len(clean)):
+            combined = clean[start]
+            for end in range(start + 1, min(start + max_join_parts, len(clean))):
+                combined += clean[end]
+                candidates.append(combined)
+        return candidates
+
+    @classmethod
+    def _title_join_part_limit(cls, expected_title: str) -> int:
+        normalized = cls._normalize_title(expected_title)
+        if not normalized:
+            return TITLE_OCR_MIN_JOIN_PARTS
+        estimated_parts = max(TITLE_OCR_MIN_JOIN_PARTS, min(len(normalized), TITLE_OCR_MAX_JOIN_PARTS))
+        return estimated_parts
 
     @staticmethod
     def _normalize_title(value: str) -> str:
@@ -834,6 +944,18 @@ print(String(data: data, encoding: .utf8)!)
     @classmethod
     def _normalize_title_loose(cls, value: str) -> str:
         return cls._normalize_title(value).translate(OCR_TITLE_LOOSE_DROP_CHARS)
+
+    @classmethod
+    def _normalize_title_folded(cls, value: str) -> str:
+        return cls._normalize_title(value).casefold()
+
+    @classmethod
+    def _normalize_title_loose_folded(cls, value: str) -> str:
+        return cls._normalize_title_loose(value).casefold()
+
+    @staticmethod
+    def _normalize_title_connectorless(value: str) -> str:
+        return str(value or "").translate(TITLE_CONNECTOR_DROP_CHARS)
 
     @staticmethod
     def _strip_unread_suffix(value: str) -> str:

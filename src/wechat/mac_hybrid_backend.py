@@ -210,6 +210,30 @@ class MacHybridBackend(AbstractWeChatBackend):
         if not content:
             return None
 
+        # ── System message handling ───────────────────────────────
+        # Detect "xxx joined the group" events for welcome feature.
+        _JOIN_PATTERN = re.compile(r'"(.+?)"(?:通过.+?)?加入了群聊')
+        join_match = _JOIN_PATTERN.search(content)
+        new_member_id: str = ""
+        is_system_join: bool = False
+        if join_match:
+            new_member_id = join_match.group(1)
+            is_system_join = True
+            logger.info(
+                "Join event detected: new_member=%s group=%s",
+                new_member_id, str(raw.get("chat") or raw.get("username", ""))[:20],
+            )
+
+        # Filter other system messages
+        if not is_system_join:
+            _FILTER_KEYWORDS = (
+                "修改群名", "退出了群聊",
+                "撤回了一条消息", "被移除", "开启了朋友验证",
+                "邀请", "移出了群聊",
+            )
+            if any(kw in content for kw in _FILTER_KEYWORDS):
+                return None
+
         username = str(raw.get("username") or raw.get("chat_id") or raw.get("chat") or "").strip()
         group_name = str(raw.get("chat") or username or "当前聊天").strip()
         if not username:
@@ -257,6 +281,8 @@ class MacHybridBackend(AbstractWeChatBackend):
                 and (f"@{self._bot_name}" in content or self._bot_name in content)
             ),
             "is_group": is_group,
+            "is_system_join": is_system_join,
+            "new_member_id": new_member_id,
         }
 
     def _should_monitor(self, msg: dict) -> bool:

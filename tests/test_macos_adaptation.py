@@ -597,7 +597,39 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertNotIn("发起会话", scripts)
         self.assertNotIn("发起群聊", scripts)
         self.assertIn('keystroke "v"', scripts)
-        self.assertEqual(clicker.points, [(260, 228), (340, 228), (270.0, 345.0)])
+        self.assertIn("key code 36", scripts)
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
+
+    def test_mac_ui_automation_open_chat_uses_enter_before_ocr_search_result_click(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+        ])
+        clicker = FakeClicker()
+        screen_reads = []
+        titles = iter([[], ["YunShuLink（9）"]])
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=clicker,
+            title_reader=lambda: next(titles, []),
+            screen_text_reader=lambda rect: screen_reads.append(rect) or [],
+        )
+
+        self.assertTrue(automation.open_chat(
+            "YunShuLink",
+            expected_title="YunShuLink",
+            expected_is_group=True,
+        ))
+
+        scripts = "\n".join(call["cmd"][-1] for call in runner.calls if call["cmd"][0] == "osascript")
+        self.assertIn("key code 36", scripts)
+        self.assertEqual(screen_reads, [])
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
 
     def test_mac_ui_automation_open_chat_switches_to_chats_tab_before_search(self):
         runner = FakeRunner([
@@ -659,7 +691,7 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertLess(select_index, pbcopy_index)
         self.assertEqual(runner.calls[pbcopy_index]["input_text"], "honker233粉丝微信纯享版")
 
-    def test_mac_ui_automation_open_chat_resolves_partial_group_title_then_researches_full_title(self):
+    def test_mac_ui_automation_open_chat_uses_enter_without_resolving_partial_group_title(self):
         runner = FakeRunner([
             FakeCompletedProcess(),
             FakeCompletedProcess(stdout='{"front":"WeChat"}'),
@@ -697,10 +729,39 @@ class MacOSAdaptationTests(unittest.TestCase):
             call["input_text"] for call in runner.calls
             if call["cmd"] == ["pbcopy"]
         ]
-        self.assertEqual(pasted, ["honker", "honker233粉丝微信纯享版"])
-        self.assertEqual(clicker.points[-1], (396.0, 267.0))
+        self.assertEqual(pasted, ["honker"])
+        scripts = "\n".join(call["cmd"][-1] for call in runner.calls if call["cmd"][0] == "osascript")
+        self.assertIn("key code 36", scripts)
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
 
-    def test_mac_ui_automation_open_chat_does_not_blind_click_when_group_ocr_has_no_match(self):
+    def test_mac_ui_automation_open_chat_blind_clicks_group_result_when_ocr_has_no_match(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+            FakeCompletedProcess(stdout='{"window":{"x":100,"y":200,"w":800,"h":600}}'),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+            FakeCompletedProcess(),
+        ])
+        clicker = FakeClicker()
+        titles = iter([[], ["honker（2）"]])
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=clicker,
+            title_reader=lambda: next(titles, []),
+            screen_text_reader=lambda rect: [],
+        )
+
+        self.assertTrue(automation.open_chat(
+            "honker",
+            expected_title="honker",
+            expected_is_group=True,
+        ))
+
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
+
+    def test_mac_ui_automation_blind_group_click_still_requires_title_match(self):
         runner = FakeRunner([
             FakeCompletedProcess(),
             FakeCompletedProcess(stdout='{"front":"WeChat"}'),
@@ -714,10 +775,15 @@ class MacOSAdaptationTests(unittest.TestCase):
             app_name="WeChat",
             runner=runner,
             clicker=clicker,
+            title_reader=lambda: ["别的群（2）"],
             screen_text_reader=lambda rect: [],
         )
 
-        self.assertFalse(automation.open_chat("honker", expected_is_group=True))
+        self.assertFalse(automation.open_chat(
+            "honker",
+            expected_title="honker",
+            expected_is_group=True,
+        ))
 
         self.assertEqual(clicker.points, [(260, 228), (340, 228)])
 
@@ -744,6 +810,30 @@ class MacOSAdaptationTests(unittest.TestCase):
         scripts = "\n".join(call["cmd"][-1] for call in runner.calls if call["cmd"][0] == "osascript")
         self.assertNotIn("发起会话", scripts)
         self.assertNotIn("发起群聊", scripts)
+        self.assertEqual(clicker.points, [])
+
+    def test_mac_ui_automation_open_chat_returns_on_four_piece_current_title(self):
+        runner = FakeRunner([
+            FakeCompletedProcess(),
+            FakeCompletedProcess(stdout='{"front":"WeChat"}'),
+        ])
+        clicker = FakeClicker()
+        automation = MacUIAutomation(
+            app_name="WeChat",
+            runner=runner,
+            clicker=clicker,
+            title_reader=lambda: [
+                "下一代", "「求职」", "与", "「创业」(10)", "瑞宝没有故事", "昇",
+            ],
+        )
+
+        self.assertTrue(automation.open_chat(
+            "下一代「求职」与「创业」",
+            expected_title="下一代「求职」与「创业」",
+            expected_is_group=True,
+        ))
+
+        self.assertFalse(any(call["cmd"] == ["pbcopy"] for call in runner.calls))
         self.assertEqual(clicker.points, [])
 
     def test_mac_ui_automation_open_chat_rejects_internal_chat_ids(self):
@@ -861,6 +951,38 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertEqual(point, {"x": 350.0, "y": 385.0})
 
+    def test_mac_ui_search_result_picker_accepts_partial_frequent_match_before_network(self):
+        entries = [
+            {"text": "最常使用", "x": 168, "y": 180, "w": 120, "h": 24},
+            {"text": "YunShuLink Q", "x": 220, "y": 240, "w": 180, "h": 30},
+            {"text": "更多", "x": 168, "y": 308, "w": 80, "h": 24},
+            {"text": "网络查找微信号： YunShuLink", "x": 220, "y": 370, "w": 260, "h": 30},
+        ]
+
+        point = MacUIAutomation._search_result_click_point(
+            entries,
+            "YunShuLink",
+            expected_is_group=True,
+        )
+
+        self.assertEqual(point, {"x": 310.0, "y": 255.0})
+
+    def test_mac_ui_search_result_picker_accepts_ocr_latin_case_variant_before_network(self):
+        entries = [
+            {"text": "最常使用", "x": 168, "y": 180, "w": 120, "h": 24},
+            {"text": "YunshuLink Q", "x": 220, "y": 240, "w": 180, "h": 30},
+            {"text": "更多", "x": 168, "y": 308, "w": 80, "h": 24},
+            {"text": "网络查找微信号： YunShuLink", "x": 220, "y": 370, "w": 260, "h": 30},
+        ]
+
+        point = MacUIAutomation._search_result_click_point(
+            entries,
+            "YunShuLink",
+            expected_is_group=True,
+        )
+
+        self.assertEqual(point, {"x": 310.0, "y": 255.0})
+
     def test_mac_ui_search_result_picker_refuses_network_only_result(self):
         entries = [
             {"text": "搜索网络结果", "x": 200, "y": 300, "w": 160, "h": 24},
@@ -889,7 +1011,7 @@ class MacOSAdaptationTests(unittest.TestCase):
 
         self.assertIsNone(point)
 
-    def test_mac_ui_automation_open_chat_retries_group_result_after_top_mismatch(self):
+    def test_mac_ui_automation_open_chat_rejects_enter_result_title_mismatch(self):
         runner = FakeRunner([
             FakeCompletedProcess(),
             FakeCompletedProcess(stdout='{"front":"WeChat"}'),
@@ -905,7 +1027,7 @@ class MacOSAdaptationTests(unittest.TestCase):
             FakeCompletedProcess(),
         ])
         clicker = FakeClicker()
-        titles = iter([["别的群（2）"], ["错的会话"], ["honker（2）"]])
+        titles = iter([["别的群（2）"], ["错的会话"]])
         automation = MacUIAutomation(
             app_name="WeChat",
             runner=runner,
@@ -919,16 +1041,15 @@ class MacOSAdaptationTests(unittest.TestCase):
             ],
         )
 
-        self.assertTrue(automation.open_chat(
+        self.assertFalse(automation.open_chat(
             "honker",
             expected_title="honker",
             expected_is_group=True,
         ))
 
-        self.assertEqual(clicker.points, [
-            (260, 228), (340, 228), (270.0, 445.0),
-            (260, 228), (340, 228), (270.0, 445.0),
-        ])
+        scripts = "\n".join(call["cmd"][-1] for call in runner.calls if call["cmd"][0] == "osascript")
+        self.assertIn("key code 36", scripts)
+        self.assertEqual(clicker.points, [(260, 228), (340, 228)])
 
     def test_mac_ui_automation_open_chat_can_click_sidebar_session_index(self):
         runner = FakeRunner([
@@ -996,6 +1117,13 @@ class MacOSAdaptationTests(unittest.TestCase):
             expected_is_group=True,
         ))
 
+    def test_mac_ui_group_title_match_accepts_ocr_latin_case_variant(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["YunshuLink (9)", "Q", "待开发项目..."],
+            "YunShuLink",
+            expected_is_group=True,
+        ))
+
     def test_mac_ui_group_title_match_accepts_ocr_traditional_variant(self):
         self.assertTrue(MacUIAutomation._texts_match_chat_title(
             ["ai群聊測试（2）"],
@@ -1021,6 +1149,27 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertTrue(MacUIAutomation._texts_match_chat_title(
             ["ＡＩ聊天（３）"],
             "AI聊天",
+            expected_is_group=True,
+        ))
+
+    def test_mac_ui_group_title_match_accepts_split_ocr_header_title(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["下一代「求职」与", "\"创业」（10）", "王崇舟"],
+            "下一代「求职」与「创业」",
+            expected_is_group=True,
+        ))
+
+    def test_mac_ui_group_title_match_accepts_split_ocr_missing_connector(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["下一代「求职」", "「创业」（10）", "昇", "陈坦", "6"],
+            "下一代「求职」与「创业」",
+            expected_is_group=True,
+        ))
+
+    def test_mac_ui_group_title_match_accepts_four_piece_split_ocr_header(self):
+        self.assertTrue(MacUIAutomation._texts_match_chat_title(
+            ["下一代", "「求职」", "与", "「创业」(10)", "瑞宝没有故事", "昇"],
+            "下一代「求职」与「创业」",
             expected_is_group=True,
         ))
 

@@ -52,7 +52,7 @@ class MessageRouter:
     """
 
     def __init__(self, store, detector, summarizer, admin_handler,
-                 nickname_service, config):
+                 nickname_service, config, feishu_export_service=None):
         """
         Args:
             store: MessageStore instance for persistence and queries.
@@ -61,6 +61,7 @@ class MessageRouter:
             admin_handler: AdminCommandHandler instance.
             nickname_service: NicknameService instance.
             config: BotConfig instance.
+            feishu_export_service: Optional FeishuExportService instance.
         """
         self._store = store
         self._detector = detector
@@ -68,6 +69,7 @@ class MessageRouter:
         self._admin = admin_handler
         self._nicks = nickname_service
         self._config = config
+        self._feishu_export = feishu_export_service
         self._proactive = ProactiveGate(config)
         self._sticky = StickyMentionTracker(
             ttl_sec=config.sticky_mention_ttl_sec,
@@ -108,6 +110,10 @@ class MessageRouter:
 
         # Check memory consolidation trigger (fast no-op unless threshold hit)
         self._memory.check_and_consolidate(msg["chat_id"])
+
+        # ── Welcome new member ────────────────────────────────────
+        if msg.get("is_system_join") and self._config.welcome_enabled:
+            return self._handle_welcome(msg)
 
         # ── Route: @mention vs proactive ─────────────────────────
         # Sticky mention: if the user previously sent an empty @mention,
@@ -167,7 +173,15 @@ class MessageRouter:
                     self._config.sticky_mention_ttl_sec,
                 )
 
-            if clean_content.strip() in ("帮助", "help", "命令"):
+            if (
+                reply is None
+                and self._feishu_export is not None
+                and self._feishu_export.is_export_command(clean_content)
+            ):
+                result = self._feishu_export.export_recent_chat(msg)
+                reply = result.reply_text
+
+            if reply is None and clean_content.strip() in ("帮助", "help", "命令"):
                 reply = self._admin.handle(clean_content, msg["sender_name"])
 
             elif self._config.fun_enabled and clean_content.strip() == "抽签":
@@ -191,6 +205,12 @@ class MessageRouter:
                 reply = self._handle_chat(msg, clean_content)
 
         else:
+            if self._feishu_export is not None:
+                try:
+                    self._feishu_export.maybe_auto_export(msg)
+                except Exception:
+                    logger.exception("Automatic Feishu knowledge sync failed")
+
             # ── Proactive path (rate-based ambient participation) ─
             should_speak, mode, reason = self._proactive.should_speak(msg)
             if should_speak and mode is not None:
@@ -373,6 +393,40 @@ class MessageRouter:
         except Exception as e:
             logger.error("AI chat failed: %s", e)
             return f"@{display_name} 大脑短路了，稍等再试～"
+
+    # ── Welcome handler ─────────────────────────────────────────
+
+    def _handle_welcome(self, msg: dict) -> str | None:
+        """Send a welcome message for a new group member.
+
+        Resolves the appropriate welcome template for the group,
+        replaces ``{new_member}`` with the new member's identifier,
+        and returns the final text.  Returns None if the group has
+        explicitly disabled welcome or no template matches.
+        """
+        from .welcome import get_welcome_manager
+
+        new_member = msg.get("new_member_id", "")
+        if not new_member:
+            logger.warning("Welcome: missing new_member_id in join event")
+            return None
+
+        chat_id = msg["chat_id"]
+        wm = get_welcome_manager()
+        welcome_text = wm.resolve_message(chat_id, new_member)
+
+        if not welcome_text:
+            logger.info(
+                "Welcome: skipped for '%s' in %s (disabled or no template)",
+                new_member, msg.get("group_name", chat_id[:20]),
+            )
+            return None
+
+        logger.info(
+            "Welcome: new member '%s' in %s → '%s'",
+            new_member, msg.get("group_name", chat_id[:20]), welcome_text[:40],
+        )
+        return welcome_text
 
     # ── Proactive chat handler ────────────────────────────────────
 

@@ -108,6 +108,116 @@ def _detect_default_data_dir() -> str:
     return ""
 
 
+_DEFAULT_FEISHU_TRIGGER_KEYWORDS = "同步到飞书,导出到飞书,写到飞书,沉淀到飞书"
+
+
+def _split_csv(raw: str) -> list[str]:
+    """Split a comma-separated env value into trimmed non-empty items."""
+    return [item.strip() for item in (raw or "").split(",") if item.strip()]
+
+
+def _bool_env(raw: str, default: bool = False) -> bool:
+    if raw == "":
+        return default
+    return raw.strip().lower() == "true"
+
+
+def _int_env(raw: str, default: int) -> int:
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _feishu_config_from_raw(raw: dict[str, str]) -> dict:
+    """Return UI-facing Feishu export config from env key/value pairs."""
+    return {
+        "feishu_export_enabled": _bool_env(
+            raw.get("FEISHU_EXPORT_ENABLED", "false"),
+            False,
+        ),
+        "feishu_app_id": raw.get("FEISHU_APP_ID", ""),
+        "feishu_app_secret": raw.get("FEISHU_APP_SECRET", ""),
+        "feishu_export_mode": raw.get("FEISHU_EXPORT_MODE", "knowledge"),
+        "feishu_export_window_hours": _int_env(
+            raw.get("FEISHU_EXPORT_WINDOW_HOURS", "8"),
+            8,
+        ),
+        "feishu_auto_sync_enabled": _bool_env(
+            raw.get("FEISHU_AUTO_SYNC_ENABLED", "false"),
+            False,
+        ),
+        "feishu_auto_sync_min_messages": _int_env(
+            raw.get("FEISHU_AUTO_SYNC_MIN_MESSAGES", "20"),
+            20,
+        ),
+        "feishu_auto_sync_cooldown_sec": _int_env(
+            raw.get("FEISHU_AUTO_SYNC_COOLDOWN_SEC", "1800"),
+            1800,
+        ),
+        "feishu_knowledge_base_name": raw.get("FEISHU_KNOWLEDGE_BASE_NAME", "webot 群聊沉淀"),
+        "feishu_knowledge_folder_token": raw.get("FEISHU_KNOWLEDGE_FOLDER_TOKEN", ""),
+        "feishu_export_trigger_keywords": _split_csv(
+            raw.get("FEISHU_EXPORT_TRIGGER_KEYWORDS", _DEFAULT_FEISHU_TRIGGER_KEYWORDS)
+        ),
+        "feishu_spreadsheet_token": raw.get("FEISHU_SPREADSHEET_TOKEN", ""),
+        "feishu_spreadsheet_range": raw.get("FEISHU_SPREADSHEET_RANGE", "Sheet1!A:H"),
+        "feishu_bitable_app_token": raw.get("FEISHU_BITABLE_APP_TOKEN", ""),
+        "feishu_bitable_table_id": raw.get("FEISHU_BITABLE_TABLE_ID", ""),
+        "feishu_doc_folder_token": raw.get("FEISHU_DOC_FOLDER_TOKEN", ""),
+    }
+
+
+def _feishu_updates_from_config(config: dict) -> dict[str, str | None]:
+    """Return env updates for Feishu export settings from UI payload."""
+    keywords = config.get("feishu_export_trigger_keywords")
+    if isinstance(keywords, list):
+        keywords_value = ",".join(str(k).strip() for k in keywords if str(k).strip())
+    else:
+        keywords_value = str(keywords).strip() if keywords is not None else None
+
+    updates: dict[str, str | None] = {}
+    field_map = {
+        "feishu_export_enabled": "FEISHU_EXPORT_ENABLED",
+        "feishu_app_id": "FEISHU_APP_ID",
+        "feishu_app_secret": "FEISHU_APP_SECRET",
+        "feishu_export_mode": "FEISHU_EXPORT_MODE",
+        "feishu_export_window_hours": "FEISHU_EXPORT_WINDOW_HOURS",
+        "feishu_auto_sync_enabled": "FEISHU_AUTO_SYNC_ENABLED",
+        "feishu_auto_sync_min_messages": "FEISHU_AUTO_SYNC_MIN_MESSAGES",
+        "feishu_auto_sync_cooldown_sec": "FEISHU_AUTO_SYNC_COOLDOWN_SEC",
+        "feishu_knowledge_base_name": "FEISHU_KNOWLEDGE_BASE_NAME",
+        "feishu_knowledge_folder_token": "FEISHU_KNOWLEDGE_FOLDER_TOKEN",
+        "feishu_export_trigger_keywords": "FEISHU_EXPORT_TRIGGER_KEYWORDS",
+        "feishu_spreadsheet_token": "FEISHU_SPREADSHEET_TOKEN",
+        "feishu_spreadsheet_range": "FEISHU_SPREADSHEET_RANGE",
+        "feishu_bitable_app_token": "FEISHU_BITABLE_APP_TOKEN",
+        "feishu_bitable_table_id": "FEISHU_BITABLE_TABLE_ID",
+        "feishu_doc_folder_token": "FEISHU_DOC_FOLDER_TOKEN",
+    }
+    for field, env_key in field_map.items():
+        if field not in config:
+            continue
+        if field in ("feishu_export_enabled", "feishu_auto_sync_enabled"):
+            updates[env_key] = str(config.get(field, False)).lower()
+        elif field in (
+            "feishu_export_window_hours",
+            "feishu_auto_sync_min_messages",
+            "feishu_auto_sync_cooldown_sec",
+        ):
+            default = {
+                "feishu_export_window_hours": 8,
+                "feishu_auto_sync_min_messages": 20,
+                "feishu_auto_sync_cooldown_sec": 1800,
+            }[field]
+            updates[env_key] = str(config.get(field, default))
+        elif field == "feishu_export_trigger_keywords":
+            updates[env_key] = keywords_value
+        else:
+            updates[env_key] = config.get(field)
+    return updates
+
+
 def _detect_wxid_and_db_path():
     """Auto-detect WeChat wxid and database path from common locations.
 
@@ -844,6 +954,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
         # Only delegate specific API paths; return 405 for unknown POST paths
         if self.path in ("/api/config", "/api/config/import", "/api/start", "/api/stop",
                          "/api/nicknames",
+                         "/api/welcome/templates",
                          "/api/onboarding/reset",
                          "/api/onboarding/step1", "/api/onboarding/step2",
                          "/api/onboarding/step3", "/api/onboarding/step4",
@@ -917,37 +1028,40 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     if line and not line.startswith("#") and "=" in line:
                         k, v = line.split("=", 1)
                         raw[k.strip()] = v.strip()
+            config_data = {
+                "ai_backend": raw.get("AI_BACKEND", "deepseek"),
+                "deepseek_api_key": raw.get("DEEPSEEK_API_KEY", ""),
+                "deepseek_base_url": raw.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+                "deepseek_model": raw.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+                "anthropic_api_key": raw.get("ANTHROPIC_API_KEY", ""),
+                "anthropic_base_url": raw.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+                "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
+                "bot_display_name": raw.get("BOT_DISPLAY_NAME", ""),
+                "wechat_backend": raw.get("WECHAT_BACKEND", "wcdb"),
+                "wechat_groups": _decode_wechat_groups(raw.get("WECHAT_GROUPS", "*")),
+                "fun_enabled": raw.get("FUN_ENABLED", "true").lower() == "true",
+                "proactive_enabled": raw.get("PROACTIVE_ENABLED", "false").lower() == "true",
+                "proactive_rate_window_sec": int(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120")),
+                "proactive_rate_quiet": float(raw.get("PROACTIVE_RATE_QUIET", "1.5")),
+                "proactive_rate_casual": float(raw.get("PROACTIVE_RATE_CASUAL", "4.0")),
+                "proactive_rate_lively": float(raw.get("PROACTIVE_RATE_LIVELY", "6.5")),
+                "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
+                "welcome_enabled": raw.get("WELCOME_ENABLED", "false").lower() == "true",
+                "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
+                "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
+                "summarize_enabled": raw.get("SUMMARIZE_ENABLED", "true").lower() == "true",
+                "fallback_window_hours": int(raw.get("FALLBACK_WINDOW_HOURS", "8")),
+                "trigger_keywords": [
+                    kw.strip() for kw in raw.get("TRIGGER_KEYWORDS", "").split(",")
+                    if kw.strip()
+                ],
+                "log_level": raw.get("LOG_LEVEL", "INFO"),
+                "wechat_data_dir": raw.get("WECHAT_DATA_DIR", ""),
+            }
+            config_data.update(_feishu_config_from_raw(raw))
             self.send_json({
                 "ok": True,
-                "config": {
-                    "ai_backend": raw.get("AI_BACKEND", "deepseek"),
-                    "deepseek_api_key": raw.get("DEEPSEEK_API_KEY", ""),
-                    "deepseek_base_url": raw.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-                    "deepseek_model": raw.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
-                    "anthropic_api_key": raw.get("ANTHROPIC_API_KEY", ""),
-                    "anthropic_base_url": raw.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-                    "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
-                    "bot_display_name": raw.get("BOT_DISPLAY_NAME", ""),
-                    "wechat_backend": raw.get("WECHAT_BACKEND", "wcdb"),
-                    "wechat_groups": _decode_wechat_groups(raw.get("WECHAT_GROUPS", "*")),
-                    "fun_enabled": raw.get("FUN_ENABLED", "true").lower() == "true",
-                    "proactive_enabled": raw.get("PROACTIVE_ENABLED", "false").lower() == "true",
-                    "proactive_rate_window_sec": int(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120")),
-                    "proactive_rate_quiet": float(raw.get("PROACTIVE_RATE_QUIET", "1.5")),
-                    "proactive_rate_casual": float(raw.get("PROACTIVE_RATE_CASUAL", "4.0")),
-                    "proactive_rate_lively": float(raw.get("PROACTIVE_RATE_LIVELY", "6.5")),
-                    "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
-                    "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
-                    "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
-                    "summarize_enabled": raw.get("SUMMARIZE_ENABLED", "true").lower() == "true",
-                    "fallback_window_hours": int(raw.get("FALLBACK_WINDOW_HOURS", "8")),
-                    "trigger_keywords": [
-                        kw.strip() for kw in raw.get("TRIGGER_KEYWORDS", "").split(",")
-                        if kw.strip()
-                    ],
-                    "log_level": raw.get("LOG_LEVEL", "INFO"),
-                    "wechat_data_dir": raw.get("WECHAT_DATA_DIR", ""),
-                },
+                "config": config_data,
                 "detected_data_dir": _detect_default_data_dir(),
             })
             return
@@ -982,6 +1096,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "proactive_rate_casual": float(raw.get("PROACTIVE_RATE_CASUAL", "4.0")),
                     "proactive_rate_lively": float(raw.get("PROACTIVE_RATE_LIVELY", "6.5")),
                     "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
+                    "welcome_enabled": raw.get("WELCOME_ENABLED", "false").lower() == "true",
                     "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
                     "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
                     "summarize_enabled": raw.get("SUMMARIZE_ENABLED", "true").lower() == "true",
@@ -993,6 +1108,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "log_level": raw.get("LOG_LEVEL", "INFO"),
                     "wechat_data_dir": raw.get("WECHAT_DATA_DIR", ""),
                 }
+                export_data.update(_feishu_config_from_raw(raw))
                 filename = f"webot-config-{_dt_date.today().isoformat()}.json"
                 body = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
                 self.send_response(200)
@@ -1016,58 +1132,62 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 env_path = _find_or_create_env()
                 if env_path.exists():
                     lines = env_path.read_text(encoding="utf-8").splitlines()
-                    new_lines = []
-                    updates = {
-                        "DEEPSEEK_API_KEY": config.get("deepseek_api_key"),
-                        "DEEPSEEK_BASE_URL": config.get("deepseek_base_url"),
-                        "DEEPSEEK_MODEL": config.get("deepseek_model"),
-                        "ANTHROPIC_API_KEY": config.get("anthropic_api_key"),
-                        "ANTHROPIC_BASE_URL": config.get("anthropic_base_url"),
-                        "SUMMARIZE_MODEL": config.get("summarize_model"),
-                        "AI_BACKEND": config.get("ai_backend"),
-                        "BOT_DISPLAY_NAME": config.get("bot_display_name"),
-                        "WECHAT_BACKEND": config.get("wechat_backend"),
-                        "WECHAT_GROUPS": config.get("wechat_groups") or "*",
-                        "FUN_ENABLED": str(config.get("fun_enabled", True)).lower(),
-                        "PROACTIVE_ENABLED": str(config.get("proactive_enabled", False)).lower(),
-                        "PROACTIVE_RATE_WINDOW_SEC": str(config.get("proactive_rate_window_sec", 120)),
-                        "PROACTIVE_RATE_QUIET": str(config.get("proactive_rate_quiet", 1.5)),
-                        "PROACTIVE_RATE_CASUAL": str(config.get("proactive_rate_casual", 4.0)),
-                        "PROACTIVE_RATE_LIVELY": str(config.get("proactive_rate_lively", 6.5)),
-                        "PROACTIVE_RATE_BURST": str(config.get("proactive_rate_burst", 8.5)),
-                        "STICKY_MENTION_ENABLED": str(config.get("sticky_mention_enabled", True)).lower(),
-                        "STICKY_MENTION_TTL_SEC": str(config.get("sticky_mention_ttl_sec", 60)),
-                        "SUMMARIZE_ENABLED": str(config.get("summarize_enabled", True)).lower(),
-                        "FALLBACK_WINDOW_HOURS": str(config.get("fallback_window_hours", 8)),
-                        "TRIGGER_KEYWORDS": ",".join(config.get("trigger_keywords", [])) if config.get("trigger_keywords") else None,
-                        "LOG_LEVEL": config.get("log_level"),
-                        "WECHAT_DATA_DIR": config.get("wechat_data_dir"),
-                    }
-                    seen = set()
-                    for line in lines:
-                        stripped = line.strip()
-                        if stripped and not stripped.startswith("#") and "=" in stripped:
-                            key = stripped.split("=", 1)[0].strip()
-                            if key in updates and updates[key] is not None:
-                                new_lines.append(f"{key}={updates[key]}")
-                                seen.add(key)
-                                continue
-                        new_lines.append(line)
-                    for key, val in updates.items():
-                        if key not in seen and val is not None:
-                            new_lines.append(f"{key}={val}")
-                    # Atomic write: temp file then os.replace
-                    tmp_path = env_path.with_suffix(".tmp")
-                    tmp_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-                    os.replace(tmp_path, env_path)
-                    for key, val in updates.items():
-                        if val is not None:
-                            os.environ[key] = str(val)
-                    self.send_json({
-                        "ok": True,
-                        "saved": list(seen),
-                        "requires_restart": True,
-                    })
+                else:
+                    lines = []
+                new_lines = []
+                updates = {
+                    "DEEPSEEK_API_KEY": config.get("deepseek_api_key"),
+                    "DEEPSEEK_BASE_URL": config.get("deepseek_base_url"),
+                    "DEEPSEEK_MODEL": config.get("deepseek_model"),
+                    "ANTHROPIC_API_KEY": config.get("anthropic_api_key"),
+                    "ANTHROPIC_BASE_URL": config.get("anthropic_base_url"),
+                    "SUMMARIZE_MODEL": config.get("summarize_model"),
+                    "AI_BACKEND": config.get("ai_backend"),
+                    "BOT_DISPLAY_NAME": config.get("bot_display_name"),
+                    "WECHAT_BACKEND": config.get("wechat_backend"),
+                    "WECHAT_GROUPS": config.get("wechat_groups") or "*",
+                    "FUN_ENABLED": str(config.get("fun_enabled", True)).lower(),
+                    "PROACTIVE_ENABLED": str(config.get("proactive_enabled", False)).lower(),
+                    "PROACTIVE_RATE_WINDOW_SEC": str(config.get("proactive_rate_window_sec", 120)),
+                    "PROACTIVE_RATE_QUIET": str(config.get("proactive_rate_quiet", 1.5)),
+                    "PROACTIVE_RATE_CASUAL": str(config.get("proactive_rate_casual", 4.0)),
+                    "PROACTIVE_RATE_LIVELY": str(config.get("proactive_rate_lively", 6.5)),
+                    "PROACTIVE_RATE_BURST": str(config.get("proactive_rate_burst", 8.5)),
+                    "WELCOME_ENABLED": str(config.get("welcome_enabled", False)).lower(),
+                    "STICKY_MENTION_ENABLED": str(config.get("sticky_mention_enabled", True)).lower(),
+                    "STICKY_MENTION_TTL_SEC": str(config.get("sticky_mention_ttl_sec", 60)),
+                    "SUMMARIZE_ENABLED": str(config.get("summarize_enabled", True)).lower(),
+                    "FALLBACK_WINDOW_HOURS": str(config.get("fallback_window_hours", 8)),
+                    "TRIGGER_KEYWORDS": ",".join(config.get("trigger_keywords", [])) if config.get("trigger_keywords") else None,
+                    "LOG_LEVEL": config.get("log_level"),
+                    "WECHAT_DATA_DIR": config.get("wechat_data_dir"),
+                }
+                updates.update(_feishu_updates_from_config(config))
+                seen = set()
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#") and "=" in stripped:
+                        key = stripped.split("=", 1)[0].strip()
+                        if key in updates and updates[key] is not None:
+                            new_lines.append(f"{key}={updates[key]}")
+                            seen.add(key)
+                            continue
+                    new_lines.append(line)
+                for key, val in updates.items():
+                    if key not in seen and val is not None:
+                        new_lines.append(f"{key}={val}")
+                # Atomic write: temp file then os.replace
+                tmp_path = env_path.with_suffix(".tmp")
+                tmp_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+                os.replace(tmp_path, env_path)
+                for key, val in updates.items():
+                    if val is not None:
+                        os.environ[key] = str(val)
+                self.send_json({
+                    "ok": True,
+                    "saved": list(seen),
+                    "requires_restart": True,
+                })
             except Exception as e:
                 logger.exception("Failed to save config")
                 self.send_json({"ok": False, "error": str(e)})
@@ -1107,6 +1227,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "PROACTIVE_RATE_CASUAL": str(config.get("proactive_rate_casual", 4.0)),
                     "PROACTIVE_RATE_LIVELY": str(config.get("proactive_rate_lively", 6.5)),
                     "PROACTIVE_RATE_BURST": str(config.get("proactive_rate_burst", 8.5)),
+                    "WELCOME_ENABLED": str(config.get("welcome_enabled", False)).lower(),
                     "STICKY_MENTION_ENABLED": str(config.get("sticky_mention_enabled", True)).lower(),
                     "STICKY_MENTION_TTL_SEC": str(config.get("sticky_mention_ttl_sec", 60)),
                     "SUMMARIZE_ENABLED": str(config.get("summarize_enabled", True)).lower(),
@@ -1115,6 +1236,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "LOG_LEVEL": config.get("log_level"),
                     "WECHAT_DATA_DIR": config.get("wechat_data_dir"),
                 }
+                updates.update(_feishu_updates_from_config(config))
                 new_lines = []
                 seen = set()
                 for line in lines:
@@ -1342,6 +1464,32 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     self.send_json({"ok": False, "error": str(e)})
                 except Exception as e:
                     logger.exception("Failed to save lots config")
+                    self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Get / Save welcome templates ─────────────────────────
+        if self.path == "/api/welcome/templates":
+            if self.command == "GET":
+                try:
+                    from src.welcome import get_welcome_manager
+                    wm = get_welcome_manager()
+                    data = wm.load()
+                    self.send_json({"ok": True, "data": data})
+                except Exception as e:
+                    logger.exception("Failed to load welcome templates")
+                    self.send_json({"ok": False, "error": str(e)})
+            else:
+                # POST — save welcome templates + group mappings
+                content_len = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_len) if content_len else b"{}"
+                try:
+                    data = json.loads(body)
+                    from src.welcome import get_welcome_manager
+                    wm = get_welcome_manager()
+                    wm.save(data)
+                    self.send_json({"ok": True})
+                except Exception as e:
+                    logger.exception("Failed to save welcome templates")
                     self.send_json({"ok": False, "error": str(e)})
             return
 

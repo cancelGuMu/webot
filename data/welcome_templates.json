@@ -1,0 +1,21 @@
+{
+  "templates": [
+    {
+      "id": "tpl_default",
+      "name": "默认",
+      "message": "欢迎 @{new_member} 加入群聊！🎉"
+    },
+    {
+      "id": "tpl_warm",
+      "name": "热情版",
+      "message": "欢迎 @{new_member} 加入！大家出来接客了！🔥"
+    },
+    {
+      "id": "tpl_serious",
+      "name": "正经版",
+      "message": "欢迎 @{new_member} 加入本群，有问题随时讨论。"
+    }
+  ],
+  "group_mapping": {},
+  "default_template": "tpl_default"
+}

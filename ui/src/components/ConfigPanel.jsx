@@ -388,6 +388,9 @@ function FeaturesSection({ form, update }) {
         </AnimatePresence>
       </div>
 
+      {/* ── Welcome New Member ── */}
+      <WelcomeSection form={form} update={update} />
+
       {/* ── Log Level ── */}
       <div className="pt-4">
         <Field label="日志级别" hint="记录机器人运行日志的详细程度">
@@ -398,6 +401,174 @@ function FeaturesSection({ form, update }) {
             { value: 'ERROR', desc: '仅错误', hint: '只关心故障时使用' },
           ]} />
         </Field>
+      </div>
+    </div>
+  )
+}
+
+function FeishuSection({ form, update }) {
+  const keywords = Array.isArray(form.feishu_export_trigger_keywords)
+    ? form.feishu_export_trigger_keywords
+    : String(form.feishu_export_trigger_keywords || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+  const mode = form.feishu_export_mode || 'knowledge'
+  const modeLabel = mode === 'bitable' ? '多维表格' : mode === 'docx' ? '文档' : '电子表格'
+
+  function addKeyword(value) {
+    const val = value.trim()
+    if (val && !keywords.includes(val)) {
+      update('feishu_export_trigger_keywords', [...keywords, val])
+    }
+  }
+
+  function removeKeyword(index) {
+    if (keywords.length <= 1) return
+    update('feishu_export_trigger_keywords', keywords.filter((_, i) => i !== index))
+  }
+
+  function clampWindow(value) {
+    return Math.max(1, Math.min(168, parseInt(value) || 8))
+  }
+
+  return (
+    <div>
+      <div className="py-4 border-b border-border-main/50">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 mr-8">
+            <p className="text-[15px] text-text-main font-medium">飞书知识库</p>
+            <p className="text-sm text-text-muted mt-1.5">自动创建多维表格，把群聊沉淀为摘要、待办、需求和日常记录</p>
+          </div>
+          <Toggle enabled={form.feishu_export_enabled} onChange={v => update('feishu_export_enabled', v)} />
+        </div>
+        <AnimatePresence>
+          {form.feishu_export_enabled && (
+            <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
+              className="mt-3 p-4 bg-bg-raised rounded-lg space-y-4">
+              <Field label="飞书应用凭证" hint="使用企业自建应用的 App ID 和 App Secret">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Input value={form.feishu_app_id || ''} onChange={v => update('feishu_app_id', v)} placeholder="cli_xxxxxxxxxxxxxxxx" />
+                  <Input type="password" value={form.feishu_app_secret || ''} onChange={v => update('feishu_app_secret', v)} placeholder="App Secret" />
+                </div>
+              </Field>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <ParamRow label="沉淀模式" hint="推荐自动知识库；已有资产写入保留为高级兼容模式">
+                  <Select value={mode} onChange={v => update('feishu_export_mode', v)} options={[
+                    { value: 'knowledge', desc: '自动知识库', hint: '自动建表并分类沉淀' },
+                    { value: 'bitable', desc: '已有多维表格', hint: '高级：写入指定表' },
+                    { value: 'spreadsheet', desc: '已有电子表格', hint: '高级：追加一行摘要' },
+                    { value: 'docx', desc: '文档', hint: '高级：创建摘要文档' },
+                  ]} />
+                </ParamRow>
+                <ParamRow label="同步窗口" hint="拉取触发前 N 小时消息，范围 1-168">
+                  <Input type="number" value={String(form.feishu_export_window_hours || 8)}
+                    onChange={v => update('feishu_export_window_hours', clampWindow(v))} />
+                </ParamRow>
+              </div>
+
+              {mode === 'knowledge' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <ParamRow label="知识库名称" hint="首次同步时自动创建这个多维表格">
+                    <Input value={form.feishu_knowledge_base_name || 'webot 群聊沉淀'}
+                      onChange={v => update('feishu_knowledge_base_name', v)} placeholder="webot 群聊沉淀" />
+                  </ParamRow>
+                  <ParamRow label="飞书文件夹 Token" hint="可选；留空则创建到应用默认位置">
+                    <Input value={form.feishu_knowledge_folder_token || ''}
+                      onChange={v => update('feishu_knowledge_folder_token', v)} placeholder="fldxxxxxxxxxxxx" />
+                  </ParamRow>
+                  <ParamRow label="自动沉淀" hint="开启后聊天达到阈值会无感写入飞书">
+                    <Toggle enabled={form.feishu_auto_sync_enabled} onChange={v => update('feishu_auto_sync_enabled', v)} />
+                  </ParamRow>
+                  <ParamRow label="自动阈值" hint="最近窗口内至少 N 条消息才自动沉淀">
+                    <Input type="number" value={String(form.feishu_auto_sync_min_messages || 20)}
+                      onChange={v => update('feishu_auto_sync_min_messages', Math.max(1, Math.min(500, parseInt(v) || 20)))} />
+                  </ParamRow>
+                  <ParamRow label="自动冷却" hint="同一群两次自动沉淀的最短间隔（秒）">
+                    <Input type="number" value={String(form.feishu_auto_sync_cooldown_sec || 1800)}
+                      onChange={v => update('feishu_auto_sync_cooldown_sec', Math.max(60, Math.min(86400, parseInt(v) || 1800)))} />
+                  </ParamRow>
+                </div>
+              )}
+
+              <div>
+                <p className="text-[14px] text-text-main font-medium">飞书触发词</p>
+                <p className="text-xs text-text-muted mt-0.5 mb-2">
+                  手动兜底命令。@机器人后的文本包含任一触发词时，会立即沉淀最近群聊。
+                </p>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {keywords.map((kw, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green">
+                      {kw}
+                      <button type="button"
+                        disabled={keywords.length <= 1}
+                        onClick={() => removeKeyword(i)}
+                        className={`ml-0.5 leading-none text-base transition-colors ${
+                          keywords.length <= 1
+                            ? 'text-text-muted cursor-not-allowed'
+                            : 'text-brand-green-hover/60 hover:text-[#d45656] cursor-pointer'
+                        }`}>&times;</button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input type="text" id="new-feishu-keyword-input"
+                    placeholder="输入新触发词，回车添加"
+                    className="flex-1 bg-bg-main border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all duration-200"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addKeyword(e.target.value)
+                        e.target.value = ''
+                      }
+                    }} />
+                  <button type="button"
+                    onClick={() => {
+                      const input = document.getElementById('new-feishu-keyword-input')
+                      if (!input) return
+                      addKeyword(input.value)
+                      input.value = ''
+                    }}
+                    className="px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer">
+                    添加
+                  </button>
+                </div>
+              </div>
+
+              {mode !== 'knowledge' && (
+              <div className="border-t border-border-main/50 pt-4">
+                <p className="text-[14px] text-text-main font-medium mb-3">高级兼容：{modeLabel}参数</p>
+                {mode === 'spreadsheet' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <ParamRow label="Spreadsheet Token" hint="飞书电子表格 URL 中的 spreadsheetToken">
+                      <Input value={form.feishu_spreadsheet_token || ''} onChange={v => update('feishu_spreadsheet_token', v)} placeholder="shtcnxxxxxxxxxxxx" />
+                    </ParamRow>
+                    <ParamRow label="写入范围" hint="追加写入的 sheet 范围">
+                      <Input value={form.feishu_spreadsheet_range || 'Sheet1!A:H'} onChange={v => update('feishu_spreadsheet_range', v)} placeholder="Sheet1!A:H" />
+                    </ParamRow>
+                  </div>
+                )}
+                {mode === 'bitable' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <ParamRow label="Bitable App Token" hint="多维表格 URL 中的 app_token">
+                      <Input value={form.feishu_bitable_app_token || ''} onChange={v => update('feishu_bitable_app_token', v)} placeholder="base_xxxxxxxxxxxx" />
+                    </ParamRow>
+                    <ParamRow label="Table ID" hint="目标数据表 table_id">
+                      <Input value={form.feishu_bitable_table_id || ''} onChange={v => update('feishu_bitable_table_id', v)} placeholder="tblxxxxxxxxxxxx" />
+                    </ParamRow>
+                  </div>
+                )}
+                {mode === 'docx' && (
+                  <ParamRow label="Folder Token" hint="可选。填写后文档会创建到指定飞书文件夹">
+                    <Input value={form.feishu_doc_folder_token || ''} onChange={v => update('feishu_doc_folder_token', v)} placeholder="fldxxxxxxxxxxxx" />
+                  </ParamRow>
+                )}
+              </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )
@@ -663,8 +834,8 @@ function LotsEditor() {
   )
 }
 
-const sectionTitles = { ai: 'AI 后端配置', identity: '机器人身份', data: '数据路径', features: '功能开关', sandbox: '提示词沙箱' }
-const sectionAccents = { ai: '#18E299', identity: '#3772cf', data: '#18E299', features: '#c37d0d', sandbox: '#8b5cf6' }
+const sectionTitles = { ai: 'AI 后端配置', identity: '机器人身份', data: '数据路径', features: '功能开关', feishu: '飞书同步', sandbox: '提示词沙箱' }
+const sectionAccents = { ai: '#18E299', identity: '#3772cf', data: '#18E299', features: '#c37d0d', feishu: '#3772cf', sandbox: '#8b5cf6' }
 
 // ── Data Path Section (微信数据目录配置) ──────────────────────────────
 
@@ -998,6 +1169,495 @@ function DataPathSection({ form, update, detectedDataDir }) {
 }
 
 
+// ── Welcome Section (欢迎新人配置) ──────────────────────────────────────
+
+function WelcomeSection({ form, update }) {
+  const [templates, setTemplates] = useState([])
+  const [groupMapping, setGroupMapping] = useState({})
+  const [defaultTemplate, setDefaultTemplate] = useState('tpl_default')
+  const [activeTab, setActiveTab] = useState(0)
+  const [groups, setGroups] = useState([])
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const textareaRef = useRef(null)
+
+  // Load templates + groups on mount
+  useEffect(() => {
+    async function load() {
+      try {
+        const [tplRes, grpRes] = await Promise.all([
+          fetch('http://127.0.0.1:7327/api/welcome/templates'),
+          fetch('http://127.0.0.1:7327/api/nicknames/groups'),
+        ])
+        const tplData = await tplRes.json()
+        const grpData = await grpRes.json()
+
+        if (tplData.ok && tplData.data) {
+          setTemplates(tplData.data.templates || [])
+          setGroupMapping(tplData.data.group_mapping || {})
+          setDefaultTemplate(tplData.data.default_template || 'tpl_default')
+        }
+        if (grpData.ok) {
+          setGroups(grpData.groups || [])
+        }
+      } catch {}
+      setLoaded(true)
+    }
+    load()
+  }, [])
+
+  // ── Template CRUD helpers ───────────────────────────────────
+
+  function updateTemplate(index, field, value) {
+    setTemplates(prev => {
+      const next = [...prev]
+      next[index] = { ...next[index], [field]: value }
+      return next
+    })
+  }
+
+  function addTemplate() {
+    const id = 'tpl_' + Date.now()
+    setTemplates(prev => [...prev, { id, name: '新模板', message: '欢迎 @{new_member} 加入群聊！🎉' }])
+    setActiveTab(templates.length)
+  }
+
+  function deleteTemplate(index) {
+    if (templates.length <= 1) return
+    setTemplates(prev => {
+      const next = prev.filter((_, i) => i !== index)
+      // Update group mappings that referenced the deleted template
+      const deletedId = prev[index].id
+      if (deletedId === defaultTemplate) {
+        setDefaultTemplate(next[0]?.id || 'tpl_default')
+      }
+      setGroupMapping(prevMapping => {
+        const nextMapping = { ...prevMapping }
+        for (const [chatId, tplId] of Object.entries(nextMapping)) {
+          if (tplId === deletedId) {
+            delete nextMapping[chatId]
+          }
+        }
+        return nextMapping
+      })
+      return next
+    })
+    if (activeTab >= index) {
+      setActiveTab(Math.max(0, activeTab - 1))
+    }
+  }
+
+  // ── Cursor-position variable insertion ───────────────────────
+
+  function insertVariable() {
+    const ta = textareaRef.current
+    if (!ta) return
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const msg = templates[activeTab]?.message || ''
+    const newText = msg.slice(0, start) + '{new_member}' + msg.slice(end)
+    updateTemplate(activeTab, 'message', newText)
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(start + 13, start + 13)
+    })
+  }
+
+  // ── Group mapping helpers ────────────────────────────────────
+
+  function updateGroupMapping(chatId, templateId) {
+    setGroupMapping(prev => {
+      if (templateId === '__default__') {
+        // "使用默认" → remove from mapping
+        const next = { ...prev }
+        delete next[chatId]
+        return next
+      }
+      return { ...prev, [chatId]: templateId }
+    })
+  }
+
+  function resetGroupMapping(chatId) {
+    setGroupMapping(prev => {
+      const next = { ...prev }
+      delete next[chatId]
+      return next
+    })
+  }
+
+  // ── Save ─────────────────────────────────────────────────────
+
+  async function handleSave() {
+    setSaving(true)
+    setSaveError('')
+    setSaved(false)
+    try {
+      const res = await fetch('http://127.0.0.1:7327/api/welcome/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          templates,
+          group_mapping: groupMapping,
+          default_template: defaultTemplate,
+        }),
+      })
+      const d = await res.json()
+      if (d.ok) {
+        setSaved(true)
+        setTimeout(() => setSaved(false), 3000)
+      } else {
+        setSaveError(d.error || '保存失败')
+        setTimeout(() => setSaveError(''), 5000)
+      }
+    } catch {
+      setSaveError('无法连接到服务器')
+      setTimeout(() => setSaveError(''), 5000)
+    }
+    setSaving(false)
+  }
+
+  // ── Build group assignment data ──────────────────────────────
+
+  // Groups with explicit assignments
+  const assignedGroups = groups.filter(g => groupMapping.hasOwnProperty(g.chat_id))
+  // Groups without explicit assignments (use default)
+  const unassignedGroups = groups.filter(g => !groupMapping.hasOwnProperty(g.chat_id))
+
+  const currentTemplate = templates[activeTab] || {}
+  const templateOptions = [
+    ...templates.map(t => ({ value: t.id, desc: t.name, hint: '' })),
+    { value: '__disabled__', desc: '关闭欢迎', hint: '该群不发送欢迎消息' },
+  ]
+  const groupTemplateOptions = [
+    { value: '__default__', desc: '使用默认模板', hint: '' },
+    ...templateOptions,
+  ]
+
+  if (!loaded) {
+    return (
+      <div className="py-4 border-b border-border-main/50">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 mr-8">
+            <p className="text-[15px] text-text-main font-medium">欢迎新人</p>
+            <p className="text-sm text-text-muted mt-1.5">检测到新成员加入群聊时，自动发送欢迎消息</p>
+          </div>
+          <Toggle enabled={form.welcome_enabled} onChange={v => update('welcome_enabled', v)} />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="py-4 border-b border-border-main/50">
+      <div className="flex items-center justify-between">
+        <div className="flex-1 mr-8">
+          <p className="text-[15px] text-text-main font-medium">欢迎新人</p>
+          <p className="text-sm text-text-muted mt-1.5">检测到新成员加入群聊时，自动发送欢迎消息</p>
+        </div>
+        <Toggle enabled={form.welcome_enabled} onChange={v => update('welcome_enabled', v)} />
+      </div>
+      <AnimatePresence>
+        {form.welcome_enabled && (
+          <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
+            className="mt-3 p-4 bg-bg-raised rounded-lg space-y-4">
+
+            {/* ── Template tabs ──────────────────────────────── */}
+            <div>
+              <p className="text-[13px] text-text-main font-medium mb-2">欢迎词模板</p>
+              <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                {templates.map((tpl, i) => (
+                  <span
+                    key={tpl.id}
+                    onClick={() => setActiveTab(i)}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[13px] font-medium transition-colors cursor-pointer select-none ${
+                      i === activeTab
+                        ? 'bg-brand-green text-[#0d0d0d]'
+                        : 'bg-bg-main border border-border-main text-text-muted hover:text-text-main hover:border-text-muted/40'
+                    }`}
+                  >
+                    {tpl.name}
+                    {templates.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); deleteTemplate(i) }}
+                        className={`ml-0.5 leading-none text-base transition-colors cursor-pointer ${
+                          i === activeTab
+                            ? 'text-[#0d0d0d]/60 hover:text-[#d45656]'
+                            : 'text-text-muted/50 hover:text-[#d45656]'
+                        }`}
+                        title="删除模板"
+                      >&times;</button>
+                    )}
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={addTemplate}
+                  className="px-3 py-1.5 rounded-lg text-[13px] font-medium bg-bg-main border border-dashed border-border-main text-text-muted hover:border-brand-green hover:text-brand-green-hover transition-colors cursor-pointer"
+                >
+                  + 新建
+                </button>
+              </div>
+
+              {/* ── Template editor ──────────────────────────── */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[11px] text-text-muted font-medium mb-1">模板名称</label>
+                  <input
+                    type="text"
+                    value={currentTemplate.name || ''}
+                    onChange={e => updateTemplate(activeTab, 'name', e.target.value)}
+                    className="w-full bg-bg-main border border-border-main rounded-lg px-3 py-2 text-[13px] text-text-main focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] text-text-muted font-medium">
+                      欢迎词内容（<code className="bg-bg-main px-1 rounded font-mono text-[11px]">{'{new_member}'}</code> 代表新成员 ID）
+                    </label>
+                    <button
+                      type="button"
+                      onClick={insertVariable}
+                      className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-brand-green-light border border-brand-green/20 text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors cursor-pointer"
+                      title="在光标位置插入新成员ID变量"
+                    >
+                      + 插入新成员 ID
+                    </button>
+                  </div>
+                  <textarea
+                    ref={textareaRef}
+                    value={currentTemplate.message || ''}
+                    onChange={e => updateTemplate(activeTab, 'message', e.target.value)}
+                    rows={3}
+                    className="w-full bg-bg-main border border-border-main rounded-xl p-3 text-[13px] text-text-main leading-relaxed focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all resize-y font-mono"
+                    placeholder="欢迎 @{new_member} 加入群聊！🎉"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* ── Group assignment ───────────────────────────── */}
+            <div className="border-t border-border-main/40 pt-4">
+              <p className="text-[13px] text-text-main font-medium mb-2">群聊分配</p>
+              <p className="text-[11px] text-text-muted mb-3">
+                未单独配置的群聊使用默认模板。设为「关闭欢迎」则不发送。
+              </p>
+
+              {/* Default template selector */}
+              <div className="flex items-center gap-3 mb-3 px-3 py-2 bg-bg-main/60 rounded-xl border border-border-main/50">
+                <span className="text-[12px] text-text-muted shrink-0">默认模板</span>
+                <span className="text-[11px] text-text-muted/60 flex-1">未单独配置的群聊使用此模板</span>
+                <div className="w-40">
+                  <SmallSelect
+                    value={defaultTemplate}
+                    onChange={v => setDefaultTemplate(v)}
+                    options={templates.map(t => ({ value: t.id, desc: t.name }))}
+                  />
+                </div>
+              </div>
+
+              {/* Explicit group assignments */}
+              {assignedGroups.map(g => (
+                <div key={g.chat_id} className="flex items-center gap-3 mb-2 px-3 py-2 bg-bg-main/60 rounded-xl border border-border-main/50">
+                  <span className="text-[12px] text-text-main truncate flex-1 font-mono" title={g.group_name || g.chat_id}>
+                    {g.group_name || g.chat_id}
+                  </span>
+                  <div className="w-40">
+                    <SmallSelect
+                      value={groupMapping[g.chat_id]}
+                      onChange={v => updateGroupMapping(g.chat_id, v)}
+                      options={groupTemplateOptions}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => resetGroupMapping(g.chat_id)}
+                    className="text-text-muted/50 hover:text-[#d45656] text-sm leading-none cursor-pointer transition-colors shrink-0"
+                    title="恢复为默认模板"
+                  >&times;</button>
+                </div>
+              ))}
+
+              {/* Add group assignment — dropdown picker */}
+              {unassignedGroups.length > 0 && (
+                <AddGroupPicker
+                  unassignedGroups={unassignedGroups}
+                  defaultTemplate={defaultTemplate}
+                  onAdd={(chatId, templateId) => updateGroupMapping(chatId, templateId)}
+                />
+              )}
+            </div>
+
+            {/* ── Save button ───────────────────────────────── */}
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className={`px-4 py-2 rounded-full text-[13px] font-semibold transition-all cursor-pointer flex items-center gap-2 ${
+                  saved
+                    ? 'bg-brand-green-light border border-brand-green/20 text-brand-green-hover dark:text-brand-green'
+                    : 'bg-brand-green text-[#0d0d0d] hover:opacity-90'
+                }`}
+              >
+                {saving ? (
+                  <><svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> 保存中</>
+                ) : saved ? (
+                  <><CheckCircle size={14} weight="fill" /> 已保存</>
+                ) : (
+                  <><FloppyDisk size={14} /> 保存模板配置</>
+                )}
+              </button>
+              {saveError && (
+                <span className="text-xs text-[#d45656] font-mono">{saveError}</span>
+              )}
+              <span className="text-[11px] text-text-muted">
+                模板配置独立保存，无需重启机器人
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ── AddGroupPicker — dropdown to pick an unassigned group ──────────
+
+function AddGroupPicker({ unassignedGroups, defaultTemplate, onAdd }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef(null)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  useEffect(() => {
+    if (open && inputRef.current) {
+      inputRef.current.focus()
+      setSearch('')
+    }
+  }, [open])
+
+  const filtered = unassignedGroups.filter(g => {
+    if (!search.trim()) return true
+    const q = search.trim().toLowerCase()
+    return (g.group_name || g.chat_id).toLowerCase().includes(q)
+  })
+
+  function handleSelect(chatId) {
+    onAdd(chatId, defaultTemplate)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="px-3 py-2 rounded-xl text-[12px] text-text-muted bg-bg-main border border-dashed border-border-main hover:border-brand-green hover:text-brand-green-hover transition-colors cursor-pointer w-full text-left"
+      >
+        + 为群聊单独配置（{unassignedGroups.length} 个群聊未配置）
+      </button>
+      {open && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-bg-card border border-border-main rounded-xl shadow-lg overflow-hidden">
+          {/* Search input */}
+          <div className="px-3 py-2 border-b border-border-main/40">
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="搜索群聊名称..."
+              className="w-full bg-bg-main border border-border-main rounded-lg px-3 py-1.5 text-[12px] text-text-main placeholder:text-text-muted/55 focus:outline-none focus:border-brand-green transition-colors"
+            />
+          </div>
+          {/* Group list */}
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-[12px] text-text-muted text-center">
+                {search.trim() ? '无匹配群聊' : '所有群聊已配置'}
+              </div>
+            ) : (
+              filtered.map(g => (
+                <button
+                  key={g.chat_id}
+                  type="button"
+                  onClick={() => handleSelect(g.chat_id)}
+                  className="w-full text-left px-3 py-2 text-[12px] text-text-main hover:bg-bg-raised transition-colors cursor-pointer flex items-center justify-between"
+                >
+                  <span className="truncate font-mono" title={g.group_name || g.chat_id}>
+                    {g.group_name || g.chat_id}
+                  </span>
+                  <span className="text-[10px] text-text-muted shrink-0 ml-2">
+                    {g.member_count ? `${g.member_count} 人` : ''}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Small Select (for group assignment dropdowns) ─────────────────
+
+function SmallSelect({ value, onChange, options }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const selected = options.find(o => o.value === value)
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full bg-bg-main border border-border-main rounded-lg px-3 py-1.5 text-[12px] text-text-main text-left focus:outline-none focus:border-brand-green transition-colors cursor-pointer hover:border-text-muted/30 flex items-center justify-between"
+      >
+        <span className="truncate">{selected ? selected.desc : value}</span>
+        <span className={`text-text-muted text-xs transition-transform duration-200 ${open ? 'rotate-90' : ''}`}>&#8250;</span>
+      </button>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0, y: -2 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute z-50 left-0 right-0 mt-1 bg-bg-card border border-border-main rounded-xl shadow-lg overflow-hidden max-h-48 overflow-y-auto"
+        >
+          {options.map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              className={`w-full text-left px-3 py-2 text-[12px] transition-colors cursor-pointer ${
+                value === opt.value
+                  ? 'bg-brand-green-light text-brand-green-hover dark:text-brand-green font-semibold'
+                  : 'text-text-main hover:bg-bg-raised'
+              }`}
+            >
+              {opt.desc}
+            </button>
+          ))}
+        </motion.div>
+      )}
+    </div>
+  )
+}
+
 function SandboxSection({ form }) {
   const [message, setMessage] = useState('')
   const [senderName, setSenderName] = useState('张三')
@@ -1166,6 +1826,16 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     proactive_rate_lively: 6.5, proactive_rate_burst: 8.5,
     sticky_mention_enabled: true, sticky_mention_ttl_sec: 60,
     summarize_enabled: true, fallback_window_hours: 8, trigger_keywords: [],
+    welcome_enabled: false,
+    feishu_export_enabled: false, feishu_app_id: '', feishu_app_secret: '',
+    feishu_export_mode: 'knowledge', feishu_export_window_hours: 8,
+    feishu_auto_sync_enabled: false, feishu_auto_sync_min_messages: 20,
+    feishu_auto_sync_cooldown_sec: 1800,
+    feishu_knowledge_base_name: 'webot 群聊沉淀', feishu_knowledge_folder_token: '',
+    feishu_export_trigger_keywords: ['同步到飞书', '导出到飞书', '写到飞书', '沉淀到飞书'],
+    feishu_spreadsheet_token: '', feishu_spreadsheet_range: 'Sheet1!A:H',
+    feishu_bitable_app_token: '', feishu_bitable_table_id: '',
+    feishu_doc_folder_token: '',
     log_level: 'INFO', wechat_data_dir: '',
   })
 
@@ -1282,6 +1952,23 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           summarize_enabled: form.summarize_enabled,
           fallback_window_hours: form.fallback_window_hours,
           trigger_keywords: form.trigger_keywords,
+          welcome_enabled: form.welcome_enabled,
+          feishu_export_enabled: form.feishu_export_enabled,
+          feishu_app_id: form.feishu_app_id,
+          feishu_app_secret: form.feishu_app_secret,
+          feishu_export_mode: form.feishu_export_mode,
+          feishu_export_window_hours: form.feishu_export_window_hours,
+          feishu_auto_sync_enabled: form.feishu_auto_sync_enabled,
+          feishu_auto_sync_min_messages: form.feishu_auto_sync_min_messages,
+          feishu_auto_sync_cooldown_sec: form.feishu_auto_sync_cooldown_sec,
+          feishu_knowledge_base_name: form.feishu_knowledge_base_name,
+          feishu_knowledge_folder_token: form.feishu_knowledge_folder_token,
+          feishu_export_trigger_keywords: form.feishu_export_trigger_keywords,
+          feishu_spreadsheet_token: form.feishu_spreadsheet_token,
+          feishu_spreadsheet_range: form.feishu_spreadsheet_range,
+          feishu_bitable_app_token: form.feishu_bitable_app_token,
+          feishu_bitable_table_id: form.feishu_bitable_table_id,
+          feishu_doc_folder_token: form.feishu_doc_folder_token,
           log_level: form.log_level,
           wechat_data_dir: form.wechat_data_dir,
         }),
@@ -1352,6 +2039,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
                 {activeSection === 'identity' && <IdentitySection form={form} update={update} />}
                 {activeSection === 'data' && <DataPathSection form={form} update={update} detectedDataDir={detectedDataDir} />}
                 {activeSection === 'features' && <FeaturesSection form={form} update={update} />}
+                {activeSection === 'feishu' && <FeishuSection form={form} update={update} />}
                 {activeSection === 'sandbox' && <SandboxSection form={form} />}
               </div>
             </div>

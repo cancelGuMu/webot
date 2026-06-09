@@ -86,7 +86,7 @@ a = Analysis(
         'ddgs', 'duckduckgo_search',
         'psutil', 'pyperclip',
         'win32api', 'comtypes',
-        'pysilk', 'faster_whisper', 'ctranslate2',
+        'pysilk', 'faster_whisper',
     ],
     hookspath=[],
     hooksconfig={},

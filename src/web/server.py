@@ -1889,21 +1889,29 @@ class _UIHandler(SimpleHTTPRequestHandler):
         if self.path.startswith("/api/voice/model-status"):
             try:
                 from urllib.parse import urlparse, parse_qs
+                from src.config import PROJECT_ROOT
                 qs = parse_qs(urlparse(self.path).query)
                 model = qs.get("model", ["small"])[0]
 
-                # Check HuggingFace cache
-                cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-                model_dir = cache_dir / f"models--Systran--faster-whisper-{model}"
-                downloaded = False
-                if model_dir.exists():
+                repo_dirname = f"models--Systran--faster-whisper-{model}"
+
+                def _check_model_dir(base: Path) -> bool:
+                    model_dir = base / repo_dirname
+                    if not model_dir.exists():
+                        return False
                     snapshots = model_dir / "snapshots"
                     if snapshots.exists() and any(snapshots.iterdir()):
-                        downloaded = True
-                    else:
-                        blobs = model_dir / "blobs"
-                        if blobs.exists() and any(blobs.iterdir()):
-                            downloaded = True
+                        return True
+                    blobs = model_dir / "blobs"
+                    if blobs.exists() and any(blobs.iterdir()):
+                        return True
+                    return False
+
+                # Check both project-local and global HF cache
+                downloaded = (
+                    _check_model_dir(PROJECT_ROOT / "data" / "models")
+                    or _check_model_dir(Path.home() / ".cache" / "huggingface" / "hub")
+                )
 
                 dl = _voice_downloads.get(model)
                 self.send_json({
@@ -1932,12 +1940,15 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 def _run():
                     state = _voice_downloads.setdefault(model, {})
                     try:
+                        # Use project-local dir (same as LocalWhisperASR.model_dir)
+                        from src.config import PROJECT_ROOT
+                        cache = str(PROJECT_ROOT / "data" / "models")
+
                         # ── Phase 1: download via huggingface_hub ──
                         state["phase"] = "downloading"
                         state["pct"] = 0
 
                         from huggingface_hub import snapshot_download
-                        cache = str(Path.home() / ".cache" / "huggingface")
                         repo_id = f"Systran/faster-whisper-{model}"
 
                         snapshot_download(

@@ -311,7 +311,7 @@ function VoiceSection({ form, update }) {
                 <div className="flex-1 mr-8">
                   <p className="text-[14px] text-text-main font-medium">繁简转换</p>
                   <p className="text-sm text-text-muted mt-1.5">
-                    Whisper 有时输出繁体字，自动转为简体（opencc）
+                    Whisper 有时输出繁体字，自动转为简体
                   </p>
                 </div>
                 <Toggle enabled={form.voice_asr_to_simplified !== false} onChange={v => update('voice_asr_to_simplified', v)} />

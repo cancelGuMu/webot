@@ -90,6 +90,7 @@ function VoiceSection({ form, update }) {
   const [dlPhase, setDlPhase] = useState('checking')
   const [dlPct, setDlPct] = useState(0)
   const [dlError, setDlError] = useState('')
+  const didDownload = useRef(false)  // true only when user clicked "下载模型" and it finished
 
   function resetDlState() { setDlPhase('checking'); setDlPct(0); setDlError('') }
 
@@ -133,6 +134,7 @@ function VoiceSection({ form, update }) {
     setDlPhase('downloading')
     setDlPct(0)
     setDlError('')
+    didDownload.current = true
     try {
       const res = await fetch('http://127.0.0.1:7327/api/voice/download-model', {
         method: 'POST',
@@ -225,7 +227,7 @@ function VoiceSection({ form, update }) {
                       </div>
                       {dlPhase === 'done' ? (
                         <span className="shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold bg-brand-green-light border border-brand-green/20 text-brand-green-hover dark:text-brand-green flex items-center gap-2">
-                          <CheckCircle size={14} weight="fill" /> 下载完成
+                          <CheckCircle size={14} weight="fill" /> {didDownload.current ? '下载完成' : '已下载'}
                         </span>
                       ) : dlPhase === 'error' ? (
                         <button type="button" onClick={handleDownload}

@@ -733,6 +733,7 @@ _status = _ServerStatus()
 _bot_control = _BotControl()
 _server_guard = _ServerStartGuard()
 _shutdown_event = threading.Event()
+_voice_downloads: dict[str, dict] = {}  # model → {active, msg}
 
 
 def signal_shutdown():
@@ -1887,13 +1888,34 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 from urllib.parse import urlparse, parse_qs
                 qs = parse_qs(urlparse(self.path).query)
                 model = qs.get("model", ["small"])[0]
-                model_dir = Path("data/models") / f"faster-whisper-{model}"
-                downloaded = model_dir.exists() and any(model_dir.iterdir())
+
+                # Check HuggingFace cache (where faster-whisper stores models)
+                repo_id = f"Systran/faster-whisper-{model}"
+                cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+                model_dir = cache_dir / f"models--Systran--faster-whisper-{model}"
+
+                # A model is "downloaded" if its cache dir has actual snapshot content
+                downloaded = False
+                if model_dir.exists():
+                    snapshots = model_dir / "snapshots"
+                    if snapshots.exists() and any(snapshots.iterdir()):
+                        downloaded = True
+                    else:
+                        # Check blobs as fallback
+                        blobs = model_dir / "blobs"
+                        if blobs.exists() and any(blobs.iterdir()):
+                            downloaded = True
+
+                # Track in-flight downloads (module-level dict)
+                dl_state = _voice_downloads.get(model, {})
+                downloading = dl_state.get("active", False)
+
                 self.send_json({
                     "ok": True,
                     "downloaded": downloaded,
+                    "downloading": downloading,
+                    "progress": dl_state.get("msg", ""),
                     "model": model,
-                    "path": str(model_dir),
                 })
             except Exception as e:
                 logger.exception("Voice model-status failed")
@@ -1908,13 +1930,23 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 data = json.loads(body)
                 model = data.get("model", "small")
 
+                # Mark download as active
+                _voice_downloads[model] = {"active": True, "msg": "正在连接..."}
+
                 def _download_model():
                     try:
+                        _voice_downloads[model]["msg"] = "正在下载模型文件..."
                         from faster_whisper import WhisperModel
-                        WhisperModel(model, device="cpu", compute_type="int8",
-                                     download_root="data/models")
+                        # Instantiating WhisperModel triggers auto-download
+                        # via huggingface_hub to ~/.cache/huggingface/
+                        WhisperModel(
+                            model, device="cpu", compute_type="int8",
+                            download_root=str(Path.home() / ".cache" / "huggingface"),
+                        )
+                        _voice_downloads[model] = {"active": False, "msg": "下载完成"}
                         logger.info("Voice model '%s' downloaded successfully", model)
                     except Exception as exc:
+                        _voice_downloads[model] = {"active": False, "msg": f"下载失败: {exc}"}
                         logger.exception("Voice model download failed: %s", exc)
 
                 import threading
@@ -1922,6 +1954,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 t.start()
                 self.send_json({"ok": True, "model": model, "message": "下载已在后台启动"})
             except Exception as e:
+                _voice_downloads.pop(model, None)
                 logger.exception("Voice download-model failed")
                 self.send_json({"ok": False, "error": str(e)})
             return

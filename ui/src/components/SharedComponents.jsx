@@ -81,7 +81,7 @@ export function Select({ value, onChange, options }) {
                    transition-all duration-200 cursor-pointer text-left
                    hover:border-text-muted/30 dark:hover:border-text-muted/40"
       >
-        {selected ? `${selected.value}  ·  ${selected.desc}` : value}
+        {selected ? selected.desc : value}
       </button>
       <span
         className="absolute right-5 top-1/2 pointer-events-none select-none text-text-muted text-lg font-mono transition-all duration-200"

@@ -102,9 +102,9 @@ export function Select({ value, onChange, options }) {
               className={`w-full text-left px-5 py-2.5 text-[14px] transition-colors flex items-center gap-3 font-mono cursor-pointer
                 ${value === opt.value ? 'bg-brand-green-light text-brand-green-hover dark:text-brand-green font-semibold' : 'text-text-main hover:bg-bg-raised'}`}
             >
-              <span className="w-[72px] shrink-0 font-semibold">{opt.value}</span>
+              <span className="w-[80px] shrink-0 font-semibold">{opt.value}</span>
               <span className="w-[4px] shrink-0 opacity-40 text-text-muted">·</span>
-              <span className="w-[80px] shrink-0">{opt.desc}</span>
+              <span className="w-[96px] shrink-0">{opt.desc}</span>
               <span className="w-[4px] shrink-0 opacity-40 text-text-muted">·</span>
               <span className="text-text-muted truncate">{opt.hint}</span>
             </button>

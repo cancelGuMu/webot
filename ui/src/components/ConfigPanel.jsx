@@ -178,11 +178,11 @@ function VoiceSection({ form, update }) {
               {/* ── Backend ─────────────────────────────────── */}
               <Field label="识别后端"
                 hint={isOpenAi
-                  ? 'OpenAI Whisper API — 云端识别，$0.006/分钟，不占本地内存'
+                  ? 'OpenAI Whisper API — 云端识别，约 ¥0.04 / 分钟，不占本地内存'
                   : '本地 Whisper — 免费离线，模型常驻内存，无需网络'}>
                 <Select value={form.voice_asr_backend} onChange={v => update('voice_asr_backend', v)} options={[
-                  { value: 'local_whisper', desc: '本地 Whisper', hint: '免费 · 离线 · 推荐' },
-                  { value: 'openai_whisper', desc: 'OpenAI Whisper API', hint: '云端 · $0.006/分钟' },
+                  { value: 'local_whisper',  desc: '本地模型',  hint: '免费离线 · 推荐' },
+                  { value: 'openai_whisper', desc: '云端 API',   hint: '约 ¥0.04 / 分钟' },
                 ]} />
               </Field>
 

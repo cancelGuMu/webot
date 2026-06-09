@@ -71,6 +71,89 @@ function AiSection({ form, update }) {
           </Field>
         </>
       )}
+
+      {/* ── Voice Recognition ──────────────────────────────── */}
+      <div className="mt-5 pt-5 border-t border-border-main/40">
+        <p className="text-[15px] text-text-main font-medium mb-1">语音识别配置</p>
+        <p className="text-sm text-text-muted mb-4">
+          将群聊语音消息自动转文字参与 AI 总结。默认使用本地模型，免费离线运行；也可切换到 OpenAI Whisper API。
+        </p>
+        <VoiceSection form={form} update={update} />
+      </div>
+    </div>
+  )
+}
+
+function VoiceSection({ form, update }) {
+  const isOpenAi = form.voice_asr_backend === 'openai_whisper'
+
+  return (
+    <div>
+      <div className="py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 mr-8">
+            <p className="text-[14px] text-text-main font-medium">启用语音识别</p>
+            <p className="text-sm text-text-muted mt-1.5">
+              开启后，群聊中的语音消息将自动转文字参与 AI 总结。
+              首次使用本地模型会自动下载（约 500 MB），之后完全离线。
+            </p>
+          </div>
+          <Toggle enabled={form.voice_asr_enabled} onChange={v => update('voice_asr_enabled', v)} />
+        </div>
+        <AnimatePresence>
+          {form.voice_asr_enabled && (
+            <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
+              className="mt-3 p-4 bg-bg-raised rounded-lg space-y-4">
+
+              <Field label="识别后端"
+                hint={isOpenAi
+                  ? 'OpenAI Whisper API — 云端识别，$0.006/分钟，零本地内存占用'
+                  : '本地 Whisper — 免费离线，small 模型约 1 GB 内存，首次使用自动下载'}>
+                <Select value={form.voice_asr_backend} onChange={v => update('voice_asr_backend', v)} options={[
+                  { value: 'local_whisper', desc: '本地 Whisper', hint: '免费 · 离线 · 推荐' },
+                  { value: 'openai_whisper', desc: 'OpenAI Whisper API', hint: '云端 · $0.006/分' },
+                ]} />
+              </Field>
+
+              {isOpenAi && (
+                <>
+                  <Field label="OpenAI API Key" hint="用于 Whisper API；留空则复用 AI 后端配置中的 Key">
+                    <Input type="password" value={form.voice_openai_api_key || ''}
+                      onChange={v => update('voice_openai_api_key', v)}
+                      placeholder="sk-xxxxxxxxxxxxxxxx（可选）" />
+                  </Field>
+                  <Field label="API Base URL" hint="自定义 API 地址；留空使用默认">
+                    <Input value={form.voice_openai_base_url || ''}
+                      onChange={v => update('voice_openai_base_url', v)}
+                      placeholder="https://api.openai.com（默认）" />
+                  </Field>
+                </>
+              )}
+
+              {!isOpenAi && (
+                <Field label="本地模型大小" hint="越大越准确，但内存占用也越高。small 约 1 GB，推荐中文使用">
+                  <Select value={form.voice_local_model || 'small'}
+                    onChange={v => update('voice_local_model', v)} options={[
+                    { value: 'tiny', desc: 'Tiny', hint: '~200 MB · 速度最快' },
+                    { value: 'base', desc: 'Base', hint: '~300 MB · 平衡' },
+                    { value: 'small', desc: 'Small', hint: '~1 GB · 推荐' },
+                    { value: 'medium', desc: 'Medium', hint: '~3 GB · 高精度' },
+                  ]} />
+                </Field>
+              )}
+
+              <Field label="识别语言" hint="语音消息的语种">
+                <Select value={form.voice_asr_language || 'zh'}
+                  onChange={v => update('voice_asr_language', v)} options={[
+                  { value: 'zh', desc: '中文', hint: '普通话' },
+                  { value: 'en', desc: 'English', hint: '英语' },
+                  { value: 'ja', desc: '日本語', hint: '日语' },
+                ]} />
+              </Field>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   )
 }
@@ -1837,6 +1920,8 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     feishu_bitable_app_token: '', feishu_bitable_table_id: '',
     feishu_doc_folder_token: '',
     log_level: 'INFO', wechat_data_dir: '',
+    voice_asr_enabled: false, voice_asr_backend: 'local_whisper', voice_asr_language: 'zh',
+    voice_openai_api_key: '', voice_openai_base_url: '', voice_local_model: 'small',
   })
 
   async function handleExportConfig() {
@@ -1971,6 +2056,12 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           feishu_doc_folder_token: form.feishu_doc_folder_token,
           log_level: form.log_level,
           wechat_data_dir: form.wechat_data_dir,
+          voice_asr_enabled: form.voice_asr_enabled,
+          voice_asr_backend: form.voice_asr_backend,
+          voice_asr_language: form.voice_asr_language,
+          voice_openai_api_key: form.voice_openai_api_key,
+          voice_openai_base_url: form.voice_openai_base_url,
+          voice_local_model: form.voice_local_model,
         }),
       })
       const data = await res.json()

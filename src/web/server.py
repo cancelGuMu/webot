@@ -1057,6 +1057,12 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 ],
                 "log_level": raw.get("LOG_LEVEL", "INFO"),
                 "wechat_data_dir": raw.get("WECHAT_DATA_DIR", ""),
+                "voice_asr_enabled": raw.get("VOICE_ASR_ENABLED", "false").lower() == "true",
+                "voice_asr_backend": raw.get("VOICE_ASR_BACKEND", "local_whisper"),
+                "voice_asr_language": raw.get("VOICE_ASR_LANGUAGE", "zh"),
+                "voice_openai_api_key": raw.get("VOICE_OPENAI_API_KEY", ""),
+                "voice_openai_base_url": raw.get("VOICE_OPENAI_BASE_URL", ""),
+                "voice_local_model": raw.get("VOICE_LOCAL_MODEL", "small"),
             }
             config_data.update(_feishu_config_from_raw(raw))
             self.send_json({
@@ -1161,6 +1167,12 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "TRIGGER_KEYWORDS": ",".join(config.get("trigger_keywords", [])) if config.get("trigger_keywords") else None,
                     "LOG_LEVEL": config.get("log_level"),
                     "WECHAT_DATA_DIR": config.get("wechat_data_dir"),
+                    "VOICE_ASR_ENABLED": str(config.get("voice_asr_enabled", False)).lower(),
+                    "VOICE_ASR_BACKEND": config.get("voice_asr_backend", "local_whisper"),
+                    "VOICE_ASR_LANGUAGE": config.get("voice_asr_language", "zh"),
+                    "VOICE_OPENAI_API_KEY": config.get("voice_openai_api_key", ""),
+                    "VOICE_OPENAI_BASE_URL": config.get("voice_openai_base_url", ""),
+                    "VOICE_LOCAL_MODEL": config.get("voice_local_model", "small"),
                 }
                 updates.update(_feishu_updates_from_config(config))
                 seen = set()
@@ -1235,6 +1247,12 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "TRIGGER_KEYWORDS": ",".join(config.get("trigger_keywords", [])) if config.get("trigger_keywords") else None,
                     "LOG_LEVEL": config.get("log_level"),
                     "WECHAT_DATA_DIR": config.get("wechat_data_dir"),
+                    "VOICE_ASR_ENABLED": str(config.get("voice_asr_enabled", False)).lower(),
+                    "VOICE_ASR_BACKEND": config.get("voice_asr_backend", "local_whisper"),
+                    "VOICE_ASR_LANGUAGE": config.get("voice_asr_language", "zh"),
+                    "VOICE_OPENAI_API_KEY": config.get("voice_openai_api_key", ""),
+                    "VOICE_OPENAI_BASE_URL": config.get("voice_openai_base_url", ""),
+                    "VOICE_LOCAL_MODEL": config.get("voice_local_model", "small"),
                 }
                 updates.update(_feishu_updates_from_config(config))
                 new_lines = []

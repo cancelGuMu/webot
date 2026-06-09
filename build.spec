@@ -74,6 +74,7 @@ a = Analysis(
         'src.wechat.keyboard', 'src.wechat.helpers', 'src.wechat.extract_key',
         'src.wechat.native', 'src.wechat.native.injector',
         'src.web', 'src.web.server',
+        'src.router', 'src.welcome',
         'src.nickname', 'src.admin', 'src.fun',
         'src.utils', 'src.utils.logging_config',
         'dotenv', 'anthropic', 'openai', 'pydantic',

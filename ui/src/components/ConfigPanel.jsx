@@ -306,6 +306,17 @@ function VoiceSection({ form, update }) {
                 ]} />
               </Field>
 
+              {/* ── Simplified Chinese ───────────────────────── */}
+              <div className="flex items-center justify-between">
+                <div className="flex-1 mr-8">
+                  <p className="text-[14px] text-text-main font-medium">繁简转换</p>
+                  <p className="text-sm text-text-muted mt-1.5">
+                    Whisper 有时输出繁体字，自动转为简体（opencc）
+                  </p>
+                </div>
+                <Toggle enabled={form.voice_asr_to_simplified !== false} onChange={v => update('voice_asr_to_simplified', v)} />
+              </div>
+
             </motion.div>
           )}
         </AnimatePresence>
@@ -2078,6 +2089,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
     log_level: 'INFO', wechat_data_dir: '',
     voice_asr_enabled: false, voice_asr_backend: 'local_whisper', voice_asr_language: 'zh',
     voice_openai_api_key: '', voice_openai_base_url: '', voice_local_model: 'small',
+    voice_asr_to_simplified: true,
   })
 
   async function handleExportConfig() {
@@ -2218,6 +2230,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           voice_openai_api_key: form.voice_openai_api_key,
           voice_openai_base_url: form.voice_openai_base_url,
           voice_local_model: form.voice_local_model,
+          voice_asr_to_simplified: form.voice_asr_to_simplified,
         }),
       })
       const data = await res.json()

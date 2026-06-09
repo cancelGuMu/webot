@@ -1065,6 +1065,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 "voice_openai_api_key": raw.get("VOICE_OPENAI_API_KEY", ""),
                 "voice_openai_base_url": raw.get("VOICE_OPENAI_BASE_URL", ""),
                 "voice_local_model": raw.get("VOICE_LOCAL_MODEL", "small"),
+                "voice_asr_to_simplified": raw.get("VOICE_ASR_TO_SIMPLIFIED", "true").lower() == "true",
             }
             config_data.update(_feishu_config_from_raw(raw))
             self.send_json({
@@ -1175,6 +1176,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "VOICE_OPENAI_API_KEY": config.get("voice_openai_api_key", ""),
                     "VOICE_OPENAI_BASE_URL": config.get("voice_openai_base_url", ""),
                     "VOICE_LOCAL_MODEL": config.get("voice_local_model", "small"),
+                    "VOICE_ASR_TO_SIMPLIFIED": str(config.get("voice_asr_to_simplified", True)).lower(),
                 }
                 updates.update(_feishu_updates_from_config(config))
                 seen = set()
@@ -1255,6 +1257,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "VOICE_OPENAI_API_KEY": config.get("voice_openai_api_key", ""),
                     "VOICE_OPENAI_BASE_URL": config.get("voice_openai_base_url", ""),
                     "VOICE_LOCAL_MODEL": config.get("voice_local_model", "small"),
+                    "VOICE_ASR_TO_SIMPLIFIED": str(config.get("voice_asr_to_simplified", True)).lower(),
                 }
                 updates.update(_feishu_updates_from_config(config))
                 new_lines = []

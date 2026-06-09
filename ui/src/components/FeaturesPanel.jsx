@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle, Warning, FloppyDisk, Info } from '@phosphor-icons/react'
 import { Field, Toggle, Select, Input } from './SharedComponents'
+import WelcomeSection from './WelcomeEditor'
 
 const pageTransition = {
   initial: { opacity: 0, x: 12 },
@@ -98,7 +99,7 @@ function FeishuSection({ form, update }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between">
         <div className="flex-1 mr-8">
           <p className="text-[15px] text-text-main font-medium">飞书知识库</p>
           <p className="text-sm text-text-muted mt-1.5">自动创建多维表格，把群聊沉淀为摘要、待办、需求和日常记录</p>
@@ -108,7 +109,7 @@ function FeishuSection({ form, update }) {
       <AnimatePresence>
         {form.feishu_export_enabled && (
           <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
-            className="p-4 bg-bg-raised rounded-lg space-y-4">
+            className="mt-2 p-4 bg-bg-raised rounded-lg space-y-3">
             <Field label="飞书应用凭证" hint="使用企业自建应用的 App ID 和 App Secret">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Input value={form.feishu_app_id || ''} onChange={v => update('feishu_app_id', v)} placeholder="cli_xxxxxxxxxxxxxxxx" />
@@ -299,10 +300,10 @@ function StickySection({ form, update }) {
               <Select value={String(form.sticky_mention_ttl_sec || 60) + ' 秒'}
                 onChange={v => update('sticky_mention_ttl_sec', parseInt(v))}
                 options={[
-                  { value: '30 秒', desc: '快速响应', hint: '30 秒后自动失效' },
-                  { value: '60 秒', desc: '默认', hint: '60 秒后自动失效' },
-                  { value: '120 秒', desc: '宽松', hint: '120 秒后自动失效' },
-                  { value: '300 秒', desc: '最长时间', hint: '300 秒后自动失效' },
+                  { value: '30 秒', desc: '快速响应 (30 秒)', hint: '30 秒后自动失效' },
+                  { value: '60 秒', desc: '默认 (60 秒)', hint: '60 秒后自动失效' },
+                  { value: '120 秒', desc: '宽松 (120 秒)', hint: '120 秒后自动失效' },
+                  { value: '300 秒', desc: '最长时间 (300 秒)', hint: '300 秒后自动失效' },
                 ]} />
             </ParamRow>
           </motion.div>
@@ -438,22 +439,6 @@ function LotsEditor() {
         <button type="button" onClick={handleRestoreDefaults} disabled={saving}
           className="px-4 py-2 rounded-full text-[12px] text-text-muted hover:text-[#d45656] border border-border-main hover:border-[#d45656]/20 hover:bg-[#d45656]/5 transition-colors cursor-pointer font-medium">恢复默认签文</button>
         {saveError && <span className="text-xs text-[#d45656] font-mono">{saveError}</span>}
-      </div>
-    </div>
-  )
-}
-
-// ── Welcome Section (simplified — just toggle for now, full editor in ConfigPanel) ──
-
-function WelcomeSection({ form, update }) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex-1 mr-8">
-          <p className="text-[15px] text-text-main font-medium">欢迎新人</p>
-          <p className="text-sm text-text-muted mt-1.5">检测到新成员加入群聊时，自动发送欢迎消息（模板配置在「系统配置 → 提示词沙箱」旁管理）</p>
-        </div>
-        <Toggle enabled={form.welcome_enabled} onChange={v => update('welcome_enabled', v)} />
       </div>
     </div>
   )

@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from opencc import OpenCC
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,14 +56,18 @@ class LocalWhisperASR(AbstractASR):
     """
 
     def __init__(self, model_size: str = "small",
-                 model_dir: str = "data/models") -> None:
+                 model_dir: str = "data/models",
+                 to_simplified: bool = True) -> None:
         """
         Args:
             model_size: tiny / base / small / medium (small ≈ 1 GB RAM).
             model_dir:  Directory to cache downloaded models.
+            to_simplified: Convert traditional Chinese → simplified via opencc.
         """
         self._model_size = model_size
         self._model_dir = model_dir
+        self._to_simplified = to_simplified
+        self._opencc: Optional[OpenCC] = None
         self._model = None  # lazy-init
 
     # -- Public API --------------------------------------------------------
@@ -91,6 +97,8 @@ class LocalWhisperASR(AbstractASR):
             seg_count += 1
 
         text = " ".join(text_parts)
+        if self._to_simplified:
+            text = self._get_opencc().convert(text)
         # Convert avg_logprob → confidence estimate (heuristic)
         if seg_count > 0:
             avg_logprob = total_confidence / seg_count
@@ -131,6 +139,11 @@ class LocalWhisperASR(AbstractASR):
         logger.info("LocalWhisper model loaded (size=%s)", self._model_size)
         return self._model
 
+    def _get_opencc(self) -> OpenCC:
+        if self._opencc is None:
+            self._opencc = OpenCC("t2s")
+        return self._opencc
+
 
 # ---------------------------------------------------------------------------
 # OpenAI Whisper API
@@ -144,14 +157,18 @@ class OpenAiWhisperASR(AbstractASR):
     """
 
     def __init__(self, api_key: str = "",
-                 base_url: str = "") -> None:
+                 base_url: str = "",
+                 to_simplified: bool = True) -> None:
         """
         Args:
             api_key:  OpenAI API key (falls back to OPENAI_API_KEY env var).
             base_url: Custom API endpoint (e.g. proxy).
+            to_simplified: Convert traditional Chinese → simplified via opencc.
         """
         self._api_key = api_key
         self._base_url = base_url
+        self._to_simplified = to_simplified
+        self._opencc: Optional[OpenCC] = None
         self._client = None  # lazy-init
 
     # -- Public API --------------------------------------------------------
@@ -172,6 +189,8 @@ class OpenAiWhisperASR(AbstractASR):
             raise ASRError(f"OpenAI Whisper API call failed: {exc}") from exc
 
         text = result.text.strip() if result.text else ""
+        if self._to_simplified and text:
+            text = self._get_opencc().convert(text)
         # Whisper API returns logprob-based segments; extract avg confidence
         confidence = 0.8  # default when no detailed info
         duration = 0.0
@@ -214,6 +233,11 @@ class OpenAiWhisperASR(AbstractASR):
 
         self._client = OpenAI(**kwargs)
         return self._client
+
+    def _get_opencc(self) -> OpenCC:
+        if self._opencc is None:
+            self._opencc = OpenCC("t2s")
+        return self._opencc
 
 
 # ---------------------------------------------------------------------------

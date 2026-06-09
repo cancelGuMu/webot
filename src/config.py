@@ -247,6 +247,8 @@ class BotConfig:
     voice_openai_base_url: str = ""
     # Local Whisper model size: tiny / base / small / medium
     voice_local_model: str = "small"
+    # Convert traditional Chinese → simplified (opencc t2s)
+    voice_asr_to_simplified: bool = True
 
 
 def _validate_config(kwargs: dict) -> None:
@@ -456,6 +458,7 @@ def load_config() -> BotConfig:
         "voice_openai_api_key": os.getenv("VOICE_OPENAI_API_KEY", "").strip(),
         "voice_openai_base_url": os.getenv("VOICE_OPENAI_BASE_URL", "").strip(),
         "voice_local_model": os.getenv("VOICE_LOCAL_MODEL", "small").strip(),
+        "voice_asr_to_simplified": os.getenv("VOICE_ASR_TO_SIMPLIFIED", "true").strip().lower() == "true",
     }
 
     deepseek_model = os.getenv("DEEPSEEK_MODEL")

@@ -17,3 +17,4 @@ pyperclip>=1.8
 # Voice recognition — SILK decode + local/cloud ASR
 silk-python>=0.2.8
 faster-whisper>=1.0
+opencc-python-reimplemented>=0.1.7

@@ -1934,34 +1934,18 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         state["pct"] = 0
 
                         from huggingface_hub import snapshot_download
+                        cache = str(Path.home() / ".cache" / "huggingface")
                         repo_id = f"Systran/faster-whisper-{model}"
 
-                        def _on_progress(incr: int, total: int):
-                            # huggingface_hub calls this with incremental/total bytes
-                            # We track cumulative bytes ourselves
-                            if not hasattr(_on_progress, "_sofar"):
-                                _on_progress._sofar = 0  # type: ignore
-                            _on_progress._sofar += incr  # type: ignore
-                            if total > 0:
-                                state["pct"] = min(99, int(_on_progress._sofar / total * 100))  # type: ignore
-                            else:
-                                state["pct"] = 0
-
-                        # Reset progress counter
-                        _on_progress._sofar = 0  # type: ignore
-
-                        cache = str(Path.home() / ".cache" / "huggingface")
                         snapshot_download(
                             repo_id=repo_id,
                             cache_dir=cache,
-                            resume_download=True,
-                            tqdm_class=None,
-                            progress_reporter=_on_progress,
                         )
+                        state["pct"] = 90
 
                         # ── Phase 2: load model into memory ──────
                         state["phase"] = "installing"
-                        state["pct"] = 99
+                        state["pct"] = 95
                         from faster_whisper import WhisperModel
                         WhisperModel(
                             model, device="cpu", compute_type="int8",
@@ -1973,7 +1957,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         logger.info("Voice model '%s' ready", model)
                     except Exception as exc:
                         state["phase"] = "error"
-                        state["error"] = str(exc).split("\n")[0][:200]
+                        state["error"] = str(exc).split("\n")[0][:300]
                         logger.exception("Voice model download/install failed")
 
                 import threading

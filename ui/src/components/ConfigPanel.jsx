@@ -50,8 +50,8 @@ function AiSection({ form, update }) {
           </Field>
           <Field label="DeepSeek 模型选择">
             <Select value={form.deepseek_model} onChange={v => update('deepseek_model', v)} options={[
-              { value: 'deepseek-v4-flash', desc: 'V4 Flash', hint: '极速 · 极低费用' },
-              { value: 'deepseek-v4-pro', desc: 'V4 Pro', hint: '百万上下文 · 旗舰版' },
+              { value: 'deepseek-v4-flash', desc: 'DeepSeek Flash', hint: '极速 · 极低费用' },
+              { value: 'deepseek-v4-pro', desc: 'DeepSeek Pro', hint: '百万上下文 · 旗舰版' },
             ]} />
           </Field>
         </>
@@ -246,27 +246,32 @@ function VoiceSection({ form, update }) {
                     </div>
 
                     {/* ── Progress bar (downloading / installing) ── */}
-                    {(dlPhase === 'downloading' || dlPhase === 'installing') && (
+                    {dlPhase === 'downloading' && (
                       <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-text-muted font-medium">
-                            {dlPhase === 'downloading' ? '正在下载模型文件...' : '正在加载模型...'}
-                          </span>
-                          <span className="text-text-main font-mono font-semibold">{dlPct}%</span>
-                        </div>
+                        <p className="text-xs text-text-muted font-medium">正在从 HuggingFace 下载模型文件...</p>
                         <div className="w-full h-2 bg-bg-main rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500 ease-out"
-                            style={{
-                              width: `${dlPct}%`,
-                              backgroundColor: dlPhase === 'installing' ? '#3772cf' : '#18E299',
-                            }}
-                          />
+                          <div className="h-full w-1/2 rounded-full bg-brand-green animate-pulse"
+                            style={{ animation: 'indeterminate 1.5s ease-in-out infinite' }} />
+                        </div>
+                        <p className="text-[11px] text-text-muted">首次下载约 {info.size}，请耐心等待</p>
+                        <style>{`
+                          @keyframes indeterminate {
+                            0% { width: 0%; margin-left: 0%; }
+                            50% { width: 60%; margin-left: 20%; }
+                            100% { width: 0%; margin-left: 100%; }
+                          }
+                        `}</style>
+                      </div>
+                    )}
+                    {dlPhase === 'installing' && (
+                      <div className="space-y-1.5">
+                        <p className="text-xs text-text-muted font-medium">正在加载模型到内存...</p>
+                        <div className="w-full h-2 bg-bg-main rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-700 ease-out"
+                            style={{ width: `${dlPct}%`, backgroundColor: '#3772cf' }} />
                         </div>
                         <p className="text-[11px] text-text-muted">
-                          {dlPhase === 'downloading'
-                            ? '正在从 HuggingFace 下载，请耐心等待...'
-                            : '模型文件已下载，正在加载到内存...'}
+                          模型文件已下载，正在初始化 Whisper 引擎...
                         </p>
                       </div>
                     )}

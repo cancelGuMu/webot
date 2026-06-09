@@ -72,52 +72,124 @@ function AiSection({ form, update }) {
         </>
       )}
 
-      {/* ── Voice Recognition ──────────────────────────────── */}
-      <div className="mt-5 pt-5 border-t border-border-main/40">
-        <p className="text-[15px] text-text-main font-medium mb-1">语音识别配置</p>
-        <p className="text-sm text-text-muted mb-4">
-          将群聊语音消息自动转文字参与 AI 总结。默认使用本地模型，免费离线运行；也可切换到 OpenAI Whisper API。
-        </p>
-        <VoiceSection form={form} update={update} />
-      </div>
     </div>
   )
 }
 
+// ── Model info lookup ──────────────────────────────────────────────
+const MODEL_INFO = {
+  tiny:   { size: '~75 MB',   mem: '~200 MB', desc: '速度最快，准确率一般' },
+  base:   { size: '~145 MB',  mem: '~300 MB', desc: '平衡速度与准确率' },
+  small:  { size: '~488 MB',  mem: '~1 GB',   desc: '推荐 · 中文准确率高' },
+  medium: { size: '~1.5 GB',  mem: '~3 GB',   desc: '高精度，需要更强硬件' },
+}
+
 function VoiceSection({ form, update }) {
   const isOpenAi = form.voice_asr_backend === 'openai_whisper'
+  const [downloading, setDownloading] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState('')
+  const [downloadError, setDownloadError] = useState('')
+  const [modelReady, setModelReady] = useState(null)  // null=checking, true/false
+
+  // Check model status on mount and when model size changes
+  useEffect(() => {
+    if (isOpenAi) { setModelReady(null); return }
+    async function check() {
+      try {
+        const res = await fetch(`http://127.0.0.1:7327/api/voice/model-status?model=${form.voice_local_model || 'small'}`)
+        const d = await res.json()
+        setModelReady(d.ok ? d.downloaded : false)
+        if (d.ok && d.downloading) {
+          setDownloading(true)
+          setDownloadProgress(d.progress || '下载中...')
+        }
+      } catch { setModelReady(null) }
+    }
+    check()
+  }, [form.voice_local_model, isOpenAi])
+
+  // Poll progress while downloading
+  useEffect(() => {
+    if (!downloading) return
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:7327/api/voice/model-status?model=${form.voice_local_model || 'small'}`)
+        const d = await res.json()
+        if (d.ok) {
+          if (d.downloaded) {
+            setDownloading(false)
+            setModelReady(true)
+            setDownloadProgress('')
+          } else if (d.downloading) {
+            setDownloadProgress(d.progress || '下载中...')
+          } else {
+            setDownloading(false)
+            setDownloadError(d.error || '下载失败')
+          }
+        }
+      } catch { /* keep polling */ }
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [downloading, form.voice_local_model])
+
+  async function handleDownload() {
+    setDownloading(true)
+    setDownloadError('')
+    setDownloadProgress('正在准备下载...')
+    try {
+      const res = await fetch('http://127.0.0.1:7327/api/voice/download-model', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: form.voice_local_model || 'small' }),
+      })
+      const d = await res.json()
+      if (!d.ok) {
+        setDownloading(false)
+        setDownloadError(d.error || '下载失败')
+      }
+      // If ok, the polling useEffect picks up progress
+    } catch (e) {
+      setDownloading(false)
+      setDownloadError('无法连接到服务器')
+    }
+  }
+
+  const info = MODEL_INFO[form.voice_local_model || 'small'] || MODEL_INFO.small
 
   return (
     <div>
-      <div className="py-3">
+      <div className="space-y-5">
+        {/* ── Master toggle ───────────────────────────────── */}
         <div className="flex items-center justify-between">
           <div className="flex-1 mr-8">
-            <p className="text-[14px] text-text-main font-medium">启用语音识别</p>
+            <p className="text-[15px] text-text-main font-medium">启用语音识别</p>
             <p className="text-sm text-text-muted mt-1.5">
-              开启后，群聊中的语音消息将自动转文字参与 AI 总结。
-              首次使用本地模型会自动下载（约 500 MB），之后完全离线。
+              开启后，群聊中的语音消息将自动转文字参与 AI 总结
             </p>
           </div>
           <Toggle enabled={form.voice_asr_enabled} onChange={v => update('voice_asr_enabled', v)} />
         </div>
+
         <AnimatePresence>
           {form.voice_asr_enabled && (
             <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
-              className="mt-3 p-4 bg-bg-raised rounded-lg space-y-4">
+              className="p-5 bg-bg-raised rounded-xl space-y-5">
 
+              {/* ── Backend ─────────────────────────────────── */}
               <Field label="识别后端"
                 hint={isOpenAi
-                  ? 'OpenAI Whisper API — 云端识别，$0.006/分钟，零本地内存占用'
-                  : '本地 Whisper — 免费离线，small 模型约 1 GB 内存，首次使用自动下载'}>
+                  ? 'OpenAI Whisper API — 云端识别，$0.006/分钟，不占本地内存'
+                  : '本地 Whisper — 免费离线，模型常驻内存，无需网络'}>
                 <Select value={form.voice_asr_backend} onChange={v => update('voice_asr_backend', v)} options={[
                   { value: 'local_whisper', desc: '本地 Whisper', hint: '免费 · 离线 · 推荐' },
-                  { value: 'openai_whisper', desc: 'OpenAI Whisper API', hint: '云端 · $0.006/分' },
+                  { value: 'openai_whisper', desc: 'OpenAI Whisper API', hint: '云端 · $0.006/分钟' },
                 ]} />
               </Field>
 
+              {/* ── OpenAI settings ──────────────────────────── */}
               {isOpenAi && (
                 <>
-                  <Field label="OpenAI API Key" hint="用于 Whisper API；留空则复用 AI 后端配置中的 Key">
+                  <Field label="OpenAI API Key" hint="用于调用 Whisper API；留空则复用 AI 后端配置中的 Key">
                     <Input type="password" value={form.voice_openai_api_key || ''}
                       onChange={v => update('voice_openai_api_key', v)}
                       placeholder="sk-xxxxxxxxxxxxxxxx（可选）" />
@@ -125,31 +197,85 @@ function VoiceSection({ form, update }) {
                   <Field label="API Base URL" hint="自定义 API 地址；留空使用默认">
                     <Input value={form.voice_openai_base_url || ''}
                       onChange={v => update('voice_openai_base_url', v)}
-                      placeholder="https://api.openai.com（默认）" />
+                      placeholder="https://api.openai.com" />
                   </Field>
                 </>
               )}
 
+              {/* ── Local model settings ────────────────────── */}
               {!isOpenAi && (
-                <Field label="本地模型大小" hint="越大越准确，但内存占用也越高。small 约 1 GB，推荐中文使用">
-                  <Select value={form.voice_local_model || 'small'}
-                    onChange={v => update('voice_local_model', v)} options={[
-                    { value: 'tiny', desc: 'Tiny', hint: '~200 MB · 速度最快' },
-                    { value: 'base', desc: 'Base', hint: '~300 MB · 平衡' },
-                    { value: 'small', desc: 'Small', hint: '~1 GB · 推荐' },
-                    { value: 'medium', desc: 'Medium', hint: '~3 GB · 高精度' },
-                  ]} />
-                </Field>
+                <>
+                  <Field label="本地模型大小"
+                    hint={info.desc}>
+                    <Select value={form.voice_local_model || 'small'}
+                      onChange={v => { update('voice_local_model', v); setModelReady(null); setDownloadError('') }}
+                      options={[
+                        { value: 'tiny',   desc: 'Tiny',   hint: `${MODEL_INFO.tiny.size} 下载 · ${MODEL_INFO.tiny.mem} 内存` },
+                        { value: 'base',   desc: 'Base',   hint: `${MODEL_INFO.base.size} 下载 · ${MODEL_INFO.base.mem} 内存` },
+                        { value: 'small',  desc: 'Small',  hint: `${MODEL_INFO.small.size} 下载 · ${MODEL_INFO.small.mem} 内存` },
+                        { value: 'medium', desc: 'Medium', hint: `${MODEL_INFO.medium.size} 下载 · ${MODEL_INFO.medium.mem} 内存` },
+                      ]} />
+                  </Field>
+
+                  {/* ── Model download card ───────────────── */}
+                  <div className="bg-bg-main/60 border border-border-main/70 rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] text-text-main font-medium">
+                          {form.voice_local_model === 'small' ? 'Small' : form.voice_local_model === 'tiny' ? 'Tiny' : form.voice_local_model === 'base' ? 'Base' : 'Medium'} 模型
+                        </p>
+                        <p className="text-xs text-text-muted mt-1">
+                          下载大小 <span className="font-mono text-text-main font-medium">{info.size}</span>，运行时约占 <span className="font-mono text-text-main font-medium">{info.mem}</span> 内存。
+                          仅需下载一次，之后完全离线使用。
+                        </p>
+                        {downloadProgress && (
+                          <p className="text-xs text-brand-green-hover dark:text-brand-green mt-1.5 font-mono">{downloadProgress}</p>
+                        )}
+                        {downloadError && (
+                          <p className="text-xs text-[#d45656] mt-1.5 font-mono">{downloadError}</p>
+                        )}
+                        {modelReady === true && !downloading && (
+                          <p className="text-xs text-brand-green-hover dark:text-brand-green mt-1.5 flex items-center gap-1">
+                            <CheckCircle size={12} weight="fill" /> 模型已就绪
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleDownload}
+                        disabled={downloading}
+                        className={`shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold transition-all cursor-pointer flex items-center gap-2 ${
+                          downloading
+                            ? 'bg-bg-raised border border-border-main text-text-muted'
+                            : modelReady
+                              ? 'bg-brand-green-light border border-brand-green/20 text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10'
+                              : 'bg-brand-green text-[#0d0d0d] hover:opacity-90'
+                        }`}
+                      >
+                        {downloading ? (
+                          <><svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> 下载中</>
+                        ) : modelReady ? (
+                          <><CheckCircle size={14} weight="fill" /> 重新下载</>
+                        ) : (
+                          <><DownloadSimple size={14} /> 下载模型</>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
 
-              <Field label="识别语言" hint="语音消息的语种">
+              {/* ── Language ────────────────────────────────── */}
+              <Field label="识别语言"
+                hint="选择语音消息的主要语言。混合模式可同时识别中英文">
                 <Select value={form.voice_asr_language || 'zh'}
                   onChange={v => update('voice_asr_language', v)} options={[
-                  { value: 'zh', desc: '中文', hint: '普通话' },
-                  { value: 'en', desc: 'English', hint: '英语' },
-                  { value: 'ja', desc: '日本語', hint: '日语' },
+                  { value: 'zh', desc: '仅中文', hint: '普通话 · 推荐中文群聊' },
+                  { value: 'zh-en', desc: '中英混合', hint: '同时识别中英文' },
+                  { value: 'auto', desc: '自动检测', hint: '让模型自行判断语种' },
                 ]} />
               </Field>
+
             </motion.div>
           )}
         </AnimatePresence>
@@ -917,8 +1043,8 @@ function LotsEditor() {
   )
 }
 
-const sectionTitles = { ai: 'AI 后端配置', identity: '机器人身份', data: '数据路径', features: '功能开关', feishu: '飞书同步', sandbox: '提示词沙箱' }
-const sectionAccents = { ai: '#18E299', identity: '#3772cf', data: '#18E299', features: '#c37d0d', feishu: '#3772cf', sandbox: '#8b5cf6' }
+const sectionTitles = { ai: 'AI 后端配置', voice: '语音识别配置', identity: '机器人身份', data: '数据路径', features: '功能开关', feishu: '飞书同步', sandbox: '提示词沙箱' }
+const sectionAccents = { ai: '#18E299', voice: '#10b981', identity: '#3772cf', data: '#18E299', features: '#c37d0d', feishu: '#3772cf', sandbox: '#8b5cf6' }
 
 // ── Data Path Section (微信数据目录配置) ──────────────────────────────
 
@@ -2127,6 +2253,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
             <div className="bg-bg-card border border-border-main rounded-2xl shadow-[rgba(0,0,0,0.03)_0px_2px_4px] dark:shadow-none">
               <div className="p-7">
                 {activeSection === 'ai' && <AiSection form={form} update={update} />}
+                {activeSection === 'voice' && <VoiceSection form={form} update={update} />}
                 {activeSection === 'identity' && <IdentitySection form={form} update={update} />}
                 {activeSection === 'data' && <DataPathSection form={form} update={update} detectedDataDir={detectedDataDir} />}
                 {activeSection === 'features' && <FeaturesSection form={form} update={update} />}

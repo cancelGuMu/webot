@@ -17,6 +17,7 @@ const TABS = [
     id: 'config', label: '系统配置', icon: Gear,
     subs: [
       { id: 'ai', label: 'AI 后端配置' },
+      { id: 'voice', label: '语音识别配置' },
       { id: 'identity', label: '机器人身份' },
       { id: 'features', label: '功能开关' },
       { id: 'feishu', label: '飞书同步' },

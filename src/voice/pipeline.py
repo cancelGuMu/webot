@@ -175,8 +175,13 @@ class VoicePipeline:
         self._asr = create_asr(config)
         self._cache = VoiceCache(Path("data/voice_cache.json"))
         self._stats = VoiceStats()
-        logger.info("VoicePipeline initialised (backend=%s)",
-                     getattr(config, "voice_asr_backend", "?"))
+        # Map config language to Whisper language code.
+        # "zh-en" means Chinese-English mixed — pass None for auto-detect.
+        raw_lang = getattr(config, "voice_asr_language", "zh")
+        self._language = None if raw_lang in ("zh-en", "auto") else raw_lang
+        logger.info("VoicePipeline initialised (backend=%s, language=%s)",
+                     getattr(config, "voice_asr_backend", "?"),
+                     raw_lang)
 
     # -- Public ------------------------------------------------------------
 
@@ -219,8 +224,7 @@ class VoicePipeline:
 
         # ── ASR ─────────────────────────────────────────────────────
         try:
-            language = "zh"  # Could read from config later
-            result = self._asr.transcribe(wav_path, language=language)
+            result = self._asr.transcribe(wav_path, language=self._language or "zh")
         except ASRError:
             logger.exception("ASR failed for msg_svr_id=%s", msg_svr_id)
             self._stats.asr_failed += 1

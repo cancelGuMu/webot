@@ -959,7 +959,8 @@ class _UIHandler(SimpleHTTPRequestHandler):
                          "/api/onboarding/step1", "/api/onboarding/step2",
                          "/api/onboarding/step3", "/api/onboarding/step4",
                          "/api/sandbox/test",
-                         "/api/lots"):
+                         "/api/lots",
+                         "/api/voice/download-model"):
             self.do_GET()
         else:
             self.send_response(405)
@@ -1877,6 +1878,51 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     })
             except Exception as e:
                 logger.exception("Failed to detect WeChat data dir")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Voice model status ────────────────────────────────────
+        if self.path.startswith("/api/voice/model-status"):
+            try:
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                model = qs.get("model", ["small"])[0]
+                model_dir = Path("data/models") / f"faster-whisper-{model}"
+                downloaded = model_dir.exists() and any(model_dir.iterdir())
+                self.send_json({
+                    "ok": True,
+                    "downloaded": downloaded,
+                    "model": model,
+                    "path": str(model_dir),
+                })
+            except Exception as e:
+                logger.exception("Voice model-status failed")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Trigger voice model download ──────────────────────────
+        if self.path == "/api/voice/download-model":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len else b"{}"
+            try:
+                data = json.loads(body)
+                model = data.get("model", "small")
+
+                def _download_model():
+                    try:
+                        from faster_whisper import WhisperModel
+                        WhisperModel(model, device="cpu", compute_type="int8",
+                                     download_root="data/models")
+                        logger.info("Voice model '%s' downloaded successfully", model)
+                    except Exception as exc:
+                        logger.exception("Voice model download failed: %s", exc)
+
+                import threading
+                t = threading.Thread(target=_download_model, daemon=True)
+                t.start()
+                self.send_json({"ok": True, "model": model, "message": "下载已在后台启动"})
+            except Exception as e:
+                logger.exception("Voice download-model failed")
                 self.send_json({"ok": False, "error": str(e)})
             return
 

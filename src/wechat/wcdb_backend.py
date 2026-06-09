@@ -48,7 +48,8 @@ class WcdbBackend(AbstractWeChatBackend):
                  bot_display_name: str = "",
                  groups: list[str] | None = None,
                  poll_sec: float = DEFAULT_POLL_SEC,
-                 store=None):
+                 store=None,
+                 config=None):
         self._bot_name = bot_display_name
         self._groups = groups or []
         self._poll_sec = poll_sec
@@ -64,6 +65,9 @@ class WcdbBackend(AbstractWeChatBackend):
         # Callback thread pool — fire-and-forget AI calls so the poll loop
         # never blocks on a slow summarization.
         self._pool: concurrent.futures.ThreadPoolExecutor | None = None
+        # Voice recognition pipeline (lazy-init when voice_asr_enabled)
+        self._voice: Optional[object] = None
+        self._voice_config = config
 
     # ── Public API ─────────────────────────────────────────────────
 
@@ -425,6 +429,34 @@ class WcdbBackend(AbstractWeChatBackend):
                 group_name, standardized.get("sender_name", "?"),
             )
 
+    # ── Voice recognition helpers ────────────────────────────────────
+
+    def _get_voice(self):
+        """Lazy-init the VoicePipeline (avoids import unless enabled)."""
+        if self._voice is not None:
+            return self._voice
+        if self._voice_config is None:
+            self._voice = False  # Sentinel: no config → disabled
+            return False
+        try:
+            from src.voice import VoicePipeline
+            self._voice = VoicePipeline(self._voice_config)
+        except Exception:
+            logger.exception("VoicePipeline init failed — voice disabled")
+            self._voice = False
+        return self._voice
+
+    def _try_voice(self, msg: dict) -> Optional[str]:
+        """Attempt voice recognition; return text or None on failure."""
+        voice = self._get_voice()
+        if not voice:  # False or None → disabled
+            return None
+        try:
+            return voice.process(msg)
+        except Exception:
+            logger.exception("VoicePipeline.process failed")
+            return None
+
     # ── Message standardization ──────────────────────────────────────
 
     def _standardize(self, msg: dict, group_name: str,
@@ -433,7 +465,18 @@ class WcdbBackend(AbstractWeChatBackend):
         # WCDB message fields: sender_username, message_content, local_type, create_time
         sender = str(msg.get("sender_username", msg.get("senderUsername", msg.get("sender", ""))))
         content = str(msg.get("message_content", msg.get("content", ""))).strip()
-        if not content:
+        local_type = int(msg.get("localType", msg.get("msg_type", 1)))
+
+        # ── Voice recognition ──────────────────────────────────────
+        # Voice messages (localType=34) have empty message_content;
+        # we must recognise them BEFORE the empty-content check below.
+        if local_type == 34:
+            voice_text = self._try_voice(msg)
+            if voice_text:
+                content = f"[语音] {voice_text}"
+            else:
+                content = "[语音]"
+        elif not content:
             return None
 
         # ── System message handling ───────────────────────────────

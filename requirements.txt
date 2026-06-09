@@ -13,3 +13,7 @@ pyperclip>=1.8
 
 # wx4py — install from PyPI, only needed for WeChat 4.1.7-4.1.8 backend
 # pip install wx4py
+
+# Voice recognition — SILK decode + local/cloud ASR
+silk-python>=0.2.8
+faster-whisper>=1.0

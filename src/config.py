@@ -236,6 +236,18 @@ class BotConfig:
     log_level: str = "INFO"
     log_file: str = "data/bot.log"
 
+    # === Voice Recognition ===
+    # Master switch (default off — user must opt in)
+    voice_asr_enabled: bool = False
+    # "local_whisper" (free, offline) | "openai_whisper" (cloud, $0.006/min)
+    voice_asr_backend: str = "local_whisper"
+    voice_asr_language: str = "zh"
+    # OpenAI Whisper API
+    voice_openai_api_key: str = ""
+    voice_openai_base_url: str = ""
+    # Local Whisper model size: tiny / base / small / medium
+    voice_local_model: str = "small"
+
 
 def _validate_config(kwargs: dict) -> None:
     """Validate numeric config values.  Prints clear errors and exits on bad values."""
@@ -437,6 +449,13 @@ def load_config() -> BotConfig:
         "sticky_mention_ttl_sec": int(os.getenv("STICKY_MENTION_TTL_SEC", "60")),
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),
         "log_file": os.getenv("LOG_FILE", "data/bot.log").strip(),
+        # Voice recognition
+        "voice_asr_enabled": os.getenv("VOICE_ASR_ENABLED", "false").strip().lower() == "true",
+        "voice_asr_backend": os.getenv("VOICE_ASR_BACKEND", "local_whisper").strip(),
+        "voice_asr_language": os.getenv("VOICE_ASR_LANGUAGE", "zh").strip(),
+        "voice_openai_api_key": os.getenv("VOICE_OPENAI_API_KEY", "").strip(),
+        "voice_openai_base_url": os.getenv("VOICE_OPENAI_BASE_URL", "").strip(),
+        "voice_local_model": os.getenv("VOICE_LOCAL_MODEL", "small").strip(),
     }
 
     deepseek_model = os.getenv("DEEPSEEK_MODEL")

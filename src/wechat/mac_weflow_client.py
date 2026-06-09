@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ class MacWeFlowClient:
         lib_dir: str | None = None,
         timeout: float = 5.0,
         sqlite_reader=None,
+        config=None,
     ):
         self.data_dir = str(data_dir or "").strip()
         self.lib_dir = str(lib_dir or "").strip()
@@ -45,6 +46,9 @@ class MacWeFlowClient:
         self._display_name_cache: dict[str, str] = {}
         self._message_db_cache: dict[str, str] = {}
         self._last_error = ""
+        # Voice recognition (lazy-init)
+        self._voice: object | None = None
+        self._voice_config = config
 
     def health(self) -> bool:
         try:
@@ -386,7 +390,14 @@ class MacWeFlowClient:
         ).strip()
         sender, content = _split_group_message_sender(sender, content)
         if local_type != 1:
-            content = _message_type_label(local_type)
+            if local_type == 34:
+                voice_text = self._try_voice(row)
+                if voice_text:
+                    content = f"[语音] {voice_text}"
+                else:
+                    content = _message_type_label(local_type)
+            else:
+                content = _message_type_label(local_type)
         elif _looks_corrupt_text(content):
             return None
         if not content:
@@ -408,6 +419,34 @@ class MacWeFlowClient:
             "is_group": chat_id.endswith("@chatroom"),
             "chat_type": "group" if chat_id.endswith("@chatroom") else "private",
         }
+
+    # ── Voice recognition helpers ────────────────────────────────────
+
+    def _get_voice(self):
+        """Lazy-init VoicePipeline."""
+        if self._voice is not None:
+            return self._voice
+        if self._voice_config is None:
+            self._voice = False
+            return False
+        try:
+            from src.voice import VoicePipeline
+            self._voice = VoicePipeline(self._voice_config)
+        except Exception:
+            logger.exception("VoicePipeline init failed — voice disabled")
+            self._voice = False
+        return self._voice
+
+    def _try_voice(self, msg: dict) -> Optional[str]:
+        """Attempt voice recognition; return text or None."""
+        voice = self._get_voice()
+        if not voice:
+            return None
+        try:
+            return voice.process(msg)
+        except Exception:
+            logger.exception("VoicePipeline.process failed")
+            return None
 
     def _resolve_lib_dir(self) -> str:
         if self.lib_dir:

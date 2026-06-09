@@ -350,6 +350,7 @@ class Bot:
                 groups=groups,
                 poll_sec=config.poll_interval_sec,
                 store=store,
+                config=config,
             )
 
         if config.wechat_backend == "mac_ui":
@@ -368,6 +369,7 @@ class Bot:
                 groups=groups,
                 poll_sec=config.poll_interval_sec,
                 store=store,
+                config=config,
             )
 
         else:

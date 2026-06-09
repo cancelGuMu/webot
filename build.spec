@@ -73,6 +73,8 @@ a = Analysis(
         'src.wechat.mac_ui_backend', 'src.wechat.window_controller',
         'src.wechat.keyboard', 'src.wechat.helpers', 'src.wechat.extract_key',
         'src.wechat.native', 'src.wechat.native.injector',
+        'src.voice', 'src.voice.file_locator', 'src.voice.decoder',
+        'src.voice.asr', 'src.voice.pipeline',
         'src.web', 'src.web.server',
         'src.router', 'src.welcome',
         'src.nickname', 'src.admin', 'src.fun',

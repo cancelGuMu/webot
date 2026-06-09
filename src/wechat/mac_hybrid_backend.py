@@ -38,12 +38,13 @@ class MacHybridBackend(AbstractWeChatBackend):
         client: Any = None,
         automation: MacUIAutomation | None = None,
         limit: int = DEFAULT_LIMIT,
+        config=None,
     ):
         self._bot_name = bot_display_name
         self._groups = groups or []
         self._poll_sec = poll_sec
         self._store = store
-        self._client = client or MacWeFlowClient()
+        self._client = client or MacWeFlowClient(config=config)
         self._automation = automation or MacUIAutomation()
         self._limit = limit
         self._service_error = ""

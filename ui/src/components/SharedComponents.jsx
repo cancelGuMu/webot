@@ -106,7 +106,7 @@ export function Select({ value, onChange, options }) {
               <span className="w-[4px] shrink-0 opacity-40 text-text-muted self-start mt-[3px]">·</span>
               <span className="w-[132px] shrink-0 whitespace-normal break-words leading-snug">{opt.desc}</span>
               <span className="w-[4px] shrink-0 opacity-40 text-text-muted self-start mt-[3px]">·</span>
-              <span className="w-[132px] shrink-0 text-text-muted whitespace-normal break-words leading-snug">{opt.hint}</span>
+              <span className="flex-1 min-w-0 text-text-muted whitespace-normal break-words leading-snug">{opt.hint}</span>
             </button>
           ))}
         </motion.div>

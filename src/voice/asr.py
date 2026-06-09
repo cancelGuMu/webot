@@ -254,15 +254,18 @@ def create_asr(config) -> AbstractASR:
         An AbstractASR implementation.
     """
     backend = getattr(config, "voice_asr_backend", "local_whisper")
+    to_simplified = getattr(config, "voice_asr_to_simplified", True)
 
     if backend == "openai_whisper":
         logger.info("ASR backend: OpenAI Whisper API (cloud)")
         return OpenAiWhisperASR(
             api_key=getattr(config, "voice_openai_api_key", ""),
             base_url=getattr(config, "voice_openai_base_url", ""),
+            to_simplified=to_simplified,
         )
     else:
         logger.info("ASR backend: Local Whisper (faster-whisper, offline)")
         return LocalWhisperASR(
             model_size=getattr(config, "voice_local_model", "small"),
+            to_simplified=to_simplified,
         )

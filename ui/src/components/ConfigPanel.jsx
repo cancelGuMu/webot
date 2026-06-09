@@ -50,8 +50,8 @@ function AiSection({ form, update }) {
           </Field>
           <Field label="DeepSeek 模型选择">
             <Select value={form.deepseek_model} onChange={v => update('deepseek_model', v)} options={[
-              { value: 'deepseek-v4-flash', desc: 'DeepSeek-V4-Flash', hint: '极速 · ¥1/M tokens' },
-              { value: 'deepseek-v4-pro',   desc: 'DeepSeek-V4-Pro',   hint: '百万上下文 · ¥2/M' },
+              { value: 'deepseek-v4-flash', desc: 'DeepSeek-V4-Flash', hint: '¥1 入 · ¥2 出 /M' },
+              { value: 'deepseek-v4-pro',   desc: 'DeepSeek-V4-Pro',   hint: '¥3 入 · ¥6 出 /M' },
             ]} />
           </Field>
         </>

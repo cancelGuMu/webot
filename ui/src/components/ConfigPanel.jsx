@@ -86,56 +86,53 @@ const MODEL_INFO = {
 
 function VoiceSection({ form, update }) {
   const isOpenAi = form.voice_asr_backend === 'openai_whisper'
-  const [downloading, setDownloading] = useState(false)
-  const [downloadProgress, setDownloadProgress] = useState('')
-  const [downloadError, setDownloadError] = useState('')
-  const [modelReady, setModelReady] = useState(null)  // null=checking, true/false
+  // dlPhase: "checking" | "not_downloaded" | "downloading" | "installing" | "done" | "error"
+  const [dlPhase, setDlPhase] = useState('checking')
+  const [dlPct, setDlPct] = useState(0)
+  const [dlError, setDlError] = useState('')
+
+  function resetDlState() { setDlPhase('checking'); setDlPct(0); setDlError('') }
 
   // Check model status on mount and when model size changes
   useEffect(() => {
-    if (isOpenAi) { setModelReady(null); return }
+    if (isOpenAi) { setDlPhase('checking'); return }
     async function check() {
       try {
         const res = await fetch(`http://127.0.0.1:7327/api/voice/model-status?model=${form.voice_local_model || 'small'}`)
         const d = await res.json()
-        setModelReady(d.ok ? d.downloaded : false)
-        if (d.ok && d.downloading) {
-          setDownloading(true)
-          setDownloadProgress(d.progress || '下载中...')
-        }
-      } catch { setModelReady(null) }
+        if (!d.ok) { setDlPhase('error'); setDlError(d.error || '查询失败'); return }
+        if (d.downloaded) { setDlPhase('done'); return }
+        // If there's an active phase on the server, resume polling
+        if (d.phase === 'downloading') { setDlPhase('downloading'); setDlPct(d.pct || 0) }
+        else if (d.phase === 'installing') { setDlPhase('installing'); setDlPct(d.pct || 0) }
+        else { setDlPhase('not_downloaded') }
+      } catch { setDlPhase('checking') }
     }
     check()
   }, [form.voice_local_model, isOpenAi])
 
-  // Poll progress while downloading
+  // Poll while download/install is in progress
+  const isActive = dlPhase === 'downloading' || dlPhase === 'installing'
   useEffect(() => {
-    if (!downloading) return
+    if (!isActive) return
     const timer = setInterval(async () => {
       try {
         const res = await fetch(`http://127.0.0.1:7327/api/voice/model-status?model=${form.voice_local_model || 'small'}`)
         const d = await res.json()
-        if (d.ok) {
-          if (d.downloaded) {
-            setDownloading(false)
-            setModelReady(true)
-            setDownloadProgress('')
-          } else if (d.downloading) {
-            setDownloadProgress(d.progress || '下载中...')
-          } else {
-            setDownloading(false)
-            setDownloadError(d.error || '下载失败')
-          }
-        }
+        if (!d.ok) return
+        setDlPct(d.pct || 0)
+        if (d.phase === 'done' || d.downloaded) { setDlPhase('done'); setDlPct(100) }
+        else if (d.phase === 'error') { setDlPhase('error'); setDlError(d.error || '失败') }
+        else if (d.phase) { setDlPhase(d.phase) }
       } catch { /* keep polling */ }
-    }, 2000)
+    }, 1500)
     return () => clearInterval(timer)
-  }, [downloading, form.voice_local_model])
+  }, [isActive, form.voice_local_model])
 
   async function handleDownload() {
-    setDownloading(true)
-    setDownloadError('')
-    setDownloadProgress('正在准备下载...')
+    setDlPhase('downloading')
+    setDlPct(0)
+    setDlError('')
     try {
       const res = await fetch('http://127.0.0.1:7327/api/voice/download-model', {
         method: 'POST',
@@ -143,18 +140,15 @@ function VoiceSection({ form, update }) {
         body: JSON.stringify({ model: form.voice_local_model || 'small' }),
       })
       const d = await res.json()
-      if (!d.ok) {
-        setDownloading(false)
-        setDownloadError(d.error || '下载失败')
-      }
-      // If ok, the polling useEffect picks up progress
+      if (!d.ok) { setDlPhase('error'); setDlError(d.error || '下载启动失败') }
     } catch (e) {
-      setDownloading(false)
-      setDownloadError('无法连接到服务器')
+      setDlPhase('error')
+      setDlError('无法连接到服务器')
     }
   }
 
   const info = MODEL_INFO[form.voice_local_model || 'small'] || MODEL_INFO.small
+  const phaseLabel = dlPhase === 'downloading' ? '下载中' : dlPhase === 'installing' ? '安装中' : ''
 
   return (
     <div>
@@ -208,7 +202,7 @@ function VoiceSection({ form, update }) {
                   <Field label="本地模型大小"
                     hint={info.desc}>
                     <Select value={form.voice_local_model || 'small'}
-                      onChange={v => { update('voice_local_model', v); setModelReady(null); setDownloadError('') }}
+                      onChange={v => { update('voice_local_model', v); resetDlState() }}
                       options={[
                         { value: 'tiny',   desc: 'Tiny',   hint: `${MODEL_INFO.tiny.size} 下载 · ${MODEL_INFO.tiny.mem} 内存` },
                         { value: 'base',   desc: 'Base',   hint: `${MODEL_INFO.base.size} 下载 · ${MODEL_INFO.base.mem} 内存` },
@@ -219,7 +213,7 @@ function VoiceSection({ form, update }) {
 
                   {/* ── Model download card ───────────────── */}
                   <div className="bg-bg-main/60 border border-border-main/70 rounded-xl p-4">
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start justify-between gap-4 mb-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] text-text-main font-medium">
                           {form.voice_local_model === 'small' ? 'Small' : form.voice_local_model === 'tiny' ? 'Tiny' : form.voice_local_model === 'base' ? 'Base' : 'Medium'} 模型
@@ -228,39 +222,71 @@ function VoiceSection({ form, update }) {
                           下载大小 <span className="font-mono text-text-main font-medium">{info.size}</span>，运行时约占 <span className="font-mono text-text-main font-medium">{info.mem}</span> 内存。
                           仅需下载一次，之后完全离线使用。
                         </p>
-                        {downloadProgress && (
-                          <p className="text-xs text-brand-green-hover dark:text-brand-green mt-1.5 font-mono">{downloadProgress}</p>
-                        )}
-                        {downloadError && (
-                          <p className="text-xs text-[#d45656] mt-1.5 font-mono">{downloadError}</p>
-                        )}
-                        {modelReady === true && !downloading && (
-                          <p className="text-xs text-brand-green-hover dark:text-brand-green mt-1.5 flex items-center gap-1">
-                            <CheckCircle size={12} weight="fill" /> 模型已就绪
-                          </p>
-                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleDownload}
-                        disabled={downloading}
-                        className={`shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold transition-all cursor-pointer flex items-center gap-2 ${
-                          downloading
-                            ? 'bg-bg-raised border border-border-main text-text-muted'
-                            : modelReady
-                              ? 'bg-brand-green-light border border-brand-green/20 text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10'
-                              : 'bg-brand-green text-[#0d0d0d] hover:opacity-90'
-                        }`}
-                      >
-                        {downloading ? (
-                          <><svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> 下载中</>
-                        ) : modelReady ? (
-                          <><CheckCircle size={14} weight="fill" /> 重新下载</>
-                        ) : (
-                          <><DownloadSimple size={14} /> 下载模型</>
-                        )}
-                      </button>
+                      {dlPhase === 'done' ? (
+                        <button type="button" onClick={handleDownload}
+                          className="shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold bg-brand-green-light border border-brand-green/20 text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors cursor-pointer flex items-center gap-2">
+                          <CheckCircle size={14} weight="fill" /> 重新下载
+                        </button>
+                      ) : dlPhase === 'error' ? (
+                        <button type="button" onClick={handleDownload}
+                          className="shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold bg-brand-green text-[#0d0d0d] hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-2">
+                          <DownloadSimple size={14} /> 重新下载
+                        </button>
+                      ) : dlPhase === 'checking' ? (
+                        <span className="shrink-0 px-4 py-2 text-[13px] text-text-muted flex items-center gap-2">
+                          <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        </span>
+                      ) : dlPhase === 'not_downloaded' ? (
+                        <button type="button" onClick={handleDownload}
+                          className="shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold bg-brand-green text-[#0d0d0d] hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-2">
+                          <DownloadSimple size={14} /> 下载模型
+                        </button>
+                      ) : null}
                     </div>
+
+                    {/* ── Progress bar (downloading / installing) ── */}
+                    {(dlPhase === 'downloading' || dlPhase === 'installing') && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-text-muted font-medium">
+                            {dlPhase === 'downloading' ? '正在下载模型文件...' : '正在加载模型...'}
+                          </span>
+                          <span className="text-text-main font-mono font-semibold">{dlPct}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-bg-main rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-500 ease-out"
+                            style={{
+                              width: `${dlPct}%`,
+                              backgroundColor: dlPhase === 'installing' ? '#3772cf' : '#18E299',
+                            }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-text-muted">
+                          {dlPhase === 'downloading'
+                            ? '正在从 HuggingFace 下载，请耐心等待...'
+                            : '模型文件已下载，正在加载到内存...'}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* ── Done ── */}
+                    {dlPhase === 'done' && (
+                      <p className="text-xs text-brand-green-hover dark:text-brand-green flex items-center gap-1">
+                        <CheckCircle size={12} weight="fill" /> 模型已就绪，语音识别可正常使用
+                      </p>
+                    )}
+
+                    {/* ── Error ── */}
+                    {dlPhase === 'error' && (
+                      <div className="bg-[#d45656]/5 border border-[#d45656]/20 rounded-lg px-3 py-2">
+                        <p className="text-xs text-[#d45656] font-medium mb-0.5">下载失败</p>
+                        <p className="text-[11px] text-[#d45656]/80 font-mono leading-relaxed break-all">
+                          {dlError || '未知错误'}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </>
               )}

@@ -1889,32 +1889,26 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 qs = parse_qs(urlparse(self.path).query)
                 model = qs.get("model", ["small"])[0]
 
-                # Check HuggingFace cache (where faster-whisper stores models)
-                repo_id = f"Systran/faster-whisper-{model}"
+                # Check HuggingFace cache
                 cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
                 model_dir = cache_dir / f"models--Systran--faster-whisper-{model}"
-
-                # A model is "downloaded" if its cache dir has actual snapshot content
                 downloaded = False
                 if model_dir.exists():
                     snapshots = model_dir / "snapshots"
                     if snapshots.exists() and any(snapshots.iterdir()):
                         downloaded = True
                     else:
-                        # Check blobs as fallback
                         blobs = model_dir / "blobs"
                         if blobs.exists() and any(blobs.iterdir()):
                             downloaded = True
 
-                # Track in-flight downloads (module-level dict)
-                dl_state = _voice_downloads.get(model, {})
-                downloading = dl_state.get("active", False)
-
+                dl = _voice_downloads.get(model)
                 self.send_json({
                     "ok": True,
                     "downloaded": downloaded,
-                    "downloading": downloading,
-                    "progress": dl_state.get("msg", ""),
+                    "phase": dl.get("phase", "") if dl else "",  # "downloading" | "installing"
+                    "pct": dl.get("pct", 0) if dl else 0,
+                    "error": dl.get("error", "") if dl else "",
                     "model": model,
                 })
             except Exception as e:
@@ -1930,27 +1924,60 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 data = json.loads(body)
                 model = data.get("model", "small")
 
-                # Mark download as active
-                _voice_downloads[model] = {"active": True, "msg": "正在连接..."}
+                _voice_downloads[model] = {"phase": "downloading", "pct": 0, "error": ""}
 
-                def _download_model():
+                def _run():
+                    state = _voice_downloads.setdefault(model, {})
                     try:
-                        _voice_downloads[model]["msg"] = "正在下载模型文件..."
+                        # ── Phase 1: download via huggingface_hub ──
+                        state["phase"] = "downloading"
+                        state["pct"] = 0
+
+                        from huggingface_hub import snapshot_download
+                        repo_id = f"Systran/faster-whisper-{model}"
+
+                        def _on_progress(incr: int, total: int):
+                            # huggingface_hub calls this with incremental/total bytes
+                            # We track cumulative bytes ourselves
+                            if not hasattr(_on_progress, "_sofar"):
+                                _on_progress._sofar = 0  # type: ignore
+                            _on_progress._sofar += incr  # type: ignore
+                            if total > 0:
+                                state["pct"] = min(99, int(_on_progress._sofar / total * 100))  # type: ignore
+                            else:
+                                state["pct"] = 0
+
+                        # Reset progress counter
+                        _on_progress._sofar = 0  # type: ignore
+
+                        cache = str(Path.home() / ".cache" / "huggingface")
+                        snapshot_download(
+                            repo_id=repo_id,
+                            cache_dir=cache,
+                            resume_download=True,
+                            tqdm_class=None,
+                            progress_reporter=_on_progress,
+                        )
+
+                        # ── Phase 2: load model into memory ──────
+                        state["phase"] = "installing"
+                        state["pct"] = 99
                         from faster_whisper import WhisperModel
-                        # Instantiating WhisperModel triggers auto-download
-                        # via huggingface_hub to ~/.cache/huggingface/
                         WhisperModel(
                             model, device="cpu", compute_type="int8",
-                            download_root=str(Path.home() / ".cache" / "huggingface"),
+                            download_root=cache,
                         )
-                        _voice_downloads[model] = {"active": False, "msg": "下载完成"}
-                        logger.info("Voice model '%s' downloaded successfully", model)
+                        state["phase"] = "done"
+                        state["pct"] = 100
+                        state["error"] = ""
+                        logger.info("Voice model '%s' ready", model)
                     except Exception as exc:
-                        _voice_downloads[model] = {"active": False, "msg": f"下载失败: {exc}"}
-                        logger.exception("Voice model download failed: %s", exc)
+                        state["phase"] = "error"
+                        state["error"] = str(exc).split("\n")[0][:200]
+                        logger.exception("Voice model download/install failed")
 
                 import threading
-                t = threading.Thread(target=_download_model, daemon=True)
+                t = threading.Thread(target=_run, daemon=True)
                 t.start()
                 self.send_json({"ok": True, "model": model, "message": "下载已在后台启动"})
             except Exception as e:

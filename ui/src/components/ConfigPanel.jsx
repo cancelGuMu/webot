@@ -224,10 +224,9 @@ function VoiceSection({ form, update }) {
                         </p>
                       </div>
                       {dlPhase === 'done' ? (
-                        <button type="button" onClick={handleDownload}
-                          className="shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold bg-brand-green-light border border-brand-green/20 text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors cursor-pointer flex items-center gap-2">
-                          <CheckCircle size={14} weight="fill" /> 重新下载
-                        </button>
+                        <span className="shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold bg-brand-green-light border border-brand-green/20 text-brand-green-hover dark:text-brand-green flex items-center gap-2">
+                          <CheckCircle size={14} weight="fill" /> 下载完成
+                        </span>
                       ) : dlPhase === 'error' ? (
                         <button type="button" onClick={handleDownload}
                           className="shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold bg-brand-green text-[#0d0d0d] hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-2">
@@ -278,8 +277,8 @@ function VoiceSection({ form, update }) {
 
                     {/* ── Done ── */}
                     {dlPhase === 'done' && (
-                      <p className="text-xs text-brand-green-hover dark:text-brand-green flex items-center gap-1">
-                        <CheckCircle size={12} weight="fill" /> 模型已就绪，语音识别可正常使用
+                      <p className="text-xs text-brand-green-hover dark:text-brand-green">
+                        语音模型已就绪，可正常使用语音识别功能
                       </p>
                     )}
 
@@ -1074,8 +1073,8 @@ function LotsEditor() {
   )
 }
 
-const sectionTitles = { ai: 'AI 后端配置', voice: '语音识别配置', identity: '机器人身份', data: '数据路径', features: '功能开关', feishu: '飞书同步', sandbox: '提示词沙箱' }
-const sectionAccents = { ai: '#18E299', voice: '#10b981', identity: '#3772cf', data: '#18E299', features: '#c37d0d', feishu: '#3772cf', sandbox: '#8b5cf6' }
+const sectionTitles = { ai: 'AI 后端配置', voice: '语音识别配置', identity: '机器人身份', data: '数据路径', sandbox: '提示词沙箱' }
+const sectionAccents = { ai: '#18E299', voice: '#10b981', identity: '#3772cf', data: '#18E299', sandbox: '#8b5cf6' }
 
 // ── Data Path Section (微信数据目录配置) ──────────────────────────────
 
@@ -2287,8 +2286,6 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
                 {activeSection === 'voice' && <VoiceSection form={form} update={update} />}
                 {activeSection === 'identity' && <IdentitySection form={form} update={update} />}
                 {activeSection === 'data' && <DataPathSection form={form} update={update} detectedDataDir={detectedDataDir} />}
-                {activeSection === 'features' && <FeaturesSection form={form} update={update} />}
-                {activeSection === 'feishu' && <FeishuSection form={form} update={update} />}
                 {activeSection === 'sandbox' && <SandboxSection form={form} />}
               </div>
             </div>

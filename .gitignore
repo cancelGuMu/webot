@@ -110,3 +110,4 @@ image/*
 !image/logo_assets/
 image/logo_assets/*
 !image/logo_assets/logo.ico
+data/models/

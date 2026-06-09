@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Gear, ChartLine, Scroll, Users, Spinner, Sun, Moon } from '@phosphor-icons/react'
+import { Gear, ChartLine, Scroll, Users, Spinner, Sun, Moon, Sliders } from '@phosphor-icons/react'
 import Dashboard from './components/Dashboard'
 import ConfigPanel from './components/ConfigPanel'
+import FeaturesPanel from './components/FeaturesPanel'
 import NicknameEditor from './components/NicknameEditor'
 import LogViewer from './components/LogViewer'
 import Onboarding from './components/Onboarding'
@@ -19,10 +20,20 @@ const TABS = [
       { id: 'ai', label: 'AI 后端配置' },
       { id: 'voice', label: '语音识别配置' },
       { id: 'identity', label: '机器人身份' },
-      { id: 'features', label: '功能开关' },
-      { id: 'feishu', label: '飞书同步' },
       { id: 'data', label: '数据路径' },
       { id: 'sandbox', label: '提示词沙箱' },
+    ],
+  },
+  {
+    id: 'features', label: '功能开关', icon: Sliders,
+    subs: [
+      { id: 'summarize', label: '总结功能' },
+      { id: 'feishu', label: '飞书同步' },
+      { id: 'fun', label: '趣味抽签' },
+      { id: 'proactive', label: '主动发言' },
+      { id: 'sticky', label: '粘性提及' },
+      { id: 'welcome', label: '欢迎新人' },
+      { id: 'log', label: '日志级别' },
     ],
   },
   { id: 'nicknames', label: '群友昵称', icon: Users },
@@ -32,6 +43,7 @@ const TABS = [
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [configSection, setConfigSection] = useState('ai')
+  const [featuresSection, setFeaturesSection] = useState('summarize')
   const [botStatus, setBotStatus] = useState(null)
   const [onboardingDone, setOnboardingDone] = useState(null) // null = loading
   const [wsConnected, setWsConnected] = useState(false)
@@ -186,14 +198,14 @@ export default function App() {
                           {subs.map(sub => (
                             <button
                               key={sub.id}
-                              onClick={() => { setActiveTab(id); setConfigSection(sub.id) }}
+                              onClick={() => { setActiveTab(id); id === 'config' ? setConfigSection(sub.id) : setFeaturesSection(sub.id) }}
                               className={`w-full text-left py-1.5 text-xs transition-all cursor-pointer relative pl-3.5 ${
-                                activeTab === id && configSection === sub.id
+                                activeTab === id && (id === 'config' ? configSection : featuresSection) === sub.id
                                   ? 'text-brand-green-hover dark:text-brand-green font-semibold'
                                   : 'text-text-muted hover:text-text-main'
                               }`}
                             >
-                              {activeTab === id && configSection === sub.id && (
+                              {activeTab === id && (id === 'config' ? configSection : featuresSection) === sub.id && (
                                 <motion.div
                                   layoutId="activeConfigSub"
                                   className="absolute left-0 top-1.5 w-1 h-3 bg-brand-green rounded-full"
@@ -274,6 +286,7 @@ export default function App() {
           >
             {activeTab === 'dashboard' && <Dashboard status={status} />}
             {activeTab === 'config' && <ConfigPanel activeSection={configSection} onNavigate={setConfigSection} />}
+            {activeTab === 'features' && <FeaturesPanel activeSection={featuresSection} onNavigate={setFeaturesSection} />}
             {activeTab === 'nicknames' && <NicknameEditor />}
             {activeTab === 'logs' && <LogViewer />}
           </motion.div>

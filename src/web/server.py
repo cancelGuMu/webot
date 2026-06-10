@@ -168,6 +168,49 @@ def _feishu_config_from_raw(raw: dict[str, str]) -> dict:
     }
 
 
+_DEFAULT_TODO_ADD_KEYWORDS = "记一下,添加待办,新建待办,帮我记,待办"
+_DEFAULT_TODO_COMPLETE_KEYWORDS = "搞定,做完了,完成,完成了,done"
+_DEFAULT_TODO_DELETE_KEYWORDS = "删掉,删除,取消,不要了"
+
+
+def _todo_config_from_raw(raw: dict[str, str]) -> dict:
+    """Return UI-facing todo config from env key/value pairs."""
+    return {
+        "todo_enabled": _bool_env(raw.get("TODO_ENABLED", "true"), True),
+        "todo_groups": _split_csv(raw.get("TODO_GROUPS", "*")),
+        "todo_max_per_group": _int_env(raw.get("TODO_MAX_PER_GROUP", "50"), 50),
+        "todo_completed_retention_days": _int_env(
+            raw.get("TODO_COMPLETED_RETENTION_DAYS", "30"), 30,
+        ),
+        "todo_deleted_retention_days": _int_env(
+            raw.get("TODO_DELETED_RETENTION_DAYS", "30"), 30,
+        ),
+        "todo_add_keywords": _split_csv(
+            raw.get("TODO_ADD_KEYWORDS", _DEFAULT_TODO_ADD_KEYWORDS),
+        ),
+        "todo_complete_keywords": _split_csv(
+            raw.get("TODO_COMPLETE_KEYWORDS", _DEFAULT_TODO_COMPLETE_KEYWORDS),
+        ),
+        "todo_delete_keywords": _split_csv(
+            raw.get("TODO_DELETE_KEYWORDS", _DEFAULT_TODO_DELETE_KEYWORDS),
+        ),
+    }
+
+
+def _todo_updates_from_config(config: dict) -> dict[str, str | None]:
+    """Convert todo config dict to .env lines."""
+    return {
+        "TODO_ENABLED": _str_bool(config.get("todo_enabled", True)),
+        "TODO_GROUPS": ",".join(config.get("todo_groups", ["*"])) if config.get("todo_groups") else "*",
+        "TODO_MAX_PER_GROUP": str(config.get("todo_max_per_group", 50)),
+        "TODO_COMPLETED_RETENTION_DAYS": str(config.get("todo_completed_retention_days", 30)),
+        "TODO_DELETED_RETENTION_DAYS": str(config.get("todo_deleted_retention_days", 30)),
+        "TODO_ADD_KEYWORDS": ",".join(config.get("todo_add_keywords", [])) if config.get("todo_add_keywords") else None,
+        "TODO_COMPLETE_KEYWORDS": ",".join(config.get("todo_complete_keywords", [])) if config.get("todo_complete_keywords") else None,
+        "TODO_DELETE_KEYWORDS": ",".join(config.get("todo_delete_keywords", [])) if config.get("todo_delete_keywords") else None,
+    }
+
+
 def _feishu_updates_from_config(config: dict) -> dict[str, str | None]:
     """Return env updates for Feishu export settings from UI payload."""
     keywords = config.get("feishu_export_trigger_keywords")
@@ -1067,6 +1110,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 "voice_local_model": raw.get("VOICE_LOCAL_MODEL", "small"),
             }
             config_data.update(_feishu_config_from_raw(raw))
+            config_data.update(_todo_config_from_raw(raw))
             self.send_json({
                 "ok": True,
                 "config": config_data,
@@ -1177,6 +1221,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "VOICE_LOCAL_MODEL": config.get("voice_local_model", "small"),
                 }
                 updates.update(_feishu_updates_from_config(config))
+                updates.update(_todo_updates_from_config(config))
                 seen = set()
                 for line in lines:
                     stripped = line.strip()
@@ -1485,6 +1530,83 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 except Exception as e:
                     logger.exception("Failed to save lots config")
                     self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Todo management ───────────────────────────────────────
+        if self.path == "/api/todos":
+            params = {}
+            if "?" in self.path:
+                from urllib.parse import urlparse, parse_qs
+                parsed = urlparse(self.path)
+                for k, v in parse_qs(parsed.query).items():
+                    params[k] = v[0] if v else ""
+            status = params.get("status", "active")
+            chat_id = params.get("chat_id", "")
+            try:
+                from src.todo.store import TodoStore
+                from pathlib import Path
+                db_path = str(Path(
+                    os.environ.get("DB_PATH", "data/messages.db")
+                ))
+                store = TodoStore(db_path)
+                items = store.get_all(status=status, chat_id=chat_id)
+                groups = store.get_active_groups()
+                self.send_json({
+                    "ok": True,
+                    "items": [
+                        {
+                            "id": item.id,
+                            "chat_id": item.chat_id,
+                            "content": item.content,
+                            "display_order": item.display_order,
+                            "status": item.status,
+                            "creator_name": item.creator_name,
+                            "created_at": item.created_at,
+                            "completed_by_name": item.completed_by_name,
+                            "completed_at": item.completed_at,
+                            "deleted_by_name": item.deleted_by_name,
+                            "deleted_at": item.deleted_at,
+                        }
+                        for item in items
+                    ],
+                    "groups": groups,
+                })
+            except Exception as e:
+                logger.exception("Failed to load todos")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        if self.path == "/api/todos/action":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len else b"{}"
+            try:
+                data = json.loads(body)
+                action = data.get("action", "")
+                chat_id = data.get("chat_id", "")
+                target = data.get("target", "")
+                from src.todo.store import TodoStore
+                from pathlib import Path
+                db_path = str(Path(
+                    os.environ.get("DB_PATH", "data/messages.db")
+                ))
+                store = TodoStore(db_path)
+                if action == "complete":
+                    result = store.complete(chat_id, target)
+                elif action == "delete":
+                    result = store.delete(chat_id, target)
+                elif action == "restore":
+                    result = store.restore(chat_id, target)
+                elif action == "clear_completed":
+                    result = store.clear_completed(chat_id)
+                elif action == "clear_deleted":
+                    result = store.clear_deleted(chat_id)
+                else:
+                    self.send_json({"ok": False, "error": f"Unknown action: {action}"})
+                    return
+                self.send_json({"ok": result.ok, "reply": result.reply})
+            except Exception as e:
+                logger.exception("Todo action failed")
+                self.send_json({"ok": False, "error": str(e)})
             return
 
         # ── API: Get / Save welcome templates ─────────────────────────

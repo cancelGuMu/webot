@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Gear, ChartLine, Scroll, Users, Spinner, Sun, Moon, Sliders } from '@phosphor-icons/react'
+import { Gear, ChartLine, Scroll, Users, Spinner, Sun, Moon, Sliders, CheckSquare } from '@phosphor-icons/react'
 import Dashboard from './components/Dashboard'
 import ConfigPanel from './components/ConfigPanel'
 import FeaturesPanel from './components/FeaturesPanel'
 import NicknameEditor from './components/NicknameEditor'
 import LogViewer from './components/LogViewer'
+import TodoManager from './components/TodoManager'
 import Onboarding from './components/Onboarding'
 
 const iconVariants = {
@@ -28,6 +29,7 @@ const TABS = [
     id: 'features', label: '功能开关', icon: Sliders,
     subs: [
       { id: 'summarize', label: '总结功能' },
+      { id: 'todo', label: '群聊待办' },
       { id: 'feishu', label: '飞书同步' },
       { id: 'fun', label: '趣味抽签' },
       { id: 'proactive', label: '主动发言' },
@@ -37,6 +39,7 @@ const TABS = [
     ],
   },
   { id: 'nicknames', label: '群友昵称', icon: Users },
+  { id: 'todo-manager', label: '群聊待办管理', icon: CheckSquare },
   { id: 'logs', label: '运行日志', icon: Scroll },
 ]
 
@@ -288,6 +291,7 @@ export default function App() {
             {activeTab === 'config' && <ConfigPanel activeSection={configSection} onNavigate={setConfigSection} />}
             {activeTab === 'features' && <FeaturesPanel activeSection={featuresSection} onNavigate={setFeaturesSection} />}
             {activeTab === 'nicknames' && <NicknameEditor />}
+            {activeTab === 'todo-manager' && <TodoManager />}
             {activeTab === 'logs' && <LogViewer />}
           </motion.div>
         </AnimatePresence>

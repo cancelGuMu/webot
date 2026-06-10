@@ -226,6 +226,24 @@ class BotConfig:
     sticky_mention_enabled: bool = True
     sticky_mention_ttl_sec: int = 60  # max wait for follow-up message
 
+    # === Group Todo ===
+    # Master switch — @bot mention triggers todo management commands.
+    todo_enabled: bool = True
+    # Comma-separated group names where todo is active. "*" = all groups.
+    todo_groups: list[str] = field(default_factory=lambda: ["*"])
+    todo_max_per_group: int = 50           # max active todos per group (1-200)
+    todo_completed_retention_days: int = 30  # auto-clean completed (0=forever)
+    todo_deleted_retention_days: int = 30    # auto-clean deleted (0=forever)
+    todo_add_keywords: list[str] = field(default_factory=lambda: [
+        "记一下", "添加待办", "新建待办", "帮我记", "待办",
+    ])
+    todo_complete_keywords: list[str] = field(default_factory=lambda: [
+        "搞定", "做完了", "完成", "完成了", "done",
+    ])
+    todo_delete_keywords: list[str] = field(default_factory=lambda: [
+        "删掉", "删除", "取消", "不要了",
+    ])
+
     # === Tuning ===
     poll_interval_sec: float = 1.0
     dedup_window_sec: int = 60
@@ -403,6 +421,21 @@ def load_config() -> BotConfig:
         if feishu_keywords_str
         else None
     )
+    todo_add_kw_str = os.getenv("TODO_ADD_KEYWORDS", "").strip()
+    todo_add_keywords = (
+        [kw.strip() for kw in todo_add_kw_str.split(",") if kw.strip()]
+        if todo_add_kw_str else None
+    )
+    todo_complete_kw_str = os.getenv("TODO_COMPLETE_KEYWORDS", "").strip()
+    todo_complete_keywords = (
+        [kw.strip() for kw in todo_complete_kw_str.split(",") if kw.strip()]
+        if todo_complete_kw_str else None
+    )
+    todo_delete_kw_str = os.getenv("TODO_DELETE_KEYWORDS", "").strip()
+    todo_delete_keywords = (
+        [kw.strip() for kw in todo_delete_kw_str.split(",") if kw.strip()]
+        if todo_delete_kw_str else None
+    )
 
     kwargs: dict = {
         "ai_backend": ai_backend,
@@ -449,6 +482,12 @@ def load_config() -> BotConfig:
         "welcome_enabled": os.getenv("WELCOME_ENABLED", "false").strip().lower() == "true",
         "sticky_mention_enabled": os.getenv("STICKY_MENTION_ENABLED", "true").strip().lower() == "true",
         "sticky_mention_ttl_sec": int(os.getenv("STICKY_MENTION_TTL_SEC", "60")),
+        # Group Todo
+        "todo_enabled": os.getenv("TODO_ENABLED", "true").strip().lower() == "true",
+        "todo_groups": [g.strip() for g in os.getenv("TODO_GROUPS", "*").split(",") if g.strip()],
+        "todo_max_per_group": int(os.getenv("TODO_MAX_PER_GROUP", "50")),
+        "todo_completed_retention_days": int(os.getenv("TODO_COMPLETED_RETENTION_DAYS", "30")),
+        "todo_deleted_retention_days": int(os.getenv("TODO_DELETED_RETENTION_DAYS", "30")),
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),
         "log_file": os.getenv("LOG_FILE", "data/bot.log").strip(),
         # Voice recognition
@@ -473,6 +512,12 @@ def load_config() -> BotConfig:
         kwargs["trigger_keywords"] = trigger_keywords
     if feishu_export_trigger_keywords is not None:
         kwargs["feishu_export_trigger_keywords"] = feishu_export_trigger_keywords
+    if todo_add_keywords is not None:
+        kwargs["todo_add_keywords"] = todo_add_keywords
+    if todo_complete_keywords is not None:
+        kwargs["todo_complete_keywords"] = todo_complete_keywords
+    if todo_delete_keywords is not None:
+        kwargs["todo_delete_keywords"] = todo_delete_keywords
 
     _validate_config(kwargs)
 

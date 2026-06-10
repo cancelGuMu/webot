@@ -15,6 +15,8 @@ from typing import Optional
 from .proactive.gate import ProactiveGate
 from .proactive.sticky import StickyMentionTracker
 from .memory.consolidator import MemoryConsolidator
+from .todo.store import TodoStore
+from .todo.handler import TodoHandler, format_todo_reply
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,14 @@ class MessageRouter:
             ttl_sec=config.sticky_mention_ttl_sec,
         ) if config.sticky_mention_enabled else None
         self._memory = MemoryConsolidator(store, summarizer)
+        # Todo: init store and handler if feature is enabled
+        self._todo_store: Optional[TodoStore] = None
+        self._todo_handler: Optional[TodoHandler] = None
+        if config.todo_enabled:
+            self._todo_store = TodoStore(db_path=config.db_path)
+            self._todo_handler = TodoHandler(
+                self._todo_store, config,
+            )
         # Health monitoring: count unique messages processed (post-dedup)
         self.messages_processed: int = 0
 
@@ -203,6 +213,29 @@ class MessageRouter:
             ):
                 reply = self._admin.handle(clean_content, msg["sender_name"])
 
+            # ── Todo: group todo commands ───────────────────
+            if (
+                reply is None
+                and self._todo_handler is not None
+                and self._is_todo_group(msg["chat_id"])
+            ):
+                is_admin = (
+                    bool(self._config.admin_wxid)
+                    and msg["sender_id"] == self._config.admin_wxid
+                )
+                try:
+                    result = self._todo_handler.handle(
+                        clean_content,
+                        msg["chat_id"],
+                        msg["sender_id"],
+                        msg["sender_name"],
+                        is_admin,
+                    )
+                    if result is not None:
+                        reply = format_todo_reply(result, msg["sender_name"])
+                except Exception:
+                    logger.exception("Todo command failed")
+
             if reply is None and self._detector.is_trigger(
                 content=clean_content,
                 is_at_mentioned=False,
@@ -229,6 +262,20 @@ class MessageRouter:
 
         # ── Strip markdown — WeChat can't render it ──────────────
         return self._strip_markdown(reply) if reply else None
+
+    # ── Todo helpers ────────────────────────────────────────────
+
+    def _is_todo_group(self, chat_id: str) -> bool:
+        """Check if the given chat_id is in the todo allowed-groups list."""
+        groups = self._config.todo_groups
+        if not groups or groups == ["*"]:
+            return True
+        # Match by chat_id suffix (WeChat group IDs are long strings,
+        # but group names in config may be display names or wxid suffixes)
+        for g in groups:
+            if g == chat_id or g in chat_id or chat_id in g:
+                return True
+        return False
 
     # ── Memory helper ────────────────────────────────────────────
 

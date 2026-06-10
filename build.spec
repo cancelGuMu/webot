@@ -77,6 +77,7 @@ a = Analysis(
         'src.voice.asr', 'src.voice.pipeline',
         'src.web', 'src.web.server',
         'src.router', 'src.welcome',
+        'src.todo', 'src.todo.store', 'src.todo.handler',
         'src.nickname', 'src.admin', 'src.fun',
         'src.utils', 'src.utils.logging_config',
         'dotenv', 'anthropic', 'openai', 'pydantic',

@@ -2004,10 +2004,20 @@ class _UIHandler(SimpleHTTPRequestHandler):
 
 def _run_server(host, port):
     """Run the HTTP server (blocking, called in daemon thread)."""
-    server = ThreadingHTTPServer((host, port), _UIHandler)
+    # Enable SO_REUSEADDR so a rapid restart doesn't fail with "address in use"
+    ThreadingHTTPServer.allow_reuse_address = True
+    try:
+        server = ThreadingHTTPServer((host, port), _UIHandler)
+    except OSError as e:
+        logger.error("Failed to bind web server on %s:%s: %s", host, port, e)
+        update_status(running=False, error=f"端口 {port} 被占用或无权绑定: {e}")
+        return
     server.daemon_threads = True  # WebSocket handlers won't block exit
     logger.info("Web UI: http://%s:%s", host, port)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except Exception as e:
+        logger.error("Web server crashed: %s", e)
 
 
 def start_web_server(host="127.0.0.1", port=7327):

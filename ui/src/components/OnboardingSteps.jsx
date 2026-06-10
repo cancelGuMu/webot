@@ -5,6 +5,25 @@ import { Field, Toggle, Select, Input, spring } from './SharedComponents'
 
 const API = 'http://127.0.0.1:7327'
 
+// ── Retry wrapper for fetch: 3 attempts with exponential backoff ────────
+// Transient errors (server starting up, TCP reset) resolve on retry.
+// Only the last error is surfaced to the caller.
+async function fetchWithRetry(url, options = {}, retries = 3, backoffMs = 300) {
+  let lastErr
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url, options)
+      return res
+    } catch (e) {
+      lastErr = e
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, backoffMs * (i + 1)))
+      }
+    }
+  }
+  throw lastErr
+}
+
 // ── Step 1: Key Extraction & Diagnostics ──────────────────────────────
 
 export function Step1Prepare({ data, updateData, onDone }) {
@@ -25,7 +44,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
     setDiagnosticsLoading(true)
     setDiagnosticsError('')
     try {
-      const res = await fetch(`${API}/api/onboarding/diagnose`)
+      const res = await fetchWithRetry(`${API}/api/onboarding/diagnose`)
       const d = await res.json()
       if (d.ok) {
         setDiagnostics(d.diagnostics)
@@ -52,8 +71,9 @@ export function Step1Prepare({ data, updateData, onDone }) {
     setBusy(true)
     setPhase('extracting')
     setMsg('')
+    let pollFailures = 0
     try {
-      const startRes = await fetch(`${API}/api/onboarding/step1`, { method: 'POST' })
+      const startRes = await fetchWithRetry(`${API}/api/onboarding/step1`, { method: 'POST' })
       const start = await startRes.json()
       if (!start.ok) {
         setPhase('error')
@@ -65,6 +85,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
       const poll = setInterval(async () => {
         try {
           const res = await fetch(`${API}/api/onboarding/step1-status`)
+          pollFailures = 0
           const s = await res.json()
 
           if (s.phase === 'waiting_exit' || s.phase === 'waiting_login'
@@ -82,11 +103,19 @@ export function Step1Prepare({ data, updateData, onDone }) {
             setMsg(s.message || '提取失败')
             setBusy(false)
           }
-        } catch {}
+        } catch {
+          pollFailures++
+          if (pollFailures > 60) {
+            clearInterval(poll)
+            setPhase('error')
+            setMsg('服务器连接中断，请检查网络后重试')
+            setBusy(false)
+          }
+        }
       }, 1000)
     } catch {
       setPhase('error')
-      setMsg('无法连接服务器')
+      setMsg('无法连接服务器，请稍后重试')
       setBusy(false)
     }
   }
@@ -431,7 +460,7 @@ export function Step2WeChatConfig({ data, updateData, onDone }) {
   async function handleNext() {
     setBusy(true)
     try {
-      await fetch(`${API}/api/onboarding/step2`, {
+      await fetchWithRetry(`${API}/api/onboarding/step2`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           bot_display_name: data.bot_display_name || '群聊小助手',
@@ -442,7 +471,9 @@ export function Step2WeChatConfig({ data, updateData, onDone }) {
         }),
       })
       onDone()
-    } catch {}
+    } catch {
+      // Retry exhausted — let user try again (busy stays false, button re-enables)
+    }
     setBusy(false)
   }
 
@@ -510,7 +541,7 @@ export function Step3AIConfig({ data, updateData, onDone }) {
   async function handleNext() {
     setBusy(true)
     try {
-      await fetch(`${API}/api/onboarding/step3`, {
+      await fetchWithRetry(`${API}/api/onboarding/step3`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ai_backend: data.ai_backend || 'deepseek',
@@ -523,7 +554,9 @@ export function Step3AIConfig({ data, updateData, onDone }) {
         }),
       })
       onDone()
-    } catch {}
+    } catch {
+      // Retry exhausted — let user try again
+    }
     setBusy(false)
   }
 
@@ -600,7 +633,7 @@ export function Step4Features({ data, updateData, onComplete }) {
   async function handleFinish() {
     setBusy(true)
     try {
-      await fetch(`${API}/api/onboarding/step4`, {
+      await fetchWithRetry(`${API}/api/onboarding/step4`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fun_enabled: data.fun_enabled ?? true,
@@ -610,9 +643,9 @@ export function Step4Features({ data, updateData, onComplete }) {
       })
       setDone(true)
       setTimeout(onComplete, 1200)
-    } catch {}
-    setDone(true)
-    setTimeout(onComplete, 1200)
+    } catch {
+      // Retry exhausted — let user try again
+    }
     setBusy(false)
   }
 

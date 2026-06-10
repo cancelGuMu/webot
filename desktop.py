@@ -95,20 +95,25 @@ def main():
     # Bot starts STOPPED — user must click "启动机器人" in the UI.
     # This prevents auto-startup races with WeChat login / key availability.
 
-    # Wait for web server (raw TCP — bypasses Windows system proxy)
-    import socket as _socket
+    # Wait for web server to be HTTP-ready (not just TCP socket bound).
+    # A raw TCP check only confirms the port is bound, but the HTTP handler
+    # may not have entered serve_forever() yet — causing "无法连接服务器"
+    # when the webview loads too early.  We poll /api/status instead.
+    import urllib.request as _urllib_request
     ready = False
-    for _ in range(30):
+    for i in range(60):
         try:
-            s = _socket.create_connection(("127.0.0.1", 7327), timeout=1)
-            s.close()
+            req = _urllib_request.urlopen(
+                "http://127.0.0.1:7327/api/status", timeout=2
+            )
+            req.close()
             ready = True
             break
-        except (OSError, _socket.timeout):
-            time.sleep(0.5)
+        except Exception:
+            time.sleep(0.25)
 
     if not ready:
-        _write_crash_log("Web server startup timeout (30 attempts)")
+        _write_crash_log("Web server HTTP readiness timeout (60 attempts)")
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(

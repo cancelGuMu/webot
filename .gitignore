@@ -65,6 +65,9 @@ tools/macos_chatlog/
 # Runtime status
 data/bot_status.json
 
+# Runtime group name resolution (contains private chatroom IDs)
+data/group_names.json
+
 # Claude Code
 .claude/
 

@@ -18,11 +18,11 @@ const paramPanel = {
 }
 
 const sectionTitles = {
-  summarize: '总结功能', todo: '群聊待办', feishu: '飞书同步', fun: '趣味抽签',
+  summarize: '总结功能', feishu: '飞书同步', fun: '趣味抽签',
   proactive: '主动发言', sticky: '粘性提及', welcome: '欢迎新人', log: '日志级别',
 }
 const sectionAccents = {
-  summarize: '#18E299', todo: '#e8794b', feishu: '#3772cf', fun: '#c37d0d',
+  summarize: '#18E299', feishu: '#3772cf', fun: '#c37d0d',
   proactive: '#10b981', sticky: '#8b5cf6', welcome: '#f59e0b', log: '#6b7280',
 }
 
@@ -78,130 +78,6 @@ function SummarizeSection({ form, update }) {
                 <button type="button" onClick={() => { const el = document.getElementById('kw-input'); if (!el) return; const val = el.value.trim(); if (val && !(form.trigger_keywords || []).includes(val)) { update('trigger_keywords', [...(form.trigger_keywords || []), val]); el.value = '' } }}
                   className="px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer">添加</button>
               </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-// ── Todo ────────────────────────────────────────────────────────────
-
-function TodoSection({ form, update }) {
-  const groups = Array.isArray(form.todo_groups) ? form.todo_groups : ['*']
-  const addKeywords = Array.isArray(form.todo_add_keywords) ? form.todo_add_keywords : []
-  const completeKeywords = Array.isArray(form.todo_complete_keywords) ? form.todo_complete_keywords : []
-  const deleteKeywords = Array.isArray(form.todo_delete_keywords) ? form.todo_delete_keywords : []
-
-  function addGroup(value) { const v = value.trim(); if (v && !groups.includes(v)) { update('todo_groups', groups.includes('*') ? [v] : [...groups, v]) } }
-  function removeGroup(index) { if (groups.length <= 1) return; update('todo_groups', groups.filter((_, i) => i !== index)) }
-
-  function KeywordChips({ keywords, updateKey, minItems = 1 }) {
-    return (
-      <div>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {(keywords || []).map((kw, i) => (
-            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green">
-              {kw}
-              <button type="button" disabled={keywords.length <= minItems}
-                onClick={() => { const next = keywords.filter((_, idx) => idx !== i); update(updateKey, next) }}
-                className={`ml-0.5 leading-none text-base transition-colors ${keywords.length <= minItems ? 'text-text-muted cursor-not-allowed' : 'text-brand-green-hover/60 hover:text-[#d45656] cursor-pointer'}`}>&times;</button>
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <input type="text" placeholder="输入新触发词，回车添加"
-            className="flex-1 bg-bg-raised border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all"
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const val = e.target.value.trim(); if (val && !keywords.includes(val)) { update(updateKey, [...keywords, val]); e.target.value = '' } } }} />
-          <button type="button" onClick={() => { const el = document.querySelector(`[data-kw-input="${updateKey}"]`); if (!el) return; const val = el.value.trim(); if (val && !keywords.includes(val)) { update(updateKey, [...keywords, val]); el.value = '' } }}
-            className="px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer">添加</button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex-1 mr-8">
-          <p className="text-[15px] text-text-main font-medium">群聊待办</p>
-          <p className="text-sm text-text-muted mt-1.5">@机器人发送触发词，管理群聊待办事项。支持添加、完成、删除、恢复。</p>
-        </div>
-        <Toggle enabled={form.todo_enabled} onChange={v => update('todo_enabled', v)} />
-      </div>
-      <AnimatePresence>
-        {form.todo_enabled && (
-          <motion.div variants={paramPanel} initial="initial" animate="animate" exit="exit"
-            className="p-4 bg-bg-raised rounded-lg space-y-5">
-            {/* 生效群聊范围 */}
-            <div>
-              <p className="text-[14px] text-text-main font-medium">生效群聊范围</p>
-              <p className="text-xs text-text-muted mt-0.5 mb-2">选择哪些群聊启用待办功能，未选中的群不响应待办命令</p>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {(groups || []).map((g, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green">
-                    {g === '*' ? '全部群聊' : g}
-                    <button type="button" disabled={groups.length <= 1}
-                      onClick={() => removeGroup(i)}
-                      className={`ml-0.5 leading-none text-base transition-colors ${groups.length <= 1 ? 'text-text-muted cursor-not-allowed' : 'text-brand-green-hover/60 hover:text-[#d45656] cursor-pointer'}`}>&times;</button>
-                  </span>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input type="text" data-todo-group-input placeholder="输入群聊名称，回车添加"
-                  className="flex-1 bg-bg-raised border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all"
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addGroup(e.target.value); e.target.value = '' } }} />
-                <button type="button" onClick={() => { const el = document.querySelector('[data-todo-group-input]'); if (el) { addGroup(el.value); el.value = '' } }}
-                  className="px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer">添加</button>
-              </div>
-            </div>
-
-            {/* 参数设置 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <ParamRow label="每群待办上限" hint="单个群最多待办数（1-200）">
-                <Input type="number" value={String(form.todo_max_per_group || 50)}
-                  onChange={v => update('todo_max_per_group', Math.max(1, Math.min(200, parseInt(v) || 50)))} />
-              </ParamRow>
-              <ParamRow label="已完成保留天数" hint="超期自动清理（0=永久）">
-                <Input type="number" value={String(form.todo_completed_retention_days || 30)}
-                  onChange={v => update('todo_completed_retention_days', Math.max(0, parseInt(v) || 0))} />
-              </ParamRow>
-              <ParamRow label="已删除保留天数" hint="超期自动清理（0=永久）">
-                <Input type="number" value={String(form.todo_deleted_retention_days || 30)}
-                  onChange={v => update('todo_deleted_retention_days', Math.max(0, parseInt(v) || 0))} />
-              </ParamRow>
-            </div>
-
-            {/* 添加待办触发词 */}
-            <div>
-              <p className="text-[14px] text-text-main font-medium">添加待办触发词</p>
-              <p className="text-xs text-text-muted mt-0.5 mb-2">群成员 @机器人后发送触发词 + 待办内容，即可添加</p>
-              <KeywordChips keywords={addKeywords} updateKey="todo_add_keywords" />
-            </div>
-
-            {/* 完成待办触发词 */}
-            <div>
-              <p className="text-[14px] text-text-main font-medium">完成待办触发词</p>
-              <p className="text-xs text-text-muted mt-0.5 mb-2">群成员 @机器人后发送触发词 + 编号，即可标记完成</p>
-              <KeywordChips keywords={completeKeywords} updateKey="todo_complete_keywords" />
-            </div>
-
-            {/* 删除待办触发词 */}
-            <div>
-              <p className="text-[14px] text-text-main font-medium">删除待办触发词</p>
-              <p className="text-xs text-text-muted mt-0.5 mb-2">群成员 @机器人后发送触发词 + 编号，即可移至已删除</p>
-              <KeywordChips keywords={deleteKeywords} updateKey="todo_delete_keywords" />
-            </div>
-
-            {/* 使用提示 */}
-            <div className="p-3 bg-bg-main/60 border border-border-main rounded-xl">
-              <p className="text-xs text-text-muted leading-relaxed">
-                💡 <strong>群内使用提示：</strong><br/>
-                @机器人 <code>查看待办</code> · <code>记一下 xxx</code> · <code>搞定 N</code>
-                · <code>删掉 N</code> · <code>恢复待办 N</code>（管理员）<br/>
-                <span className="text-text-muted/60">查看待办、已完成列表、已删除列表、清空等命令为固定触发词，无需配置。</span>
-              </p>
             </div>
           </motion.div>
         )}
@@ -484,11 +360,6 @@ export default function FeaturesPanel({ activeSection, onNavigate }) {
     feishu_spreadsheet_token: '', feishu_spreadsheet_range: 'Sheet1!A:H',
     feishu_bitable_app_token: '', feishu_bitable_table_id: '',
     feishu_doc_folder_token: '',
-    todo_enabled: true, todo_groups: ['*'],
-    todo_max_per_group: 50, todo_completed_retention_days: 30, todo_deleted_retention_days: 30,
-    todo_add_keywords: ['记一下', '添加待办', '新建待办', '帮我记', '待办'],
-    todo_complete_keywords: ['搞定', '做完了', '完成', '完成了', 'done'],
-    todo_delete_keywords: ['删掉', '删除', '取消', '不要了'],
     log_level: 'INFO',
   })
 
@@ -535,14 +406,6 @@ export default function FeaturesPanel({ activeSection, onNavigate }) {
           feishu_bitable_app_token: form.feishu_bitable_app_token,
           feishu_bitable_table_id: form.feishu_bitable_table_id,
           feishu_doc_folder_token: form.feishu_doc_folder_token,
-          todo_enabled: form.todo_enabled,
-          todo_groups: form.todo_groups,
-          todo_max_per_group: form.todo_max_per_group,
-          todo_completed_retention_days: form.todo_completed_retention_days,
-          todo_deleted_retention_days: form.todo_deleted_retention_days,
-          todo_add_keywords: form.todo_add_keywords,
-          todo_complete_keywords: form.todo_complete_keywords,
-          todo_delete_keywords: form.todo_delete_keywords,
           log_level: form.log_level,
         }),
       })
@@ -579,7 +442,6 @@ export default function FeaturesPanel({ activeSection, onNavigate }) {
             <div className="bg-bg-card border border-border-main rounded-2xl shadow-[rgba(0,0,0,0.03)_0px_2px_4px] dark:shadow-none">
               <div className="p-7">
                 {activeSection === 'summarize' && <SummarizeSection form={form} update={update} />}
-                {activeSection === 'todo' && <TodoSection form={form} update={update} />}
                 {activeSection === 'feishu' && <FeishuSection form={form} update={update} />}
                 {activeSection === 'fun' && <FunSection form={form} update={update} />}
                 {activeSection === 'proactive' && <ProactiveSection form={form} update={update} />}

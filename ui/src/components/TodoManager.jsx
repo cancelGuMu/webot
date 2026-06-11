@@ -55,7 +55,7 @@ function KeywordChips({ keywords, update, minItems = 1 }) {
       <div className="flex gap-2">
         <input type="text" ref={inputRef} placeholder="输入新触发词，回车添加"
           className="flex-1 bg-bg-raised border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all"
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword() } }} />
+          onKeyUp={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword() } }} />
         <button type="button" onClick={addKeyword}
           className="px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer">添加</button>
       </div>

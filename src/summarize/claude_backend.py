@@ -42,7 +42,9 @@ class ClaudeSummarizer(AbstractSummarizer):
         anthropic.RateLimitError,
         anthropic.APIConnectionError,
         anthropic.InternalServerError,
-        anthropic.OverloadedError,
+        # HTTP 529 Overloaded — not publicly exported by all SDK versions;
+        # fall back to InternalServerError (also 5xx) when unavailable.
+        getattr(anthropic, "OverloadedError", anthropic.InternalServerError),
     )
 
     def __init__(self, api_key: str,

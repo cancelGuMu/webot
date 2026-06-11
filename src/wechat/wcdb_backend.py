@@ -230,8 +230,8 @@ class WcdbBackend(AbstractWeChatBackend):
         """
         sessions = self._client.get_sessions()
 
-        # Build a map of all @chatroom entries: username -> best display name
-        all_chatrooms: dict[str, str] = {}
+        # Build a map of all @chatroom entries: username -> {name, member_count}
+        all_chatrooms: dict[str, dict] = {}
         for s in sessions:
             username = str(s.get("username", "") or "")
             if not username.endswith("@chatroom"):
@@ -253,7 +253,17 @@ class WcdbBackend(AbstractWeChatBackend):
                 if not display or display == username:
                     display = username  # fallback
 
-            all_chatrooms[username] = display
+            # Extract real group member count from WCDB session
+            member_count = int(
+                s.get("memberCount") or s.get("member_count")
+                or s.get("memberCnt") or s.get("member_cnt")
+                or 0
+            )
+
+            all_chatrooms[username] = {
+                "name": display,
+                "member_count": member_count,
+            }
 
         if not all_chatrooms:
             logger.error(
@@ -269,8 +279,8 @@ class WcdbBackend(AbstractWeChatBackend):
         )
 
         if auto_discover:
-            for username, display in all_chatrooms.items():
-                self._talker_ids[display] = username
+            for username, info in all_chatrooms.items():
+                self._talker_ids[info["name"]] = username
             logger.info(
                 "Auto-discovered %d group chats: %s",
                 len(self._talker_ids), list(self._talker_ids.keys()),
@@ -281,13 +291,14 @@ class WcdbBackend(AbstractWeChatBackend):
             # Manual mode: match configured names against resolved display names
             for group_name in self._groups:
                 found = None
-                for username, display in all_chatrooms.items():
+                for username, info in all_chatrooms.items():
+                    display = info["name"]
                     if group_name.lower() in display.lower() or display.lower() in group_name.lower():
                         found = username
                         break
                 if found:
                     self._talker_ids[group_name] = found
-                    logger.info("Resolved '%s' -> %s (display='%s')", group_name, found, all_chatrooms.get(found, ""))
+                    logger.info("Resolved '%s' -> %s (display='%s')", group_name, found, all_chatrooms[found]["name"])
                 else:
                     # Direct lookup: maybe group_name IS a username like 20968749111@chatroom
                     if group_name in all_chatrooms:
@@ -305,8 +316,8 @@ class WcdbBackend(AbstractWeChatBackend):
             self._save_group_names(all_chatrooms)
 
     @staticmethod
-    def _save_group_names(chatrooms: dict[str, str]) -> None:
-        """Persist chat_id -> display_name to data/group_names.json atomically."""
+    def _save_group_names(chatrooms: dict[str, dict]) -> None:
+        """Persist chat_id -> {name, member_count} to data/group_names.json atomically."""
         import os as _os
         path = Path("data/group_names.json")
         try:

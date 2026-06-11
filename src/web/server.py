@@ -1371,66 +1371,69 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 conn = sqlite3.connect(db_path)
                 conn.row_factory = sqlite3.Row
 
-                # ── Load persisted chat_id -> group display names ────────
+                # ── Load persisted chat_id -> group info ─────────────────
                 # Written by WcdbBackend._save_group_names() when the bot
                 # resolves group names from WeChat's session DB via WCDB DLL.
+                # New format: {chat_id: {name, member_count}}
+                # Old format: {chat_id: "name"} (backward compatible)
                 group_names_path = Path("data/group_names.json")
-                group_names: dict[str, str] = {}
+                group_info: dict[str, dict] = {}
                 if group_names_path.exists():
                     try:
-                        group_names = json.loads(
-                            group_names_path.read_text(encoding="utf-8")
-                        )
+                        raw = json.loads(group_names_path.read_text(encoding="utf-8"))
+                        for chat_id, val in raw.items():
+                            if isinstance(val, dict):
+                                group_info[chat_id] = {
+                                    "name": val.get("name", chat_id),
+                                    "member_count": int(val.get("member_count", 0)),
+                                }
+                            else:
+                                # Old format: plain string → name only, no member count
+                                group_info[chat_id] = {
+                                    "name": str(val),
+                                    "member_count": 0,
+                                }
                     except (json.JSONDecodeError, OSError):
                         pass
                 # ──────────────────────────────────────────────────────────
 
                 groups = []
-                if not _messages_table_exists(conn):
-                    conn.close()
-                    self.send_json({"ok": True, "groups": groups})
-                    return
-                if groups_raw == "*" or not groups_raw:
-                    # All groups: distinct chat_ids from messages
+
+                # Primary source: group_names.json (from WCDB session scan)
+                if group_info:
+                    for chat_id, info in group_info.items():
+                        mc = info["member_count"]
+                        if not mc:
+                            # Fall back to message-sender count if WCDB didn't provide one
+                            cnt_row = conn.execute(
+                                "SELECT COUNT(DISTINCT sender_id) FROM messages WHERE chat_id=?",
+                                (chat_id,),
+                            ).fetchone()
+                            mc = cnt_row[0] if cnt_row else 0
+                        groups.append({
+                            "chat_id": chat_id,
+                            "group_name": info["name"],
+                            "member_count": mc,
+                        })
+
+                # Secondary source: messages table (groups not yet in group_names.json)
+                if _messages_table_exists(conn):
+                    existing_ids = set(group_info.keys())
                     rows = conn.execute(
                         "SELECT DISTINCT chat_id FROM messages WHERE chat_id LIKE '%@chatroom%' ORDER BY chat_id"
                     ).fetchall()
                     for row in rows:
                         chat_id = row["chat_id"]
+                        if chat_id in existing_ids:
+                            continue
                         cnt_row = conn.execute(
-                            "SELECT COUNT(DISTINCT sender_id) as cnt FROM messages WHERE chat_id=?",
+                            "SELECT COUNT(DISTINCT sender_id) FROM messages WHERE chat_id=?",
                             (chat_id,),
                         ).fetchone()
                         groups.append({
                             "chat_id": chat_id,
-                            "group_name": group_names.get(chat_id, chat_id),
-                            "member_count": cnt_row["cnt"] if cnt_row else 0,
-                        })
-                else:
-                    # Specific group names — match against known chat_ids
-                    wanted = [g.strip() for g in groups_raw.split(",") if g.strip()]
-                    # Get all chatroom IDs from messages
-                    all_chats = conn.execute(
-                        "SELECT DISTINCT chat_id FROM messages WHERE chat_id LIKE '%@chatroom%'"
-                    ).fetchall()
-                    all_ids = [r["chat_id"] for r in all_chats]
-                    for name in wanted:
-                        # Try exact match first, then substring
-                        chat_id = name
-                        for cid in all_ids:
-                            if name.lower() in cid.lower():
-                                chat_id = cid
-                                break
-                        cnt_row = conn.execute(
-                            "SELECT COUNT(DISTINCT sender_id) as cnt FROM messages WHERE chat_id=?",
-                            (chat_id,),
-                        ).fetchone()
-                        # Resolve display name from persisted mapping, fallback to configured name
-                        display_name = group_names.get(chat_id) or name
-                        groups.append({
-                            "chat_id": chat_id,
-                            "group_name": display_name,
-                            "member_count": cnt_row["cnt"] if cnt_row else 0,
+                            "group_name": chat_id,
+                            "member_count": cnt_row[0] if cnt_row else 0,
                         })
 
                 conn.close()

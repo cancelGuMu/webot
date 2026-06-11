@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { MagnifyingGlass, CheckCircle, Trash, ArrowUUpLeft, X, ListChecks, FloppyDisk, Info, Warning } from '@phosphor-icons/react'
 import { Toggle, Input, Field } from './SharedComponents'
@@ -176,13 +176,25 @@ export default function TodoManager() {
 
   // ── Todo management ────────────────────────────────────────────
 
+  const retryRef = useRef(0)  // 跟踪重试次数
+
   useEffect(() => { loadData(); loadCounts() }, [activeTab, selectedGroup])
+
+  // 初始加载失败后自动重试
+  useEffect(() => {
+    if (!error) return
+    if (retryRef.current >= 5) return  // 最多重试 5 次
+    const delay = Math.min(1000 * Math.pow(2, retryRef.current), 16000)
+    const timer = setTimeout(() => { retryRef.current++; loadData(); loadCounts() }, delay)
+    return () => clearTimeout(timer)
+  }, [error])
+
+  function retryLoad() { retryRef.current = 0; loadData(); loadCounts() }
 
   async function loadData() {
     setLoading(true)
     setError('')
     try {
-      // 有搜索词时跨状态查询；否则按当前 tab 查询
       const status = search.trim() ? 'all' : activeTab
       const params = new URLSearchParams({ status })
       if (selectedGroup) params.set('chat_id', selectedGroup)
@@ -192,6 +204,7 @@ export default function TodoManager() {
       if (d.ok) {
         setItems(d.items || [])
         setGroups(d.groups || [])
+        retryRef.current = 0
       } else {
         setError(d.error || '加载失败')
       }
@@ -461,7 +474,11 @@ export default function TodoManager() {
             ) : error ? (
               <motion.div key="error" variants={tabTransition} initial="initial" animate="animate" exit="exit"
                 className="text-center py-20">
-                <p className="text-sm text-[#d45656]">{error}</p>
+                <p className="text-sm text-[#d45656] mb-3">{error}</p>
+                <button onClick={retryLoad}
+                  className="px-4 py-2 text-[13px] bg-bg-raised border border-border-main rounded-lg text-text-main hover:border-brand-green hover:text-brand-green-hover transition-colors cursor-pointer font-medium">
+                  重新连接
+                </button>
               </motion.div>
             ) : filtered.length === 0 ? (
               <motion.div key="empty" variants={tabTransition} initial="initial" animate="animate" exit="exit"

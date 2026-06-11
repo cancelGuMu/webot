@@ -17,8 +17,10 @@ from threading import Lock
 
 logger = logging.getLogger(__name__)
 
-# Default path relative to project root (CWD set by desktop.py)
-DEFAULT_WELCOME_CONFIG_PATH = Path("data/welcome_templates.json")
+from src.config import PROJECT_ROOT
+
+# Default path relative to project root
+DEFAULT_WELCOME_CONFIG_PATH = PROJECT_ROOT / "data/welcome_templates.json"
 
 DISABLED_SENTINEL = "__disabled__"
 
@@ -146,6 +148,7 @@ class WelcomeManager:
 
 # ── Module-level singleton ───────────────────────────────────────
 
+_manager_lock = Lock()
 _manager: WelcomeManager | None = None
 
 
@@ -153,5 +156,7 @@ def get_welcome_manager() -> WelcomeManager:
     """Return the module-level WelcomeManager singleton."""
     global _manager
     if _manager is None:
-        _manager = WelcomeManager()
+        with _manager_lock:
+            if _manager is None:
+                _manager = WelcomeManager()
     return _manager

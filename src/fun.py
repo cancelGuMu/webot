@@ -5,6 +5,8 @@ import logging
 import random
 from pathlib import Path
 
+from src.config import PROJECT_ROOT
+
 logger = logging.getLogger(__name__)
 
 # ── 默认签文数据（用户未自定义时使用）──────────────────────────────

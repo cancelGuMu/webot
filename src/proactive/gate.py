@@ -65,6 +65,7 @@ class ProactiveGate:
             stale = [k for k, v in self._last_eval.items() if v < cutoff]
             for k in stale:
                 del self._last_eval[k]
+                self._consecutive_silence.pop(k, None)
 
         # ── Always record for rate tracking ───────────────────────
         self._tracker.record(chat_id)

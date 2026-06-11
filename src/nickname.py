@@ -11,8 +11,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+from src.config import PROJECT_ROOT
+
 # Default path relative to project root
-DEFAULT_NICKNAME_PATH = Path("data/nicknames.json")
+DEFAULT_NICKNAME_PATH = PROJECT_ROOT / "data/nicknames.json"
 
 
 class NicknameService:

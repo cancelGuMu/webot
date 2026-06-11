@@ -14,13 +14,14 @@ class TriggerDetector:
     2. The message content matches a keyword from the configurable list.
     """
 
-    def __init__(self, keywords: list[str], bot_display_name: str = ""):
+    def __init__(self, keywords: list[str] | None = None, bot_display_name: str = ""):
         """
         Args:
             keywords: List of trigger keywords (lowercased for matching).
             bot_display_name: The bot's display name for @mention detection.
         """
-        self.keywords = [kw.lower().strip() for kw in keywords if kw.strip()]
+        kw_list = keywords if keywords is not None else []
+        self.keywords = [kw.lower().strip() for kw in kw_list if kw.strip()]
         self.bot_name = bot_display_name
 
     def is_trigger(self, content: str, is_at_mentioned: bool = False,

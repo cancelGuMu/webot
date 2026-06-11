@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from src.config import PROJECT_ROOT
 from .file_locator import VoiceFileLocator, _extract_msg_svr_id
 from .decoder import SilkDecoder, DecodeError
 from .asr import AbstractASR, ASRError, create_asr
@@ -80,9 +81,10 @@ class VoiceCache:
     def _load(self) -> None:
         try:
             if self._path.exists():
-                self._data = json.loads(
+                raw = json.loads(
                     self._path.read_text(encoding="utf-8")
                 )
+                self._data = raw if isinstance(raw, dict) else {}
                 logger.debug("VoiceCache loaded (%d entries)", len(self._data))
         except Exception:
             logger.warning("VoiceCache load failed, starting fresh")
@@ -173,7 +175,7 @@ class VoicePipeline:
         self._locator = VoiceFileLocator(data_dir)
         self._decoder = SilkDecoder()
         self._asr = create_asr(config)
-        self._cache = VoiceCache(Path("data/voice_cache.json"))
+        self._cache = VoiceCache(PROJECT_ROOT / "data" / "voice_cache.json")
         self._stats = VoiceStats()
         # Map config language to Whisper language code.
         # "zh-en" means Chinese-English mixed — pass None for auto-detect.

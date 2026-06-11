@@ -1,10 +1,7 @@
-"""WeChat backend abstraction and factory.
+"""WeChat backend abstraction.
 
-Usage:
-    from .wechat import create_wechat_backend
-
-    backend = create_wechat_backend(config, groups)
-    backend.start(message_callback)
+The factory for creating backend instances lives on Bot._create_wechat_backend()
+in src/bot.py. New backends implement AbstractWeChatBackend from .base.
 """
 
 from .base import AbstractWeChatBackend, MessageCallback

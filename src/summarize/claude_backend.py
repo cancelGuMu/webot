@@ -41,6 +41,8 @@ class ClaudeSummarizer(AbstractSummarizer):
     retry_exceptions = (
         anthropic.RateLimitError,
         anthropic.APIConnectionError,
+        anthropic.InternalServerError,
+        anthropic.OverloadedError,
     )
 
     def __init__(self, api_key: str,
@@ -157,9 +159,13 @@ class ClaudeSummarizer(AbstractSummarizer):
             else "（暂无，这是第一次整理记忆）"
         )
 
+        # 转义消息中的花括号，避免 str.format() 报 KeyError
+        escaped_memory = existing_display.replace("{", "{{").replace("}", "}}")
+        escaped_msgs = "\n".join(msg_lines).replace("{", "{{").replace("}", "}}")
+
         system_prompt = MEMORY_CONSOLE_PROMPT.format(
-            existing_memory=existing_display,
-            new_messages="\n".join(msg_lines),
+            existing_memory=escaped_memory,
+            new_messages=escaped_msgs,
         )
 
         def call():

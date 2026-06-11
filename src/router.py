@@ -203,7 +203,7 @@ class MessageRouter:
             if reply is None and clean_content.strip() in ("帮助", "help", "命令"):
                 reply = self._admin.handle(clean_content, msg["sender_name"])
 
-            elif self._config.fun_enabled and clean_content.strip() == "抽签":
+            if self._config.fun_enabled and clean_content.strip() == "抽签":
                 from .fun import draw_lots
                 reply = draw_lots(msg["sender_name"])
 
@@ -233,6 +233,12 @@ class MessageRouter:
                     )
                     if result is not None:
                         reply = format_todo_reply(result, msg["sender_name"])
+                    # 触发自动清理
+                    self._todo_store.cleanup(
+                        msg["chat_id"],
+                        self._config.todo_completed_retention_days,
+                        self._config.todo_deleted_retention_days,
+                    )
                 except Exception:
                     logger.exception("Todo command failed")
 
@@ -533,6 +539,7 @@ class MessageRouter:
             return None
 
         if not ai_reply:
+            self._proactive.record_eval(msg["chat_id"])
             self._proactive.record_silence(msg["chat_id"])
             consecutive = self._proactive.get_consecutive_silence(msg["chat_id"])
             log_level = logging.WARNING if consecutive >= 3 else logging.INFO

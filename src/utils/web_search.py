@@ -9,15 +9,13 @@ Design notes for users behind the GFW (Great Firewall):
   - ddgs tries engines sequentially in batches; a single slow batch can
     cascade into 15+ seconds of wasted time.
   - We wrap the entire search in a ThreadPoolExecutor with a hard timeout
-    (default 3s) to prevent the chat pipeline from blocking.
-  - The ``timelimit`` parameter is a DATE FILTER (d/w/m/y), never a
-    timeout — passing a float causes TypeError/KeyError in some engines.
+    (default 5s) to prevent the chat pipeline from blocking.
+  - The ``timelimit`` parameter to ddgs.text() is a DATE FILTER (d/w/m/y) —
+    DO NOT pass a float here; pass timeout to the DDGS() constructor instead.
 """
 
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
-from concurrent.futures import TimeoutError as _FuturesTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +82,10 @@ def search_web(query: str, max_results: int = 3, timeout: float = 5.0) -> str:
     safe_query = _redact_pii(query.strip())
 
     try:
-        with DDGS() as ddgs:
+        with DDGS(timeout=timeout) as ddgs:
             results = list(ddgs.text(
                 safe_query,
                 max_results=max_results,
-                timelimit=timeout,
             ))
     except Exception as e:
         logger.info("Web search failed for '%s': %s", safe_query[:30], e)

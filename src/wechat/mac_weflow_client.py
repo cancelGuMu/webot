@@ -602,7 +602,7 @@ class _WCDBSQLiteReader:
             for rel, value in raw.items():
                 key = value.get("enc_key", "") if isinstance(value, dict) else value
                 key = str(key or "").strip().lower()
-                if len(key) == HEX_KEY_LEN and all(ch in "0123456789abcdef" for ch in key):
+                if len(key) == HEX_KEY_LEN and all(ch in "0123456789abcdefABCDEF" for ch in key):
                     out[str(rel).replace("\\", "/").strip("/")] = key
         self._keys = out
         return out

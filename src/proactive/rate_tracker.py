@@ -6,7 +6,7 @@ Lost on restart — the bot simply takes a few minutes to wake up again.
 """
 
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 
 
 class RateTracker:
@@ -24,7 +24,7 @@ class RateTracker:
         """
         self._window = window_sec
         # chat_id → list of Unix timestamps (float)
-        self._buckets: dict[str, list[float]] = defaultdict(list)
+        self._buckets: dict[str, list[float]] = defaultdict(lambda: deque())
         self._call_count: int = 0
 
     def record(self, chat_id: str) -> None:
@@ -38,7 +38,7 @@ class RateTracker:
         empty: list[str] = []
         for chat_id, timestamps in self._buckets.items():
             while timestamps and timestamps[0] < cutoff:
-                timestamps.pop(0)
+                timestamps.popleft()
             if not timestamps:
                 empty.append(chat_id)
         for chat_id in empty:

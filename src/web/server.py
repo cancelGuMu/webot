@@ -122,6 +122,15 @@ def _bool_env(raw: str, default: bool = False) -> bool:
     return raw.strip().lower() == "true"
 
 
+def _mask_key(value: str) -> str:
+    """Mask a sensitive key: show first 4 + last 4 chars, or '***' if too short."""
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "***"
+    return value[:4] + "***" + value[-4:]
+
+
 def _int_env(raw: str, default: int) -> int:
     try:
         return int(raw)
@@ -137,7 +146,7 @@ def _feishu_config_from_raw(raw: dict[str, str]) -> dict:
             False,
         ),
         "feishu_app_id": raw.get("FEISHU_APP_ID", ""),
-        "feishu_app_secret": raw.get("FEISHU_APP_SECRET", ""),
+        "feishu_app_secret": _mask_key(raw.get("FEISHU_APP_SECRET", "")),
         "feishu_export_mode": raw.get("FEISHU_EXPORT_MODE", "knowledge"),
         "feishu_export_window_hours": _int_env(
             raw.get("FEISHU_EXPORT_WINDOW_HOURS", "8"),
@@ -200,7 +209,7 @@ def _todo_config_from_raw(raw: dict[str, str]) -> dict:
 def _todo_updates_from_config(config: dict) -> dict[str, str | None]:
     """Convert todo config dict to .env lines."""
     return {
-        "TODO_ENABLED": _str_bool(config.get("todo_enabled", True)),
+        "TODO_ENABLED": str(config.get("todo_enabled", True)).lower(),
         "TODO_GROUPS": ",".join(config.get("todo_groups", ["*"])) if config.get("todo_groups") else "*",
         "TODO_MAX_PER_GROUP": str(config.get("todo_max_per_group", 50)),
         "TODO_COMPLETED_RETENTION_DAYS": str(config.get("todo_completed_retention_days", 30)),
@@ -847,7 +856,6 @@ def _stop_bot():
     if stopped:
         logger.info("Bot stopped via web API")
     return stopped
-    return False
 
 
 def _start_bot_in_thread():
@@ -1004,6 +1012,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                          "/api/onboarding/step3", "/api/onboarding/step4",
                          "/api/sandbox/test",
                          "/api/lots",
+                         "/api/todos/action",
                          "/api/voice/download-model"):
             self.do_GET()
         else:
@@ -1075,10 +1084,10 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         raw[k.strip()] = v.strip()
             config_data = {
                 "ai_backend": raw.get("AI_BACKEND", "deepseek"),
-                "deepseek_api_key": raw.get("DEEPSEEK_API_KEY", ""),
+                "deepseek_api_key": _mask_key(raw.get("DEEPSEEK_API_KEY", "")),
                 "deepseek_base_url": raw.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
                 "deepseek_model": raw.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
-                "anthropic_api_key": raw.get("ANTHROPIC_API_KEY", ""),
+                "anthropic_api_key": _mask_key(raw.get("ANTHROPIC_API_KEY", "")),
                 "anthropic_base_url": raw.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
                 "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
                 "bot_display_name": raw.get("BOT_DISPLAY_NAME", ""),
@@ -1105,7 +1114,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 "voice_asr_enabled": raw.get("VOICE_ASR_ENABLED", "false").lower() == "true",
                 "voice_asr_backend": raw.get("VOICE_ASR_BACKEND", "local_whisper"),
                 "voice_asr_language": raw.get("VOICE_ASR_LANGUAGE", "zh"),
-                "voice_openai_api_key": raw.get("VOICE_OPENAI_API_KEY", ""),
+                "voice_openai_api_key": _mask_key(raw.get("VOICE_OPENAI_API_KEY", "")),
                 "voice_openai_base_url": raw.get("VOICE_OPENAI_BASE_URL", ""),
                 "voice_local_model": raw.get("VOICE_LOCAL_MODEL", "small"),
             }
@@ -1132,10 +1141,10 @@ class _UIHandler(SimpleHTTPRequestHandler):
                             raw[k.strip()] = v.strip()
                 export_data = {
                     "ai_backend": raw.get("AI_BACKEND", "deepseek"),
-                    "deepseek_api_key": raw.get("DEEPSEEK_API_KEY", ""),
+                    "deepseek_api_key": _mask_key(raw.get("DEEPSEEK_API_KEY", "")),
                     "deepseek_base_url": raw.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
                     "deepseek_model": raw.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
-                    "anthropic_api_key": raw.get("ANTHROPIC_API_KEY", ""),
+                    "anthropic_api_key": _mask_key(raw.get("ANTHROPIC_API_KEY", "")),
                     "anthropic_base_url": raw.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
                     "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
                     "bot_display_name": raw.get("BOT_DISPLAY_NAME", ""),
@@ -1436,7 +1445,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
             from urllib.parse import urlparse, parse_qs
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
-            if not parsed.path.startswith("/api/nicknames") or parsed.path != "/api/nicknames":
+            if parsed.path != "/api/nicknames":
                 self.send_json({"ok": False, "error": "not found"})
                 return
             try:

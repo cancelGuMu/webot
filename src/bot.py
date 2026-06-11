@@ -269,7 +269,7 @@ class Bot:
         )
         self._health.start()
 
-        # ── 6. Signal handling ──────────────────────────────────
+        # ── 7. Signal handling ──────────────────────────────────
         def shutdown(signum, frame):
             logger.info("Received signal %d. Shutting down...", signum)
             backend.stop()
@@ -283,7 +283,7 @@ class Bot:
             # Running in a thread — signals not available
             pass
 
-        # ── 7. Start listening (blocks) ─────────────────────────
+        # ── 8. Start listening (blocks) ─────────────────────────
         #
         # DESIGN NOTE — fire-and-forget callback execution:
         #   WcdbBackend uses a ThreadPoolExecutor (max_workers=4) to
@@ -308,6 +308,8 @@ class Bot:
                 self._health.stop()
             if self._conn is not None:
                 self._conn.close()
+            if hasattr(self, 'backend') and hasattr(self.backend, 'router'):
+                pass  # router cleanup handled by backend shutdown
             try:
                 self._update_status(running=False)
             except Exception:

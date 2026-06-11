@@ -88,6 +88,8 @@ class WcdbBackend(AbstractWeChatBackend):
             self._client.open()
             logger.info("WCDB database opened successfully")
         except Exception as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
             logger.error("Failed to initialize WCDB: %s", e)
             # Push error to Web UI so the user sees a recovery path
             try:
@@ -111,12 +113,6 @@ class WcdbBackend(AbstractWeChatBackend):
         else:
             logger.warning("WeChat window not found — will retry on first send")
 
-        self._running = True
-        consecutive_errors = 0
-
-        # Main poll loop with fire-and-forget callback execution.
-        # AI-triggering callbacks (summarize, chat) are submitted to a thread
-        # pool so a slow reply in one group never blocks polling of others.
         self._pool = concurrent.futures.ThreadPoolExecutor(
             max_workers=4, thread_name_prefix="bot-cb-",
         )

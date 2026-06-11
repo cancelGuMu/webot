@@ -345,16 +345,8 @@ def _validate_config(kwargs: dict) -> None:
             + ", ".join(f"{n}={v}" for n, v in zip(rate_names, rate_values))
         )
 
-    # max_retries (if present in config)
-    max_retries = kwargs.get("max_retries")
-    if max_retries is not None:
-        if not (1 <= max_retries <= 10):
-            errors.append(
-                f"MAX_RETRIES must be between 1 and 10, got {max_retries}"
-            )
-
     # feishu_export_mode
-    feishu_export_mode = kwargs.get("feishu_export_mode", "spreadsheet")
+    feishu_export_mode = kwargs.get("feishu_export_mode", "knowledge")
     if feishu_export_mode not in ("knowledge", "spreadsheet", "bitable", "docx"):
         errors.append(
             "FEISHU_EXPORT_MODE must be one of knowledge, spreadsheet, bitable, docx, "

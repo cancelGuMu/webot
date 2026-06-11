@@ -112,7 +112,7 @@ class SilkDecoder:
 
     def _decode_amr(self, amr_path: Path) -> Path:
         """Decode .amr → .wav via ffmpeg subprocess."""
-        wav_path = Path(tempfile.mktemp(suffix=".wav"))
+        wav_path = Path(tempfile.mkstemp(suffix=".wav")[1])
         try:
             subprocess.run(
                 [
@@ -142,7 +142,7 @@ class SilkDecoder:
     def _pcm_to_wav(pcm_data: bytes, sample_rate: int,
                     channels: int = 1, bits_per_sample: int = 16) -> Path:
         """Wrap raw PCM bytes in a WAV container → temporary file."""
-        wav_path = Path(tempfile.mktemp(suffix=".wav"))
+        wav_path = Path(tempfile.mkstemp(suffix=".wav")[1])
         with wave.open(str(wav_path), "wb") as wf:
             wf.setnchannels(channels)
             wf.setsampwidth(bits_per_sample // 8)

@@ -42,6 +42,12 @@ _NONTEXT_PLACEHOLDERS: dict[str, str] = {
     "app_share": "[链接]",
 }
 
+# 硬编码反向映射（避免每次调用时重建，且消除 str→int 多对一的歧义）
+_REVERSE_MSG_TYPE: dict[int, str] = {
+    1: "text", 3: "image", 34: "voice", 47: "emoji",
+    43: "video", 49: "file", 10000: "system",
+}
+
 
 def normalize_msg_type(raw_type: Any) -> int:
     """Convert a backend-specific message type to our standard integer code.
@@ -66,11 +72,7 @@ def format_nontext_content(raw_type: Any) -> str:
     if isinstance(raw_type, str):
         return _NONTEXT_PLACEHOLDERS.get(raw_type, f"[{raw_type}]")
     if isinstance(raw_type, int):
-        reverse: dict[int, str] = {
-            v: k for k, v in MSG_TYPE_MAP.items()
-            if isinstance(k, str)
-        }
-        key = reverse.get(raw_type, "")
+        key = _REVERSE_MSG_TYPE.get(raw_type, "")
         return _NONTEXT_PLACEHOLDERS.get(key, f"[消息类型:{raw_type}]")
     return "[未知消息]"
 

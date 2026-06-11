@@ -5,6 +5,7 @@ Thresholds are loaded from BotConfig and can be calibrated via .env
 or by running:  python tools/analyze_chat_rhythm.py
 """
 
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -145,13 +146,16 @@ def build_modes(config: "BotConfig") -> list[ProactiveMode]:
 
 # Module-level cache — built once on first access
 _MODES: list[ProactiveMode] | None = None
+_MODES_LOCK = threading.Lock()
 
 
 def get_modes(config: "BotConfig") -> list[ProactiveMode]:
     """Return the mode list, building from config on first call."""
     global _MODES
     if _MODES is None:
-        _MODES = build_modes(config)
+        with _MODES_LOCK:
+            if _MODES is None:
+                _MODES = build_modes(config)
     return _MODES
 
 

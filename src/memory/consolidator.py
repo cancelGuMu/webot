@@ -71,10 +71,9 @@ class MemoryConsolidator:
         new_count = self._store.get_new_message_count(chat_id, last_id)
 
         # Trigger check
-        time_ok = (
-            last_consolidated is not None
-            and (time.time() - last_consolidated) >= CONSOLIDATE_TIME_THRESHOLD_SEC
-        )
+        # 首次合并使用 Unix epoch 作为虚拟基点，使时间阈值自然生效
+        effective_last = last_consolidated if last_consolidated is not None else 0
+        time_ok = (time.time() - effective_last) >= CONSOLIDATE_TIME_THRESHOLD_SEC
         msg_ok = new_count >= CONSOLIDATE_MSG_THRESHOLD
 
         if not time_ok and not msg_ok:

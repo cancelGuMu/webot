@@ -13,7 +13,6 @@ import sys
 import threading
 import time
 import webbrowser
-import traceback
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -39,6 +38,7 @@ def _write_crash_log(exc_info: str) -> None:
 
 def start_bot():
     """Start bot in background thread (signal-safe)."""
+    import traceback
     sys.path.insert(0, str(PROJECT_ROOT))
 
     from src.web.server import (

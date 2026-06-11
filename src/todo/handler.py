@@ -142,7 +142,7 @@ def format_todo_reply(result: TodoResult, sender_name: str = "") -> str:
     if not result.ok:
         return result.reply
 
-    if result.items is not None and len(result.items) >= 0:
+    if result.items:
         return _format_list(result, sender_name)
 
     return result.reply

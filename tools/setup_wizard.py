@@ -18,7 +18,7 @@ import os
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def find_wechat_db_path() -> str | None:
@@ -215,7 +215,7 @@ def main():
     print("=" * 50)
     print()
     print("  现在可以直接运行:")
-    print("    python launcher.py")
+    print("    python desktop.py")
     print("  或双击 start.bat")
     print()
     print("  WCDB Bridge 会自动启动，零人工操作。")

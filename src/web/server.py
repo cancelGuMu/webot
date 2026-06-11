@@ -1542,7 +1542,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
             return
 
         # ── API: Todo management ───────────────────────────────────────
-        if self.path == "/api/todos":
+        if self.path == "/api/todos" or self.path.startswith("/api/todos?"):
             params = {}
             if "?" in self.path:
                 from urllib.parse import urlparse, parse_qs

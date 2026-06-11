@@ -4,6 +4,8 @@
 
 每次对代码的修改完成后，必须执行 `git add` 和 `git commit`，写清楚改动内容和原因。
 
+**只提交到本地，不推送到远端。** 只有用户明确要求时才执行 `git push`。
+
 ```bash
 git add -A
 git commit -m "<描述做了什么，为什么>"

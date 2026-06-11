@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { MagnifyingGlass, CheckCircle, Trash, ArrowUUpLeft, X, ListChecks, FloppyDisk, Info, Warning } from '@phosphor-icons/react'
 import { Toggle, Input, Field } from './SharedComponents'
@@ -28,16 +28,21 @@ function ParamRow({ label, hint, children }) {
 }
 
 function KeywordChips({ keywords, update, minItems = 1 }) {
-  const inputRef = useRef(null)
+  const [inputValue, setInputValue] = useState('')
 
   function addKeyword() {
-    const input = inputRef.current
-    if (!input) return
-    const val = input.value.trim()
+    const val = inputValue.trim()
     if (val && !keywords.includes(val)) {
       update([...keywords, val])
-      input.value = ''
+      setInputValue('')
     }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key !== 'Enter') return
+    if (e.nativeEvent.isComposing) return  // 中文输入法组合输入中，跳过
+    e.preventDefault()
+    addKeyword()
   }
 
   return (
@@ -53,9 +58,10 @@ function KeywordChips({ keywords, update, minItems = 1 }) {
         ))}
       </div>
       <div className="flex gap-2">
-        <input type="text" ref={inputRef} placeholder="输入新触发词，回车添加"
+        <input type="text" value={inputValue} onChange={e => setInputValue(e.target.value)}
+          placeholder="输入新触发词，回车添加"
           className="flex-1 bg-bg-raised border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all"
-          onKeyUp={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword() } }} />
+          onKeyDown={handleKeyDown} />
         <button type="button" onClick={addKeyword}
           className="px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer">添加</button>
       </div>

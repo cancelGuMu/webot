@@ -1,151 +1,143 @@
 # webot
 
-> 微信群聊 AI 助手 —— 直读微信加密数据库 + 键盘模拟发送，支持 Windows 微信 4.x。
+> 微信群的 AI 助手 —— 帮你总结聊天、管理待办、回答问题，像多了一个会做笔记的群友。
 
 <p align="center">
-  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue?style=flat-square&logo=windows" alt="Platform" />
-  <img src="https://img.shields.io/badge/python-3.10%2B-green?style=flat-square&logo=python" alt="Python" />
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11%20%7C%20macOS-blue?style=flat-square&logo=windows" alt="Platform" />
+  <img src="https://img.shields.io/badge/python-3.13%2B-green?style=flat-square&logo=python" alt="Python" />
   <img src="https://img.shields.io/badge/AI-Claude%20%7C%20DeepSeek-purple?style=flat-square" alt="AI Backend" />
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="License" />
-  <img src="https://img.shields.io/badge/ui-React%20%2B%20Tailwind-cyan?style=flat-square&logo=react" alt="UI" />
-  <img src="https://img.shields.io/badge/tests-241%20passed-success?style=flat-square" alt="Tests" />
 </p>
 
-> ## ⚠️ 使用声明
+> ## 使用声明
 > 
-> **本项目仅供学习交流和个人娱乐使用。**
-> 
-> 严禁将本项目用于任何违法违规行为，包括但不限于：发送垃圾信息、骚扰他人、诈骗钓鱼、传播虚假信息、侵犯他人隐私、干扰网络秩序等。
-> 
-> 使用者应遵守所在地法律法规及微信用户协议，**自行承担使用本项目的一切后果与风险**。项目作者不对任何滥用行为负责。
+> 本项目仅供学习交流使用。严禁用于发送垃圾信息、骚扰他人、诈骗钓鱼等违法违规行为。使用者自行承担一切后果与风险。
 
 ---
 
 ## 它是什么
 
-webot 是一个运行在 Windows 上的微信群聊机器人。把它加入你的群聊，它会：
+把 webot 加入你的微信群，它会：
 
-- **帮你总结错过的消息** —— 对群里说一句「总结一下」，立刻告诉你前面聊了什么，按话题分类、附关键人物和时间线。
-- **回应你的提问** —— **@机器人** 问任何问题，它会结合群聊上下文和联网搜索来回答。
-- **自然参与群聊** —— 感知聊天节奏，在合适的时候自动插话、接梗、吐槽，像个普通群友。
+- **总结聊天记录**：说一句「总结一下」，立刻告诉你在忙的时候群里聊了什么。
+- **管理待办事项**：@机器人 说「记一下 周五聚餐」，全群共享的待办清单就多了一条。完成了就「搞定」它，不想看了就「删掉」。
+- **回答你的问题**：@机器人 问任何问题，它会结合群聊上下文回答你。
+- **偶尔自己冒泡**：群聊热闹的时候，它也会插话接梗，像个普通群友。
 
-内置 **Web 仪表盘**（React + Tailwind CSS），实时查看运行状态、处理消息量、AI 延迟。内置暗色/亮色双主题，配置导入导出。可打包为单个 EXE，双击即用。
-
----
-
-## 功能一览
-
-### 智能总结
-
-发送以下关键词即可触发总结：`总结一下`、`前面说了什么`、`聊天总结`、`说了啥`、`发生了什么`、`summarize` 等（可在仪表盘自定义）。
-
-机器人会自动找到你上一条消息的位置，把之后所有群聊内容交给 AI，生成一份结构化摘要：谁说了什么、讨论了哪些话题、有什么决定和趣事。
-
-对话特别长（999+ 条消息）时，会自动分块处理，不会超出 AI 的上下文限制。支持在仪表盘一键开关总结功能、调整回溯时长（1-72 小时）、增删触发关键词。
-
-### AI 对话
-
-在群里 **@机器人 + 你的问题**，即可获得 AI 回复。机器人会：
-
-- 自动附上最近 10 分钟的群聊记录作为上下文，让回答更贴合当前话题。
-- 支持 **Claude** 和 **DeepSeek** 两种 AI 后端，随时切换。
-- **自定义 API 地址**：DeepSeek 和 Claude 都支持配置 Base URL，可使用代理、第三方 API 或私有部署。
-
-### 提示词沙箱
-
-内置 Prompt Sandbox，无需在真实群里发消息即可测试 AI 回复效果。支持自定义模拟发送人、群聊名称、长期群聊记忆，所见即所得的测试 AI 的表现和延迟。
-
-### 主动发言（可开关）
-
-开启后，机器人会根据群聊消息速率自动判断氛围，在合适的时候插话：
-
-| 模式 | 触发条件（条/分钟） | 行为 |
-|------|---------------------|------|
-| 😴 沉睡 | < 1.5 | 完全沉默 |
-| 🌙 冷清 | 1.5 ~ 4.0 | 偶尔参与，保持克制 |
-| 💬 闲聊 | 4.0 ~ 6.5 | 正常聊天节奏 |
-| 🔥 热闹 | 6.5 ~ 8.5 | 活跃参与 |
-| 💥 炸了 | > 8.5 | 高频插话，极短回复 |
-
-AI 连续多次判断"不应该插话"时，会自动延长沉默时间（最高 16 倍），避免浪费 API 调用。遇到群友讨论重大负面事件（疾病、事故、吵架等），机器人会主动保持沉默。
-
-### 长期记忆
-
-机器人会自动记录群聊中的重要信息，形成对群的"印象日记"：群友的特点习惯、群里的固定梗、聊天氛围等。越聊越懂这个群。
-
-### 粘性提及
-
-发了 `@机器人` 但忘了打字？没关系，60 秒内发的下一条消息会自动当作 @了机器人。
-
-### 昵称系统
-
-群友的微信号（wxid_xxx）自动替换为显示名。你也可以手动给群友设昵称（见下方管理命令）。群名也会自动持久化，下拉框显示人类可读的群名称（如「摸鱼群」）而非 chat_id。
-
-### 趣味功能
-
-对机器人说「**抽签**」，随机抽取一支运势签（大吉~凶，5 档加权），附带幽默解读。
-
-### 配置备份与导入
-
-仪表盘支持一键导出当前配置为 JSON 文件，也可以通过上传 JSON 备份恢复配置。方便迁移、分享配置、多环境切换。
-
-### 飞书知识库沉淀
-
-在「系统配置 → 飞书同步」中填入企业自建应用的 App ID / App Secret 后，机器人可以自动创建一个「webot 群聊沉淀」多维表格，并维护「群聊摘要」「待办」「需求」「日常记录」四张数据表。群里手动说 `@机器人 同步到飞书` 可立即沉淀最近窗口消息；开启自动沉淀后，窗口内消息数达到阈值时会无感写入飞书，不需要手动准备 app_token 或 table_id。
-
-### Web 仪表盘
-
-机器人启动后自动打开 `http://127.0.0.1:7327`，包含五大模块：
-
-- **Dashboard 运行看板**：实时指标卡片（已处理消息、运行时长、API 延迟）、SVG 动态波形图、一键诊断（Python 环境 / 依赖 / 微信进程 / DLL 文件 / 数据库连接）
-- **系统配置**：在线修改 AI 后端、API Key、机器人身份、功能开关、触发关键词等
-- **提示词沙箱**：模拟群聊场景测试 AI 回复，支持自定义上下文变量
-- **群友昵称**：管理群友的显示名称映射
-- **运行日志**：实时查看、按级别筛选（DEBUG/INFO/WARNING/ERROR）、关键词搜索高亮
+所有操作都在一个网页控制台里完成，双击 EXE 就能用。
 
 ---
 
-## 支持的微信版本
+## 能做什么
 
-- **Windows**：微信 4.x（DRM 补丁偏移 `0x6e1f6`，微信更新后可能失效）
-- **macOS**：实验性支持（`mac_hybrid` / `mac_ui`，WeFlow WCDB 直读 + 辅助功能发送）
+### 1. 群聊待办
 
-微信版本更新后，DRM 补丁偏移可能变化。如遇数据库无法打开，可通过环境变量覆盖：
+@机器人 说句话就能新建一条待办，全群都能看到。每个群独立管理，互不影响。
 
-```env
-WCDB_PATCH_RVA=0x6e1f6    # 16 进制，补丁地址的相对虚拟地址
-WCDB_PATCH_BYTE=0x02      # 16 进制，补丁前该位置的期望字节值
-```
+**怎么用**
+
+群里直接 @机器人 说：
+- `记一下 周五聚餐` —— 添加一条待办
+- `查看待办` —— 看看还有哪些没做
+- `搞定 3` —— 把第 3 项标记完成
+- `删掉 2` —— 把第 2 项放进回收站
+- `恢复待办 1` —— 从回收站捞回来（仅群管理员）
+
+打开控制台的「群聊待办」页面，可以：
+- 开关这个功能、选择哪些群启用
+- 修改触发词（比如把「记一下」改成「备忘」）
+- 设置每个群最多存多少条、多久后自动清理
+- 查看所有群的待办列表，搜索、筛选、操作
+
+### 2. 聊天总结
+
+忙了几个小时没看群？直接说一句「总结一下」，机器人把刚才的聊天整理好发给你：谁说了什么、讨论了什么话题。
+
+**怎么用**
+
+群里直接说 `总结一下` 就行。也可以说 `前面说了什么`、`发生了什么`、`summarize`。触发词可以在控制台自定义。
+
+控制台里可以调整：总结往前看多久（默认 8 小时）、用哪些词触发。
+
+### 3. 对话问答
+
+@机器人 然后问问题，它会结合最近的群聊内容来回答，而不是凭空瞎猜。
+
+**怎么用**
+
+- `@机器人 DeepSeek 和 Claude 哪个好？`
+- `@机器人 刚才他们说的那个餐厅地址是什么？`
+
+### 4. 群友昵称
+
+群里的人默认显示的是微信号（wxid 开头的一串），很难认。控制台的「群友昵称」页面列出了每个群的全部成员，你可以给每个人取一个容易认的名字。
+
+**怎么用**
+
+打开控制台 → 群友昵称 → 选择群聊 → 在对应的人旁边填上你想叫的名字。
+
+也可以在群里直接发送命令（仅管理员）：`@机器人 改名 wxid_xxx = 张三`
+
+### 5. 趣味抽签
+
+群里说「抽签」，机器人随机抽一支运势签（大吉到凶），配一句吐槽。
+
+**怎么用**
+
+群里直接说 `抽签`。签文内容、等级、概率、emoji 都可以在控制台的「功能开关 → 趣味抽签」里自定义。
+
+### 6. 主动发言
+
+不用 @它，群聊热闹到一定程度时，机器人会自己插话。
+
+**怎么用**
+
+在控制台的「功能开关 → 主动发言」里打开。可以调整它在多热闹的群里才开口（安静时闭嘴，热闹时活跃）。
+
+### 7. 欢迎新人
+
+有人刚进群，机器人会自动发一条欢迎消息。
+
+**怎么用**
+
+在控制台的「功能开关 → 欢迎新人」里打开。可以写多条欢迎词模板，不同的群用不同的模板。
+
+### 8. 飞书沉淀
+
+把群聊里的讨论自动整理到飞书表格里，按摘要、待办、需求、日常记录分类存好。
+
+**怎么用**
+
+在控制台的「功能开关 → 飞书同步」里填入飞书应用的 App ID 和 App Secret，开启后群聊内容会自动同步。也可以手动在群里说 `同步到飞书` 立即沉淀。
 
 ---
 
-## 快速开始
+## 控制台一览
 
-### 前提
+打开 EXE 后会自动弹出网页控制台，左侧菜单依次是：
 
-- **Windows 10 或 11**
-- **微信桌面版** 已登录
-- **希望机器人监控的群聊需手动添加到通讯录**：打开群聊 → 点击右上角 `···` → 开启「添加到通讯录」。未添加的群聊无法通过搜索名称进入，机器人将无法回复
-- Python 3.10+（仅源码运行需要，用 EXE 则不需要）
+- **运行状态**：看机器人在不在线、处理了多少消息
+- **系统配置**：设置 AI 后端和 Key、机器人名字、数据目录、测试提示词
+- **功能开关**：各项功能的开关和参数调整
+- **群聊待办**：待办功能配置 + 所有群的待办列表
+- **群友昵称**：给群成员取别名
+- **运行日志**：查看机器人运行记录
 
-### 方式一：下载 EXE（推荐）
+所有配置改完后点「保存配置」，重启机器人就生效。
 
-从 [Releases](https://github.com/cancelGuMu/webot/releases) 下载 `webot.exe`，双击运行。
+---
 
-首次运行弹出配置向导，按提示完成四步即可开始使用：密钥提取 → 机器人身份 → AI 后端 → 功能开关。
+## 安装
 
-### 方式二：从源码运行
+### Windows（推荐）
 
-Windows：
+1. 从 [Releases](https://github.com/cancelGuMu/webot/releases) 下载 `webot-setup.exe`，双击安装
+2. 或者下载 `webot.exe`，免安装直接双击运行
+3. 首次打开会弹出配置向导，跟着走完就行
 
-```bash
-git clone https://github.com/cancelGuMu/webot.git
-cd webot
-pip install -r requirements.txt
-python desktop.py
-```
+前提：电脑上已登录微信，想让机器人进的群需要先添加到通讯录（群聊右上角 `···` → 开启「添加到通讯录」）。
 
-macOS 实验版：
+### macOS（实验）
 
 ```bash
 git clone https://github.com/cancelGuMu/webot.git
@@ -157,302 +149,47 @@ cd ui && npm install && npm run build && cd ..
 python desktop_mac.py
 ```
 
-macOS 路径会使用独立的 `.env.macos`，默认设置 `WECHAT_BACKEND=mac_hybrid`，不会覆盖 Windows 使用的 `.env`。`mac_hybrid` 内置 WeFlow 的 WCDB 读取链路，直接按稳定的 `@chatroom` id 读取 macOS 微信数据库，并从 `contact` 表解析群名，再通过辅助功能发送消息；`mac_ui` 仍可作为只走界面自动化的兜底模式。
+需要在系统设置中给终端授权「辅助功能」权限。
 
-macOS 读消息前需要保证当前微信账号目录中存在 `all_keys.json`：
-
-```bash
-# 1. 确认微信已登录，SIP 已关闭；首次提取 key 需要管理员权限
-python3 tools/macos_weflow_setup.py diagnose
-
-# 2. 提取当前账号的 all_keys.json（会触发 sudo 密码输入，不会打印 key 明文）
-python3 tools/macos_weflow_setup.py extract-keys
-
-# 如果 Mach 扫描没有匹配到 key，可直接走 lldb 内存扫描
-python3 tools/macos_weflow_setup.py extract-keys-lldb
-
-# 如果 lldb hex 扫描也没有 key，说明当前 WeChat 可能不保留 x'...' 形式；
-# 用 AES hook 模式，并在命令等待期间打开几个有历史消息的聊天。
-# 最稳的做法是在 WeChat 刚启动后运行该命令。
-python3 tools/macos_weflow_setup.py extract-keys-hook
-
-# 也可以让脚本重启 WeChat 后立刻挂 AES hook，并自动打开“文件传输助手”触发数据库读取；
-# 成功提取后会写入 all_keys.json。
-python3 tools/macos_weflow_setup.py extract-keys-restart-hook --yes
-
-# 如需指定触发读取的聊天，可重复传 --open-chat：
-python3 tools/macos_weflow_setup.py extract-keys-restart-hook --yes --open-chat "文件传输助手" --open-chat "群聊名"
-
-# 如果你已用 wechat-db-decrypt-macos 得到 wechat_keys.json，可导入为 all_keys.json
-python3 tools/macos_weflow_setup.py import-keys --keys-file /path/to/wechat_keys.json
-
-# 3. 再次确认 valid_key_entries > 0；open_db_files 用于判断微信是否已加载数据库
-python3 tools/macos_weflow_setup.py diagnose
-```
-
-正常启动 webot 时不需要再单独运行任何消息读取服务。源码启动
-`python desktop_mac.py` 或打包后的 `webot.app` 都会在同一个进程内加载
-`resources/wcdb/macos/universal/libWCDB.dylib` 读取本地数据库。
-
-`.env.macos` 中可显式配置：
-
-```env
-WECHAT_BACKEND=mac_hybrid
-# 如果自动检测账号目录不准，可指定到包含 db_storage 的 wxid_* 目录
-MAC_WEFLOW_DATA_DIR=/Users/you/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_xxx
-MAC_WECHAT_SEND_SHORTCUT=enter
-```
-
-首次发送消息时，需要在系统设置中给终端或 Python 授权“辅助功能”权限。
-
-如果 `extract-keys` 返回 `scan failed code=-2`，说明当前终端没有权限读取
-WeChat 进程内存。请确认 SIP 已关闭，并在命令提示时输入本机管理员密码；
-Codex/脚本不会也不能代输这个密码。
-
-如果 `diagnose` 中 `open_db_files=0`，请先打开微信里任意几个有历史记录的会话，
-再重新提取 key；WeChat 4.1.x 会 lazy-open 数据库，刚启动时内存里可能还没有
-对应 key。若 `open_db_files>0` 但 lldb hex 扫描仍为 0，可使用
-`extract-keys-hook`，它会在 AES key schedule 处捕获 raw key 候选并校验后写入
-`all_keys.json`。如果手动 hook 仍然没有 `hook_hits`，用
-`extract-keys-restart-hook --yes` 让脚本先重启 WeChat 再立刻挂 hook；不加
-`--yes` 时脚本会拒绝重启，避免误关未发送的内容。WeChat 重启或更新后，通常需要
-重新执行 key 提取。
-
-参考实现：
-[honker233/WeFlow](https://github.com/honker233/WeFlow)、
-[wechat-db-decrypt-macos](https://github.com/Thearas/wechat-db-decrypt-macos)、
-[macOS 微信自动化调研](https://blog.ax0x.ai/wechat-automation-macos)。
-
----
-
-## 配置说明
-
-所有配置在项目根目录的 `.env` 文件中设置。首次运行会自动创建模板。大部分配置也可以在仪表盘中在线修改。
-
-### 必填项
-
-```env
-# AI 后端：deepseek 或 claude
-AI_BACKEND=deepseek
-
-# DeepSeek API Key（AI_BACKEND=deepseek 时必填）
-# 免费注册获取：https://platform.deepseek.com/api_keys
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
-
-# Claude API Key（AI_BACKEND=claude 时必填）
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
-```
-
-### AI 模型选择
-
-```env
-# DeepSeek 自定义 API 地址（可选，默认官方地址）
-# 可用于 OpenAI-compatible 代理转发、第三方 API、私有部署
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-
-# DeepSeek 模型
-DEEPSEEK_MODEL=deepseek-v4-flash     # v4-flash（推荐）：极速低价
-                                      # v4-pro：1M 上下文旗舰
-
-# Claude 自定义 API 地址（可选，默认官方地址）
-# 可用于 Anthropic-compatible 代理转发、第三方 API、私有部署
-ANTHROPIC_BASE_URL=https://api.anthropic.com
-
-# Claude 模型
-SUMMARIZE_MODEL=claude-haiku-4-5-20251001  # haiku（推荐）：快速廉价
-                                           # sonnet：更高质量
-```
-
-### 机器人身份
-
-```env
-# 机器人在群里的显示名（用于 @ 检测，填你给机器人设的群昵称）
-BOT_DISPLAY_NAME=群聊小助手
-
-# 监控的群聊，逗号分隔多个群。留空或填 * = 监控所有群
-WECHAT_GROUPS=
-
-# 管理员 wxid（可执行管理命令，在聊天记录中查看发消息的人就是 wxid）
-ADMIN_WXID=
-```
-
-### 总结功能
-
-```env
-# 是否启用总结功能（true/false，也可在仪表盘一键开关）
-SUMMARIZE_ENABLED=true
-
-# 兜底总结窗口（小时），找不到请求者的上一条消息时，向前看多少小时
-FALLBACK_WINDOW_HOURS=8
-
-# 触发关键词（逗号分隔，不区分大小写，可在仪表盘在线增删）
-TRIGGER_KEYWORDS=总结一下,之前发了什么,错过了什么,summarize,what did i miss,聊天总结,帮我总结,前面说了什么,说了啥,发生了什么
-```
-
-### 功能开关
-
-```env
-# 主动发言（机器人在没人 @ 它时也会自动插话）
-PROACTIVE_ENABLED=false       # true=开启  false=关闭
-
-# 趣味抽签（@机器人说"抽签"，返回运势签文）
-FUN_ENABLED=true              # true=开启  false=关闭
-
-# 粘性提及（空 @ 后下一句话自动算 @）
-STICKY_MENTION_ENABLED=true  # true=开启  false=关闭
-```
-
-### 主动发言调参
-
-以下参数仅在 `PROACTIVE_ENABLED=true` 时生效：
-
-```env
-# 速率计算窗口（秒），用多长的时间窗口来判断群聊节奏
-PROACTIVE_RATE_WINDOW_SEC=120
-
-# 各模式的速率阈值（条/分钟），必须从小到大严格递增
-PROACTIVE_RATE_QUIET=1.5     # 超过此值 → 冷清模式
-PROACTIVE_RATE_CASUAL=4.0    # 超过此值 → 闲聊模式
-PROACTIVE_RATE_LIVELY=6.5    # 超过此值 → 热闹模式
-PROACTIVE_RATE_BURST=8.5     # 超过此值 → 炸了模式
-```
-
-不同群的聊天节奏差异很大，建议先用 `python tools/analyze_chat_rhythm.py` 分析群聊数据再调。
-
-### 性能调优
-
-```env
-# 消息轮询间隔（秒），默认 1.0。增大可降低 CPU，但消息响应会变慢
-POLL_INTERVAL_SEC=1.0
-
-# 去重窗口（秒），同一群聊两次触发之间的最小间隔
-DEDUP_WINDOW_SEC=60
-
-# 总结时最多取多少条消息（适用群聊 999+ 的场景）
-MAX_MESSAGES_FOR_SUMMARY=5000
-
-# Map-Reduce 分块大小（每条消息约 3~4 字的中文文本）
-CHUNK_SIZE=400
-```
-
-### 日志
-
-```env
-LOG_LEVEL=INFO                # DEBUG / INFO / WARNING / ERROR
-LOG_FILE=data/bot.log         # 留空则只输出到控制台
-```
-
----
-
-## 管理命令
-
-在群里发送 `@机器人 <命令>` 即可（仅 `ADMIN_WXID` 设定的管理员可用）：
-
-| 命令 | 说明 | 示例 |
-|------|------|------|
-| `改名 wxid = 昵称` | 给群友设昵称 | `改名 wxid_abc = 张三` |
-| `删除昵称 wxid` | 删除已设昵称 | `删除昵称 wxid_abc` |
-| `刷新昵称` | 重新加载昵称缓存 | |
-| `帮助` / `help` | 查看全部命令 | |
-
----
-
-## 测试
-
-项目包含完整的测试套件：
+### 从源码运行（Windows）
 
 ```bash
-# 单元测试（37 个测试用例）
-python -m pytest tests/test_trigger.py tests/test_config.py -v
-
-# 全量测试（241 个测试用例，包含 Web API）
-python -m pytest tests/ -v
-
-# E2E 功能测试（需 Playwright + Chromium）
-python tests/test_functional.py
+git clone https://github.com/cancelGuMu/webot.git
+cd webot
+pip install -r requirements.txt
+cd ui && npm install && npm run build && cd ..
+python desktop.py
 ```
 
-测试覆盖：配置加载、触发词检测、Web API 端点、WebSocket、前端浏览器自动化、消息路由、密钥提取。
+---
+
+## 配置
+
+所有设置都在控制台里直接改，不需要手动编辑文件。保存后重启机器人即可生效。
+
+必须填的只有一项：在「系统配置 → AI 后端配置」里填入 API Key（DeepSeek 或 Claude 二选一）。
 
 ---
 
 ## 常见问题
 
-<details>
-<summary><strong>首次使用需要安装什么？</strong></summary>
+**需要装什么？**
+下载 EXE 双击就行，什么都不用装。
 
-什么都不用装。下载 EXE 双击即可。所有需要的 DLL 文件已内置在程序中，密钥提取由程序自动完成。唯一前提是电脑上已登录微信。
+**会被封号吗？**
+目前没有已知案例，但请自行评估风险。
 
-</details>
+**支持哪些 AI？费用多少？**
+DeepSeek（推荐，极低价格）和 Claude。普通群一天用下来不到一毛钱。
 
-<details>
-<summary><strong>会被封号吗？</strong></summary>
+**微信能最小化吗？**
+读消息不受影响，发消息时微信窗口需要可见。
 
-webot 通过以下方式工作：
-
-1. **密钥提取**：使用 `wx_key.dll` 注入微信进程，在内存中捕获数据库解密密钥（仅首次配置时需要，之后密钥持久化到 `.env`）。
-2. **消息读取**：通过 `wcdb_api.dll` 配合 DRM 内存补丁，直接解密并读取微信本地的 `session.db`。
-3. **消息发送**：通过 Win32 `keybd_event` 键盘模拟操作微信窗口（Ctrl+F 搜索 → Ctrl+V 粘贴 → Enter 发送）。
-
-⚠️ **风险提示**：密钥提取涉及进程注入，DRM 补丁涉及绕过微信反篡改保护。这些操作属于微信用户协议中的灰色地带，理论上存在封号风险。目前尚无已知封号案例，但请自行评估。如果你的微信账号非常重要，建议谨慎使用。
-
-</details>
-
-<details>
-<summary><strong>支持哪些 AI 模型？费用如何？</strong></summary>
-
-- **DeepSeek V4 Flash**（推荐）：极速极低价，约 ¥0.001/千 tokens。普通群一天的总结费用通常不到 ¥0.10。
-- **DeepSeek V4 Pro**：1M 上下文旗舰，稍贵。
-- **Claude Haiku 4.5**：快速廉价，适合总结和简单对话。
-- **Claude Sonnet 4.6**：更高质量，适合复杂分析。
-
-切换模型只需改 `.env` 中的 `AI_BACKEND` 和对应 Model 配置，或直接在仪表盘的配置面板里修改。支持自定义 DeepSeek API 地址，可用于代理转发或私有部署。
-
-</details>
-
-<details>
-<summary><strong>微信窗口可以最小化吗？</strong></summary>
-
-消息读取不受影响。但消息发送需要微信窗口可见——发送时会自动尝试激活微信窗口。建议保持微信窗口打开状态（可以放在其他虚拟桌面）。
-
-</details>
-
-<details>
-<summary><strong>支持 macOS 吗？</strong></summary>
-
-Windows 仍是正式推荐平台。macOS 推荐实验性的 `WECHAT_BACKEND=mac_hybrid` 路径：通过内置 WeFlow WCDB 读取链路直读本地微信数据库，发送消息时再通过辅助功能操作微信窗口。它需要当前微信账号目录中存在 `all_keys.json`，不需要额外启动消息读取服务。`WECHAT_BACKEND=mac_ui` 仍保留为界面自动化兜底，但不适合稳定读取聊天消息。
-
-</details>
-
-<details>
-<summary><strong>支持多个群聊吗？</strong></summary>
-
-支持。在 `WECHAT_GROUPS` 中填入群聊名称（逗号分隔），留空或填 `*` 则自动监控所有群。
-
-</details>
-
-<details>
-<summary><strong>机器人会漏消息吗？</strong></summary>
-
-默认每秒轮询一次，每次拉取每个群最近 50 条消息，正常群聊节奏下不会漏。如果担心遗漏，可减小 `POLL_INTERVAL_SEC`。
-
-</details>
-
-<details>
-<summary><strong>如何停止机器人？</strong></summary>
-
-在仪表盘点击停止按钮，或在终端按 `Ctrl+C`。
-
-</details>
+**支持多群吗？**
+支持，默认监控所有群，也可以指定。
 
 ---
 
 ## 许可证
 
 MIT © [cancelGuMu](https://github.com/cancelGuMu)
-
----
-
-<p align="center">
-  <sub>Made with ❤️ by <a href="https://github.com/cancelGuMu">孤舟99</a></sub>
-</p>

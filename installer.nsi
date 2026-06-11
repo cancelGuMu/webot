@@ -1,4 +1,4 @@
-; webot Windows Installer
+﻿; webot Windows Installer
 ; Build: "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
 ; Output: dist/webot-setup.exe
 
@@ -10,7 +10,7 @@ Unicode true
 !define PRODUCT_NAME "webot"
 !define PRODUCT_DESC "微信 AI 群聊助手"
 !ifndef PRODUCT_VERSION
-!define PRODUCT_VERSION "1.1.0"
+!define PRODUCT_VERSION "1.2.0"
 !endif
 !define PRODUCT_PUBLISHER "cancelGuMu"
 !define PRODUCT_URL "https://github.com/cancelGuMu/webot"

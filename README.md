@@ -193,3 +193,9 @@ DeepSeek（推荐，极低价格）和 Claude。普通群一天用下来不到�
 ## 许可证
 
 MIT © [cancelGuMu](https://github.com/cancelGuMu)
+
+---
+
+<p align="center">
+  <sub>Made with ❤️ by <a href="https://github.com/cancelGuMu">孤舟99</a></sub>
+</p>

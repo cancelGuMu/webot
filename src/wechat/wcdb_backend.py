@@ -230,11 +230,6 @@ class WcdbBackend(AbstractWeChatBackend):
         """
         sessions = self._client.get_sessions()
 
-        # DEBUG: log all keys from the first session to discover available fields
-        if sessions:
-            first = sessions[0] if isinstance(sessions, list) else next(iter(sessions.values()), {})
-            logger.info("WCDB session field keys: %s", sorted(first.keys()) if isinstance(first, dict) else type(first))
-
         # Build a map of all @chatroom entries: username -> {name, member_count}
         all_chatrooms: dict[str, dict] = {}
         for s in sessions:
@@ -258,12 +253,14 @@ class WcdbBackend(AbstractWeChatBackend):
                 if not display or display == username:
                     display = username  # fallback
 
-            # Extract real group member count from WCDB session
-            member_count = int(
-                s.get("memberCount") or s.get("member_count")
-                or s.get("memberCnt") or s.get("member_cnt")
-                or 0
-            )
+            # Get real member count from group member list
+            member_count = 0
+            try:
+                members = self._client.get_group_members(username)
+                if members:
+                    member_count = len(members)
+            except Exception:
+                pass
 
             all_chatrooms[username] = {
                 "name": display,

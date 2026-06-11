@@ -415,11 +415,13 @@ export default function TodoManager() {
           <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
             className="bg-bg-card border border-border-main rounded-xl px-3 py-2.5 text-[14px] text-text-main focus:outline-none focus:border-brand-green cursor-pointer max-w-[200px] truncate">
             <option value="">全部群聊</option>
-            {groups.map(g => {
-              const info = availableGroups.find(ag => ag.chat_id === g)
-              const label = info?.group_name || g
-              return <option key={g} value={g}>{label.length > 16 ? label.slice(0, 16) + '...' : label}</option>
-            })}
+            {availableGroups.map(ag => (
+              <option key={ag.chat_id} value={ag.chat_id}>
+                {(ag.group_name || ag.chat_id).length > 16
+                  ? (ag.group_name || ag.chat_id).slice(0, 16) + '...'
+                  : (ag.group_name || ag.chat_id)}
+              </option>
+            ))}
           </select>
         </div>
 

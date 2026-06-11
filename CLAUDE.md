@@ -9,6 +9,29 @@ git add -A
 git commit -m "<描述做了什么，为什么>"
 ```
 
+## 每次修改必须重新打包
+
+前端代码或 Python 代码修改后，必须重新构建并打包 EXE，确保 `dist/webot.exe` 包含最新改动。
+
+```bash
+# 1. 构建前端（如有前端改动）
+cd ui && npm run build
+
+# 2. 打包 EXE
+pyinstaller build.spec
+
+# 3. 复制到正确位置（如 PyInstaller 输出到了 ui/dist/）
+cp ui/dist/webot.exe dist/webot.exe
+```
+
+## 修复完成后必须验证
+
+每次修复问题完成后，必须检验功能的完整性和可用性：
+
+- 打开 `dist/webot.exe` 确认程序能正常启动
+- 验证修复的功能是否按预期工作
+- 确认修复没有引入新的问题或破坏其他功能
+
 ## 项目概述
 
 webot — 微信消息总结机器人，支持 WCDB 直读数据库、AI 自动总结/聊天/主动发言。

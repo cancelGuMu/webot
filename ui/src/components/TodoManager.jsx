@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MagnifyingGlass, CheckCircle, Trash, ArrowUUpLeft, X, ListChecks, FloppyDisk, Info, Warning, Plus, CaretDown } from '@phosphor-icons/react'
-import { Toggle, Input } from './SharedComponents'
+import { MagnifyingGlass, CheckCircle, Trash, ArrowUUpLeft, X, ListChecks, FloppyDisk, Info, Warning } from '@phosphor-icons/react'
+import { Toggle, Input, Field } from './SharedComponents'
 
 const API = 'http://127.0.0.1:7327'
 
@@ -27,12 +27,9 @@ function ParamRow({ label, hint, children }) {
   )
 }
 
-// KeywordChips — each instance gets a unique sectionId to avoid DOM selector collisions
-function KeywordChips({ keywords, update, sectionId, minItems = 1 }) {
-  const inputSel = `data-todo-kw-input-${sectionId}`
-
+function KeywordChips({ keywords, update, minItems = 1 }) {
   function addKeyword() {
-    const input = document.querySelector(`[${inputSel}]`)
+    const input = document.querySelector('[data-todo-config-kw-input]')
     if (!input) return
     const val = input.value.trim()
     if (val && !keywords.includes(val)) {
@@ -54,7 +51,7 @@ function KeywordChips({ keywords, update, sectionId, minItems = 1 }) {
         ))}
       </div>
       <div className="flex gap-2">
-        <input type="text" {...{ [inputSel]: '' }} placeholder="输入新触发词，回车添加"
+        <input type="text" data-todo-config-kw-input placeholder="输入新触发词，回车添加"
           className="flex-1 bg-bg-raised border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all"
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword() } }} />
         <button type="button" onClick={addKeyword}
@@ -78,41 +75,15 @@ export default function TodoManager() {
   const [todoCompleteKeywords, setTodoCompleteKeywords] = useState(['搞定', '做完了', '完成', '完成了', 'done'])
   const [todoDeleteKeywords, setTodoDeleteKeywords] = useState(['删掉', '删除', '取消', '不要了'])
 
-  // ── Available groups (loaded from /api/nicknames/groups) ───────
-  const [availableGroups, setAvailableGroups] = useState([])
-  const [groupNamesMap, setGroupNamesMap] = useState({})  // chat_id → display_name
-
   // ── Todo management state ──────────────────────────────────────
   const [activeTab, setActiveTab] = useState('active')
   const [items, setItems] = useState([])
-  const [managementGroups, setManagementGroups] = useState([])  // groups for management dropdown
+  const [groups, setGroups] = useState([])
   const [selectedGroup, setSelectedGroup] = useState('')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionMsg, setActionMsg] = useState('')
-
-  // ── Load available groups on mount ────────────────────────────
-  useEffect(() => {
-    async function loadGroups() {
-      try {
-        const res = await fetch(`${API}/api/nicknames/groups`)
-        const data = await res.json()
-        if (data.ok && data.groups) {
-          setAvailableGroups(data.groups)
-          const map = {}
-          data.groups.forEach(g => { map[g.chat_id] = g.group_name || g.chat_id })
-          setGroupNamesMap(map)
-        }
-      } catch {}
-    }
-    loadGroups()
-  }, [])
-
-  // ── Helper: resolve chat_id to display name ───────────────────
-  const resolveGroupName = useCallback((chatId) => {
-    return groupNamesMap[chatId] || chatId
-  }, [groupNamesMap])
 
   // ── Load todo config on mount ─────────────────────────────────
   useEffect(() => {
@@ -162,25 +133,16 @@ export default function TodoManager() {
     } catch { setConfigSaveError('无法连接到服务器，请确认机器人已启动'); setTimeout(() => setConfigSaveError(''), 5000) }
   }
 
-  function addGroup(chatId) {
-    if (!chatId || todoGroups.includes(chatId)) return
-    // If '*' is selected, replace it. Otherwise append.
-    if (todoGroups.includes('*')) {
-      setTodoGroups([chatId])
-    } else {
-      setTodoGroups([...todoGroups, chatId])
+  function addGroup(value) {
+    const v = value.trim()
+    if (v && !todoGroups.includes(v)) {
+      setTodoGroups(todoGroups.includes('*') ? [v] : [...todoGroups, v])
     }
   }
-
   function removeGroup(index) {
-    const next = todoGroups.filter((_, i) => i !== index)
-    setTodoGroups(next)
+    if (todoGroups.length <= 1) return
+    setTodoGroups(todoGroups.filter((_, i) => i !== index))
   }
-
-  // Computed: available groups not yet in todoGroups
-  const selectableGroups = availableGroups.filter(
-    g => !todoGroups.includes(g.chat_id)
-  )
 
   // ── Todo management ────────────────────────────────────────────
 
@@ -196,9 +158,7 @@ export default function TodoManager() {
       const d = await res.json()
       if (d.ok) {
         setItems(d.items || [])
-        // Management dropdown groups: use the raw chat_ids from /api/todos
-        // but display them with resolved names
-        setManagementGroups(d.groups || [])
+        setGroups(d.groups || [])
       } else {
         setError(d.error || '加载失败')
       }
@@ -268,58 +228,22 @@ export default function TodoManager() {
               <div>
                 <p className="text-[14px] text-text-main font-medium">生效群聊范围</p>
                 <p className="text-xs text-text-muted mt-0.5 mb-2">选择哪些群聊启用待办功能，未选中的群不响应待办命令</p>
-
-                {/* Chip list or empty state */}
-                {todoGroups.length > 0 ? (
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {todoGroups.map((g, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green">
-                        {g === '*' ? '全部群聊' : resolveGroupName(g)}
-                        <button type="button"
-                          onClick={() => removeGroup(i)}
-                          className="ml-0.5 leading-none text-base text-brand-green-hover/60 hover:text-[#d45656] transition-colors cursor-pointer">&times;</button>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mb-3 border-2 border-dashed border-border-main rounded-xl p-5 text-center">
-                    <Plus size={20} className="mx-auto mb-2 text-text-muted/50" />
-                    <p className="text-sm text-text-muted">点击下方下拉框选择要启用的群聊</p>
-                  </div>
-                )}
-
-                {/* Group selector dropdown */}
-                <div className="relative">
-                  {selectableGroups.length > 0 ? (
-                    <div className="flex gap-2">
-                      <select
-                        value=""
-                        onChange={e => { if (e.target.value) { addGroup(e.target.value); e.target.value = '' } }}
-                        className="flex-1 bg-bg-raised border border-border-main rounded-lg px-3 py-2.5 text-[14px] text-text-main focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all cursor-pointer appearance-none"
-                      >
-                        <option value="">选择群聊...</option>
-                        {selectableGroups.map(g => (
-                          <option key={g.chat_id} value={g.chat_id}>
-                            {g.group_name || g.chat_id}
-                            {g.member_count > 0 ? ` (${g.member_count}人)` : ''}
-                          </option>
-                        ))}
-                      </select>
-                      {/* Add "全部群聊" quick action if not already selected */}
-                      {!todoGroups.includes('*') && (
-                        <button type="button" onClick={() => addGroup('*')}
-                          className="shrink-0 px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer flex items-center gap-1.5">
-                          <Plus size={14} /> 全部群聊
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-text-muted/60">
-                      {availableGroups.length === 0
-                        ? '暂无可用群聊数据，请确保机器人已启动并完成群聊扫描。'
-                        : '所有群聊已添加。'}
-                    </p>
-                  )}
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {(todoGroups || []).map((g, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green">
+                      {g === '*' ? '全部群聊' : g}
+                      <button type="button" disabled={todoGroups.length <= 1}
+                        onClick={() => removeGroup(i)}
+                        className={`ml-0.5 leading-none text-base transition-colors ${todoGroups.length <= 1 ? 'text-text-muted cursor-not-allowed' : 'text-brand-green-hover/60 hover:text-[#d45656] cursor-pointer'}`}>&times;</button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input type="text" data-todo-group-input placeholder="输入群聊名称，回车添加"
+                    className="flex-1 bg-bg-raised border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main placeholder:text-text-muted/65 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all"
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addGroup(e.target.value); e.target.value = '' } }} />
+                  <button type="button" onClick={() => { const el = document.querySelector('[data-todo-group-input]'); if (el) { addGroup(el.value); el.value = '' } }}
+                    className="px-4 py-2 bg-brand-green-light border border-brand-green/20 rounded-lg text-[13px] text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors font-medium cursor-pointer">添加</button>
                 </div>
               </div>
 
@@ -343,21 +267,21 @@ export default function TodoManager() {
               <div>
                 <p className="text-[14px] text-text-main font-medium">添加待办触发词</p>
                 <p className="text-xs text-text-muted mt-0.5 mb-2">群成员 @机器人后发送触发词 + 待办内容，即可添加</p>
-                <KeywordChips keywords={todoAddKeywords} update={setTodoAddKeywords} sectionId="add" />
+                <KeywordChips keywords={todoAddKeywords} update={setTodoAddKeywords} />
               </div>
 
               {/* 完成待办触发词 */}
               <div>
                 <p className="text-[14px] text-text-main font-medium">完成待办触发词</p>
                 <p className="text-xs text-text-muted mt-0.5 mb-2">群成员 @机器人后发送触发词 + 编号，即可标记完成</p>
-                <KeywordChips keywords={todoCompleteKeywords} update={setTodoCompleteKeywords} sectionId="complete" />
+                <KeywordChips keywords={todoCompleteKeywords} update={setTodoCompleteKeywords} />
               </div>
 
               {/* 删除待办触发词 */}
               <div>
                 <p className="text-[14px] text-text-main font-medium">删除待办触发词</p>
                 <p className="text-xs text-text-muted mt-0.5 mb-2">群成员 @机器人后发送触发词 + 编号，即可移至已删除</p>
-                <KeywordChips keywords={todoDeleteKeywords} update={setTodoDeleteKeywords} sectionId="delete" />
+                <KeywordChips keywords={todoDeleteKeywords} update={setTodoDeleteKeywords} />
               </div>
 
               {/* 使用提示 */}
@@ -433,12 +357,9 @@ export default function TodoManager() {
           <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
             className="bg-bg-card border border-border-main rounded-xl px-3 py-2.5 text-[14px] text-text-main focus:outline-none focus:border-brand-green cursor-pointer">
             <option value="">全部群聊</option>
-            {managementGroups.map(g => {
-              const displayName = resolveGroupName(g)
-              return (
-                <option key={g} value={g}>{displayName.length > 20 ? displayName.slice(0, 20) + '...' : displayName}</option>
-              )
-            })}
+            {groups.map(g => (
+              <option key={g} value={g}>{g.length > 20 ? g.slice(0, 20) + '...' : g}</option>
+            ))}
           </select>
         </div>
 
@@ -504,9 +425,7 @@ export default function TodoManager() {
                           </span>
                           {!selectedGroup && item.chat_id && (
                             <span className="text-[11px] text-text-muted/60 truncate max-w-[160px]">
-                              {resolveGroupName(item.chat_id).length > 20
-                                ? resolveGroupName(item.chat_id).slice(0, 20) + '...'
-                                : resolveGroupName(item.chat_id)}
+                              {item.chat_id.length > 20 ? item.chat_id.slice(0, 20) + '...' : item.chat_id}
                             </span>
                           )}
                         </div>

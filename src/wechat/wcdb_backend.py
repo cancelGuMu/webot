@@ -259,11 +259,8 @@ class WcdbBackend(AbstractWeChatBackend):
                 members = self._client.get_group_members(username)
                 if members:
                     member_count = len(members)
-                    logger.info("Group %s: %d members from DLL", display, member_count)
-                else:
-                    logger.warning("Group %s: get_group_members returned empty (members=%s)", display, members)
-            except Exception as e:
-                logger.warning("Group %s: get_group_members failed: %s", display, e)
+            except Exception:
+                pass
 
             all_chatrooms[username] = {
                 "name": display,

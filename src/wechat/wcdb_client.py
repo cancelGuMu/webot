@@ -298,23 +298,19 @@ class WcdbNativeClient:
         ]
         self._dll.wcdb_get_display_names.restype = ct.c_int32
 
-        self._dll.wcdb_get_contacts_compact = None
         try:
             fn = self._dll.wcdb_get_contacts_compact
             fn.argtypes = [ct.c_int64, ct.c_char_p, ct.POINTER(ct.c_void_p)]
             fn.restype = ct.c_int32
-            self._dll.wcdb_get_contacts_compact = fn
         except Exception:
-            pass
+            self._dll.wcdb_get_contacts_compact = None
 
-        self._dll.wcdb_get_group_members = None
         try:
             fn = self._dll.wcdb_get_group_members
-            fn.argtypes = [ct.c_int64, ct.c_char_p, ct.c_int32, ct.c_int32, ct.POINTER(ct.c_void_p)]
+            fn.argtypes = [ct.c_int64, ct.c_char_p, ct.POINTER(ct.c_void_p)]
             fn.restype = ct.c_int32
-            self._dll.wcdb_get_group_members = fn
         except Exception:
-            pass
+            self._dll.wcdb_get_group_members = None
 
         self._dll.wcdb_free_string.argtypes = [ct.c_void_p]
         self._dll.wcdb_free_string.restype = None
@@ -604,16 +600,14 @@ class WcdbNativeClient:
             return result.get("contacts", result.get("data", []))
         return []
 
-    def get_group_members(self, chat_id, limit=500, offset=0):
-        """Get member list for a group chat. Returns list of {wxid, display_name, ...}."""
+    def get_group_members(self, chat_id):
+        """Get member list for a group chat. Returns list of {username, avatarUrl, ...}."""
         if not self._dll.wcdb_get_group_members:
             return []
         result = self._call_json(
             self._dll.wcdb_get_group_members,
             self._handle,
             chat_id.encode("utf-8"),
-            limit,
-            offset,
         )
         if isinstance(result, list):
             return result

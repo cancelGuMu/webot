@@ -8,7 +8,7 @@ deleted their display_order is preserved so user-facing numbers stay stable.
 import logging
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 logger = logging.getLogger(__name__)

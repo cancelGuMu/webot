@@ -1551,10 +1551,10 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     params[k] = v[0] if v else ""
             status = params.get("status", "active")
             chat_id = params.get("chat_id", "")
+            search = params.get("search", "")
             try:
                 from src.todo.store import TodoStore
                 from src.config import find_env_file
-                # 从 .env 读取 DB_PATH，确保与 bot 使用相同的数据库
                 db_path = "data/messages.db"
                 env_path = find_env_file()
                 if env_path and env_path.exists():
@@ -1563,7 +1563,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                             db_path = line.strip().split("=", 1)[1].strip()
                             break
                 store = TodoStore(db_path)
-                items = store.get_all(status=status, chat_id=chat_id)
+                items = store.get_all(status=status, chat_id=chat_id, search=search)
                 groups = store.get_active_groups()
                 self.send_json({
                     "ok": True,
@@ -1587,6 +1587,32 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 })
             except Exception as e:
                 logger.exception("Failed to load todos")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: Get todo counts per status ─────────────────────────────
+        if self.path.startswith("/api/todos/counts"):
+            chat_id = ""
+            if "?" in self.path:
+                from urllib.parse import urlparse, parse_qs
+                parsed = urlparse(self.path)
+                params = {k: v[0] if v else "" for k, v in parse_qs(parsed.query).items()}
+                chat_id = params.get("chat_id", "")
+            try:
+                from src.todo.store import TodoStore
+                from src.config import find_env_file
+                db_path = "data/messages.db"
+                env_path = find_env_file()
+                if env_path and env_path.exists():
+                    for line in env_path.read_text(encoding="utf-8").splitlines():
+                        if line.strip().startswith("DB_PATH="):
+                            db_path = line.strip().split("=", 1)[1].strip()
+                            break
+                store = TodoStore(db_path)
+                counts = store.get_counts(chat_id=chat_id)
+                self.send_json({"ok": True, "counts": counts})
+            except Exception as e:
+                logger.exception("Failed to load todo counts")
                 self.send_json({"ok": False, "error": str(e)})
             return
 

@@ -93,6 +93,7 @@ export default function TodoManager() {
   const [error, setError] = useState('')
   const [actionMsg, setActionMsg] = useState('')
   const [availableGroups, setAvailableGroups] = useState([])  // {chat_id, group_name, member_count}[]
+  const [tabCounts, setTabCounts] = useState({ active: 0, completed: 0, deleted: 0 })
 
   // ── Load todo config on mount ─────────────────────────────────
   useEffect(() => {
@@ -175,14 +176,17 @@ export default function TodoManager() {
 
   // ── Todo management ────────────────────────────────────────────
 
-  useEffect(() => { loadData() }, [activeTab, selectedGroup])
+  useEffect(() => { loadData(); loadCounts() }, [activeTab, selectedGroup])
 
   async function loadData() {
     setLoading(true)
     setError('')
     try {
-      const params = new URLSearchParams({ status: activeTab })
+      // 有搜索词时跨状态查询；否则按当前 tab 查询
+      const status = search.trim() ? 'all' : activeTab
+      const params = new URLSearchParams({ status })
       if (selectedGroup) params.set('chat_id', selectedGroup)
+      if (search.trim()) params.set('search', search.trim())
       const res = await fetch(`${API}/api/todos?${params}`)
       const d = await res.json()
       if (d.ok) {
@@ -194,6 +198,23 @@ export default function TodoManager() {
     } catch { setError('无法连接到服务器，请确认机器人已启动') }
     setLoading(false)
   }
+
+  async function loadCounts() {
+    try {
+      const params = new URLSearchParams()
+      if (selectedGroup) params.set('chat_id', selectedGroup)
+      const res = await fetch(`${API}/api/todos/counts?${params}`)
+      const d = await res.json()
+      if (d.ok && d.counts) setTabCounts(d.counts)
+    } catch {}
+  }
+
+  // 搜索时用 debounce 触发跨状态查询
+  useEffect(() => {
+    if (!search.trim()) { loadData(); return }
+    const timer = setTimeout(() => loadData(), 300)
+    return () => clearTimeout(timer)
+  }, [search])
 
   async function doAction(action, chatId, target) {
     setActionMsg('')
@@ -392,11 +413,13 @@ export default function TodoManager() {
               className="w-full bg-bg-card border border-border-main rounded-xl pl-9 pr-4 py-2.5 text-[14px] text-text-main placeholder:text-text-muted/60 focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all" />
           </div>
           <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
-            className="bg-bg-card border border-border-main rounded-xl px-3 py-2.5 text-[14px] text-text-main focus:outline-none focus:border-brand-green cursor-pointer">
+            className="bg-bg-card border border-border-main rounded-xl px-3 py-2.5 text-[14px] text-text-main focus:outline-none focus:border-brand-green cursor-pointer max-w-[200px] truncate">
             <option value="">全部群聊</option>
-            {groups.map(g => (
-              <option key={g} value={g}>{g.length > 20 ? g.slice(0, 20) + '...' : g}</option>
-            ))}
+            {groups.map(g => {
+              const info = availableGroups.find(ag => ag.chat_id === g)
+              const label = info?.group_name || g
+              return <option key={g} value={g}>{label.length > 16 ? label.slice(0, 16) + '...' : label}</option>
+            })}
           </select>
         </div>
 
@@ -404,7 +427,7 @@ export default function TodoManager() {
         <div className="flex gap-1 mb-5 bg-bg-card border border-border-main rounded-xl p-1 w-fit">
           {managementTabs.map(tab => {
             const active = activeTab === tab.id
-            const count = tab.id === 'active' ? items.length : (activeTab === tab.id ? items.length : null)
+            const count = tabCounts[tab.id]
             return (
               <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSearch('') }}
                 className={`relative px-4 py-2 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${
@@ -416,11 +439,10 @@ export default function TodoManager() {
                 )}
                 <span className="relative z-10">
                   {tab.label}
-                  {count !== null && <span className="ml-1.5 text-[11px] opacity-60">({count})</span>}
+                  <span className="ml-1.5 text-[11px] opacity-60">({count != null ? count : '-'})</span>
                 </span>
               </button>
-            )
-          })}
+            )})}
         </div>
 
         {/* Content area */}
@@ -444,26 +466,48 @@ export default function TodoManager() {
                 className="text-center py-20">
                 <ListChecks size={40} className="mx-auto mb-3 text-text-muted/40" />
                 <p className="text-sm text-text-muted">
-                  {activeTab === 'active' ? '暂无待办事项。@机器人说"记一下 xxx"即可添加' :
+                  {search.trim() ? '未找到匹配的待办事项' :
+                   activeTab === 'active' ? '暂无待办事项。@机器人说"记一下 xxx"即可添加' :
                    activeTab === 'deleted' ? '暂无已删除事项' : '暂无已完成事项'}
                 </p>
               </motion.div>
             ) : (
               <motion.div key={`${activeTab}-${filtered.length}`} variants={tabTransition} initial="initial" animate="animate" exit="exit"
                 className="space-y-3">
-                {filtered.map(item => (
+                {filtered.map(item => {
+                  const isSearchResult = search.trim() && item.status !== activeTab
+                  const groupInfo = availableGroups.find(ag => ag.chat_id === item.chat_id)
+                  const groupLabel = groupInfo?.group_name || item.chat_id
+                  const statusBadge = {
+                    active:   { label: '待办', cls: 'text-brand-green-hover bg-brand-green-light border-brand-green/20' },
+                    completed:{ label: '已完成', cls: 'text-[#c37d0d] bg-[#c37d0d]/10 border-[#c37d0d]/20' },
+                    deleted:  { label: '已删除', cls: 'text-[#d45656] bg-[#d45656]/5 border-[#d45656]/20' },
+                  }[item.status] || { label: item.status, cls: 'text-text-muted bg-bg-raised border-border-main' }
+
+                  return (
                   <div key={item.id}
-                    className="bg-bg-card border border-border-main rounded-2xl shadow-sm p-5">
+                    className={`bg-bg-card border rounded-2xl shadow-sm p-5 transition-colors ${
+                      isSearchResult ? 'border-[#c37d0d]/40 bg-[#c37d0d]/[0.03] cursor-pointer hover:bg-[#c37d0d]/[0.06]' : 'border-border-main'
+                    }`}
+                    onClick={() => { if (isSearchResult) { setActiveTab(item.status); setSearch('') } }}>
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-[11px] font-mono text-text-muted bg-bg-raised border border-border-main px-2 py-0.5 rounded-full">
                             #{item.display_order}
                           </span>
+                          {item.status !== activeTab && (
+                            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${statusBadge.cls}`}>
+                              {statusBadge.label}
+                            </span>
+                          )}
                           {!selectedGroup && item.chat_id && (
                             <span className="text-[11px] text-text-muted/60 truncate max-w-[160px]">
-                              {item.chat_id.length > 20 ? item.chat_id.slice(0, 20) + '...' : item.chat_id}
+                              {groupLabel.length > 20 ? groupLabel.slice(0, 20) + '...' : groupLabel}
                             </span>
+                          )}
+                          {isSearchResult && (
+                            <span className="text-[11px] text-[#c37d0d] ml-auto">点击跳转至对应列表</span>
                           )}
                         </div>
                         <p className="text-[15px] text-text-main">{item.content}</p>
@@ -485,7 +529,7 @@ export default function TodoManager() {
 
                       {/* Action buttons */}
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {activeTab === 'active' && (
+                        {item.status === 'active' && (
                           <>
                             <button onClick={() => doAction('complete', item.chat_id, String(item.display_order))}
                               className="px-3 py-1.5 text-[12px] bg-brand-green-light border border-brand-green/20 rounded-lg text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors cursor-pointer font-medium flex items-center gap-1">
@@ -497,7 +541,7 @@ export default function TodoManager() {
                             </button>
                           </>
                         )}
-                        {activeTab === 'deleted' && (
+                        {item.status === 'deleted' && (
                           <>
                             <button onClick={() => doAction('restore', item.chat_id, String(item.display_order))}
                               className="px-3 py-1.5 text-[12px] bg-brand-green-light border border-brand-green/20 rounded-lg text-brand-green-hover dark:text-brand-green hover:bg-brand-green/10 transition-colors cursor-pointer font-medium flex items-center gap-1">
@@ -512,7 +556,7 @@ export default function TodoManager() {
                       </div>
                     </div>
                   </div>
-                ))}
+                )})}
 
                 {/* Clear all button for completed tab */}
                 {activeTab === 'completed' && filtered.length > 0 && (

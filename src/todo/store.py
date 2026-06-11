@@ -349,22 +349,49 @@ class TodoStore:
     # admin: get all todos across groups
 
     def get_all(self, status: str = "active",
-                chat_id: str = "") -> list[TodoItem]:
-        """Get todos for admin UI.  If chat_id is empty, return all groups."""
+                chat_id: str = "", search: str = "") -> list[TodoItem]:
+        """Get todos for admin UI.
+
+        status: 'active', 'completed', 'deleted', or 'all'
+        search: optional fuzzy match against todo content
+        """
+        conditions = []
+        params = []
+        if status != "all":
+            conditions.append("status=?")
+            params.append(status)
+        if chat_id:
+            conditions.append("chat_id=?")
+            params.append(chat_id)
+        if search:
+            conditions.append("content LIKE ?")
+            params.append(f"%{search}%")
+        where = " AND ".join(conditions) if conditions else "1=1"
         with sqlite3.connect(self._db_path) as conn:
-            if chat_id:
-                rows = conn.execute(
-                    "SELECT * FROM todos WHERE status=? AND chat_id=? "
-                    "ORDER BY chat_id, display_order",
-                    (status, chat_id),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM todos WHERE status=? "
-                    "ORDER BY chat_id, display_order",
-                    (status,),
-                ).fetchall()
+            rows = conn.execute(
+                f"SELECT * FROM todos WHERE {where} "
+                "ORDER BY chat_id, display_order",
+                params,
+            ).fetchall()
         return [TodoItem.from_row(r) for r in rows]
+
+    def get_counts(self, chat_id: str = "") -> dict[str, int]:
+        """Return {active: N, completed: N, deleted: N} for admin UI tabs."""
+        with sqlite3.connect(self._db_path) as conn:
+            counts = {}
+            for status in ("active", "completed", "deleted"):
+                if chat_id:
+                    row = conn.execute(
+                        "SELECT COUNT(*) FROM todos WHERE status=? AND chat_id=?",
+                        (status, chat_id),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT COUNT(*) FROM todos WHERE status=?",
+                        (status,),
+                    ).fetchone()
+                counts[status] = row[0] if row else 0
+        return counts
 
     def get_active_groups(self) -> list[str]:
         """Return distinct chat_ids that have at least one todo."""

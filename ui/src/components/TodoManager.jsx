@@ -159,7 +159,13 @@ export default function TodoManager() {
     if (todoGroups.includes('*')) {
       setTodoGroups([chatId])
     } else if (!todoGroups.includes(chatId)) {
-      setTodoGroups([...todoGroups, chatId])
+      const next = [...todoGroups, chatId]
+      // 所有群聊都已被选中 → 等同于"全部群聊"
+      if (availableGroups.length > 0 && next.length >= availableGroups.length) {
+        setTodoGroups(['*'])
+      } else {
+        setTodoGroups(next)
+      }
     }
   }
   function removeGroup(index) {

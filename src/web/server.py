@@ -1553,10 +1553,15 @@ class _UIHandler(SimpleHTTPRequestHandler):
             chat_id = params.get("chat_id", "")
             try:
                 from src.todo.store import TodoStore
-                from pathlib import Path
-                db_path = str(Path(
-                    os.environ.get("DB_PATH", "data/messages.db")
-                ))
+                from src.config import find_env_file
+                # 从 .env 读取 DB_PATH，确保与 bot 使用相同的数据库
+                db_path = "data/messages.db"
+                env_path = find_env_file()
+                if env_path and env_path.exists():
+                    for line in env_path.read_text(encoding="utf-8").splitlines():
+                        if line.strip().startswith("DB_PATH="):
+                            db_path = line.strip().split("=", 1)[1].strip()
+                            break
                 store = TodoStore(db_path)
                 items = store.get_all(status=status, chat_id=chat_id)
                 groups = store.get_active_groups()
@@ -1594,10 +1599,14 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 chat_id = data.get("chat_id", "")
                 target = data.get("target", "")
                 from src.todo.store import TodoStore
-                from pathlib import Path
-                db_path = str(Path(
-                    os.environ.get("DB_PATH", "data/messages.db")
-                ))
+                from src.config import find_env_file
+                db_path = "data/messages.db"
+                env_path = find_env_file()
+                if env_path and env_path.exists():
+                    for line in env_path.read_text(encoding="utf-8").splitlines():
+                        if line.strip().startswith("DB_PATH="):
+                            db_path = line.strip().split("=", 1)[1].strip()
+                            break
                 store = TodoStore(db_path)
                 if action == "complete":
                     result = store.complete(chat_id, target)
@@ -1613,6 +1622,8 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     self.send_json({"ok": False, "error": f"Unknown action: {action}"})
                     return
                 self.send_json({"ok": result.ok, "reply": result.reply})
+                # 触发自动清理
+                store.cleanup(chat_id)
             except Exception as e:
                 logger.exception("Todo action failed")
                 self.send_json({"ok": False, "error": str(e)})

@@ -271,15 +271,47 @@ class MessageRouter:
 
     # ── Todo helpers ────────────────────────────────────────────
 
+    _group_names_cache: dict[str, str] | None = None
+    _group_names_loaded: bool = False
+
+    def _load_group_names(self) -> dict[str, str]:
+        """Load chat_id → display_name mapping from disk (lazy + cached)."""
+        if not self._group_names_loaded:
+            self._group_names_loaded = True
+            import json
+            from pathlib import Path
+            path = Path("data/group_names.json")
+            if path.exists():
+                try:
+                    self._group_names_cache = json.loads(
+                        path.read_text(encoding="utf-8")
+                    )
+                except (json.JSONDecodeError, OSError):
+                    self._group_names_cache = {}
+        return self._group_names_cache or {}
+
     def _is_todo_group(self, chat_id: str) -> bool:
-        """Check if the given chat_id is in the todo allowed-groups list."""
+        """Check if the given chat_id is in the todo allowed-groups list.
+
+        Uses group_names.json (persisted by WcdbBackend) to match
+        configured group names against actual chat_ids and their
+        display names.
+        """
         groups = self._config.todo_groups
         if not groups or groups == ["*"]:
             return True
-        # Match by chat_id suffix (WeChat group IDs are long strings,
-        # but group names in config may be display names or wxid suffixes)
+        # Load display name mapping (chat_id → display_name)
+        name_map = self._load_group_names()
+        display_name = name_map.get(chat_id, "")
         for g in groups:
-            if g == chat_id or g in chat_id or chat_id in g:
+            g_lower = g.lower()
+            # Exact match against chat_id or display name
+            if g == chat_id or g == display_name:
+                return True
+            # Substring match against chat_id or display name
+            if g_lower in chat_id.lower():
+                return True
+            if display_name and g_lower in display_name.lower():
                 return True
         return False
 

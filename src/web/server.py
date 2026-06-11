@@ -1461,30 +1461,50 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 nicks = NicknameService()
                 overrides = nicks.load()
 
+                # ── Collect all known wxids for this group ──
+                seen: set[str] = set()
+                member_map: dict[str, str] = {}  # wxid -> best display_name
+
+                # 1) From messages table (people who have sent messages)
                 import sqlite3
                 from src.config import load_config
                 config = load_config()
                 conn = sqlite3.connect(config.db_path)
                 conn.row_factory = sqlite3.Row
-                if not _messages_table_exists(conn):
-                    conn.close()
-                    self.send_json({"ok": True, "members": []})
-                    return
-                rows = conn.execute(
-                    "SELECT DISTINCT sender_id, sender_name FROM messages WHERE chat_id=? ORDER BY sender_name",
-                    (chat_id,),
-                ).fetchall()
+                if _messages_table_exists(conn):
+                    rows = conn.execute(
+                        "SELECT DISTINCT sender_id, sender_name FROM messages WHERE chat_id=? ORDER BY sender_name",
+                        (chat_id,),
+                    ).fetchall()
+                    for row in rows:
+                        wxid = row["sender_id"]
+                        seen.add(wxid)
+                        if row["sender_name"]:
+                            member_map[wxid] = row["sender_name"]
                 conn.close()
 
-                members = []
-                for row in rows:
-                    wxid = row["sender_id"]
-                    display = row["sender_name"] or wxid
-                    members.append({
+                # 2) From group_members.json (full member list from WCDB)
+                gm_path = Path("data/group_members.json")
+                if gm_path.exists():
+                    try:
+                        group_members = json.loads(gm_path.read_text(encoding="utf-8"))
+                        chat_members = group_members.get(chat_id, {})
+                        for wxid, display_name in chat_members.items():
+                            if wxid not in seen:
+                                seen.add(wxid)
+                                member_map[wxid] = display_name
+                    except (json.JSONDecodeError, OSError):
+                        pass
+
+                # 3) Build response
+                members = [
+                    {
                         "wxid": wxid,
-                        "display_name": display,
+                        "display_name": member_map.get(wxid, wxid),
                         "nickname": overrides.get(wxid, ""),
-                    })
+                    }
+                    for wxid in seen
+                ]
 
                 self.send_json({"ok": True, "members": members})
             except Exception as e:

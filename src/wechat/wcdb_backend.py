@@ -317,6 +317,51 @@ class WcdbBackend(AbstractWeChatBackend):
         if all_chatrooms:
             self._save_group_names(all_chatrooms)
 
+        # ── Resolve and persist group members ──────────────────────────
+        group_members: dict[str, dict[str, str]] = {}
+        for username, info in all_chatrooms.items():
+            try:
+                members = self._client.get_group_members(username)
+                if not members:
+                    continue
+                wxids = [m.get("username", "") for m in members if m.get("username")]
+                if not wxids:
+                    continue
+                # Resolve display names in batches of 200
+                names = {}
+                for i in range(0, len(wxids), 200):
+                    batch = wxids[i:i + 200]
+                    names.update(self._client.get_display_names(batch))
+                # Filter out unresolved (where name == wxid) and save
+                group_members[username] = {
+                    wxid: names.get(wxid, wxid)
+                    for wxid in wxids
+                }
+                logger.info(
+                    "Resolved %d/%d member names for %s",
+                    len(group_members[username]), len(wxids), info["name"],
+                )
+            except Exception as e:
+                logger.warning("Failed to resolve members for %s: %s", username, e)
+        if group_members:
+            self._save_group_members(group_members)
+
+    @staticmethod
+    def _save_group_members(chat_members: dict[str, dict[str, str]]) -> None:
+        """Persist chat_id -> {wxid: display_name} to data/group_members.json."""
+        import os as _os
+        path = Path("data/group_members.json")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = path.with_suffix(".tmp")
+            data = json.dumps(chat_members, ensure_ascii=False, indent=2)
+            tmp_path.write_text(data, encoding="utf-8")
+            _os.replace(tmp_path, path)
+            total = sum(len(m) for m in chat_members.values())
+            logger.info("Saved %d member names across %d groups to %s", total, len(chat_members), path)
+        except Exception as e:
+            logger.warning("Failed to persist group_members.json: %s", e)
+
     @staticmethod
     def _save_group_names(chatrooms: dict[str, dict]) -> None:
         """Persist chat_id -> {name, member_count} to data/group_names.json atomically."""

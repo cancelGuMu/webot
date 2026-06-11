@@ -67,6 +67,7 @@ data/bot_status.json
 
 # Runtime group name resolution (contains private chatroom IDs)
 data/group_names.json
+data/group_members.json
 
 # Claude Code
 .claude/

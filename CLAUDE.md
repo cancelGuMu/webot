@@ -62,7 +62,6 @@ src/wechat/             - 微信后端
 src/web/server.py       - Web UI 服务器 + WebSocket + API
 src/memory/             - 聊天记忆
 src/proactive/          - 主动发言
-src/guard/              - 不良内容检测
 desktop.py              - 桌面入口 (PyWebView)
 ui/                     - React 前端
 lib/                    - DLL 文件

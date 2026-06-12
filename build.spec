@@ -81,7 +81,6 @@ a = Analysis(
         'uiautomation',
         'webview', 'webview.platforms', 'webview.platforms.edgechromium',
         'PIL', 'PIL.Image', 'PIL.ImageDraw',
-        'ddgs', 'duckduckgo_search',
         'psutil', 'pyperclip',
         'win32api', 'comtypes',
     ],

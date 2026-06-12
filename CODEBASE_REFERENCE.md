@@ -570,20 +570,13 @@ todo_delete_keywords: list[str] = [
 | `export_recent_chat(trigger_msg)` | 导出最近聊天(手动) | `trigger_msg: dict` | `FeishuExportResult` |
 | `maybe_auto_export(msg)` | 自动同步(静默) | `msg: dict` | `FeishuExportResult \| None` |
 
-### 2.32 `src/utils/web_search.py`
-
-| 函数 | 描述 | 参数 | 返回值 |
-|---|---|---|---|
-| `_redact_pii(text)` | 脱敏个人身份信息(内部) | `text: str` | `str` |
-| `search_web(query, max_results, timeout)` | DuckDuckGo 网页搜索 | `query: str, max_results: int, timeout: float` | `str` |
-
-### 2.33 `src/utils/logging_config.py`
+### 2.32 `src/utils/logging_config.py`
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
 | `setup_logging(level, log_file)` | 配置日志系统 | `level: str, log_file: str \| None` | `None` |
 
-### 2.34 `src/web/server.py` (核心 API 模块)
+### 2.33 `src/web/server.py` (核心 API 模块)
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
@@ -611,7 +604,7 @@ todo_delete_keywords: list[str] = [
 | `_run_step1_extraction()` | 后台执行密钥提取 | 无 | `None` |
 | `_write_onboarding_to_env(env_path)` | 写入引导数据到 .env | `env_path` | `None` |
 
-### 2.35 前端组件 (`ui/src/components/`)
+### 2.34 前端组件 (`ui/src/components/`)
 
 | 文件 | 组件名 | 描述 |
 |---|---|---|

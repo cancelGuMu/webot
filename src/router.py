@@ -394,7 +394,7 @@ class MessageRouter:
             # Pre-resolve wxids and trim long messages
             for m in messages:
                 # Resolve custom nickname from file using sender_id (raw wxid).
-                # Using sender_name here is wrong: the WeFlow backend may have
+                # Using sender_name here is wrong: some backends may have
                 # already resolved it to a WeChat default name like "暴富蘑菇",
                 # and NicknameService can only look up wxid keys, not display names.
                 custom = self._nicks.resolve_name(m["sender_id"])
@@ -436,7 +436,7 @@ class MessageRouter:
     def _handle_chat(self, msg: dict, clean_content: str) -> str | None:
         """Handle a conversational @bot mention."""
         # Resolve custom nickname from file (via sender_id=wxid),
-        # not sender_name which may already be a WeFlow default.
+        # not sender_name which may already be a backend-resolved default.
         display_name = self._nicks.resolve_name(msg["sender_id"])
         if display_name == msg["sender_id"]:
             display_name = msg["sender_name"]

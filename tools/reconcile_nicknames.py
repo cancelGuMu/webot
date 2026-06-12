@@ -1,4 +1,4 @@
-"""Reconcile WeFlow wxids with exported chat display names.
+"""Reconcile WeChat wxids with exported chat display names.
 
 Reads:
   - data/messages.db

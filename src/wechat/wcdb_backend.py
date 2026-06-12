@@ -4,7 +4,7 @@ WCDB Native Backend — zero external dependencies.
 Reads WeChat messages directly from the encrypted WCDB database via
 patched wcdb_api.dll (ctypes).  Uses WeChatWindowController for sending.
 
-NO WeFlow.exe, NO Node.js, NO HTTP bridge — everything in-process.
+WCDB native access — reads encrypted database in-process, no external dependencies.
 """
 import concurrent.futures
 import hashlib

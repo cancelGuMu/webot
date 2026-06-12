@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # ── Message type mapping ──────────────────────────────────────────
 
-# wxauto / WeFlow localType → standard integer codes
+# WeChat localType -> standard integer codes
 MSG_TYPE_MAP: dict[str | int, int] = {
     "text": 1,
     "friend": 1,      # wxauto uses 'friend' for some text messages

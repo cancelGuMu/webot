@@ -26,13 +26,13 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SCANNER_DIR = PROJECT_ROOT / "tools" / "macos_keyscan"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+SCANNER_DIR = Path(__file__).resolve().parent / "keyscan"
 SCANNER_SOURCE = SCANNER_DIR / "main.go"
 SCANNER_BINARY = SCANNER_DIR / "macscan-min"
-LLDB_SCANNER_SCRIPT = PROJECT_ROOT / "tools" / "macos_lldb_keyscan.py"
+LLDB_SCANNER_SCRIPT = Path(__file__).resolve().parent / "lldb_keyscan.py"
 DEFAULT_LLDB_PYTHON_BIN = "/usr/bin/python3"
-CHATLOG_DIR = PROJECT_ROOT / "tools" / "macos_chatlog"
+CHATLOG_DIR = Path(__file__).resolve().parent / "chatlog"
 CHATLOG_SOURCE_DIR = CHATLOG_DIR / "chatlog_alpha-src"
 CHATLOG_BINARY = CHATLOG_DIR / "chatlog-alpha"
 CHATLOG_BINARY_MARKER = CHATLOG_DIR / "chatlog-alpha.headless"

@@ -92,7 +92,7 @@ src/memory/             - 聊天记忆
 src/proactive/          - 主动发言
 desktop.py              - 桌面入口 (PyWebView)
 ui/                     - React 前端
-lib/                    - DLL 文件
+native/                 - 平台原生库 (windows/, macos/)
 dist/                   - 打包输出
 ```
 

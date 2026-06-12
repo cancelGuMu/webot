@@ -137,11 +137,11 @@ def _read_gbk_string(ptr):
 def _find_dll():
     """Find the bundled wcdb_api.dll."""
     candidates = [
-        Path(__file__).resolve().parent.parent.parent / "lib" / "wcdb_api.dll",
+        Path(__file__).resolve().parent.parent.parent / "native" / "windows" / "wcdb_api.dll",
     ]
     if getattr(sys, "frozen", False):
-        candidates.insert(0, Path(sys.executable).resolve().parent / "lib" / "wcdb_api.dll")
-        candidates.insert(0, Path(sys._MEIPASS) / "lib" / "wcdb_api.dll")
+        candidates.insert(0, Path(sys.executable).resolve().parent / "native" / "windows" / "wcdb_api.dll")
+        candidates.insert(0, Path(sys._MEIPASS) / "native" / "windows" / "wcdb_api.dll")
 
     for c in candidates:
         if c.exists():
@@ -149,7 +149,7 @@ def _find_dll():
             return str(c.parent), str(c)
 
     raise FileNotFoundError(
-        "wcdb_api.dll not found. Please place it in the 'lib' folder next to the EXE."
+        "wcdb_api.dll not found. Please place it in the native/windows/ folder next to the EXE."
     )
 
 
@@ -220,7 +220,7 @@ class WcdbNativeClient:
     """Direct WCDB database reader via patched wcdb_api.dll.
 
     Auto-detects WeChat data paths from the filesystem.
-    The DLL is bundled with the EXE in the lib/ directory.
+    The DLL is bundled with the EXE in the native/windows/ directory.
     """
 
     def __init__(self, dll_dir=None, config_path=None):

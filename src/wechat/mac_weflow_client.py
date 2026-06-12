@@ -466,8 +466,7 @@ class MacWeFlowClient:
         roots.extend([root, Path.cwd()])
         for base in roots:
             candidates.extend([
-                base / "lib" / "macos",
-                base / "resources" / "wcdb" / "macos" / "universal",
+                base / "native" / "macos",
             ])
         for candidate in _unique_paths(candidates):
             if (candidate / "libWCDB.dylib").exists():

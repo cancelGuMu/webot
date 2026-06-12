@@ -74,7 +74,7 @@ def extract_key(timeout: float = 60) -> str | None:
     print("\n[warning] Key extraction failed.")
     print("       Please ensure:")
     print("       1. WeChat version is compatible")
-    print("       2. wx_key.dll is in the lib/ directory")
+    print("       2. wx_key.dll is in the native/windows/ directory")
     print("       3. Follow the prompts to restart WeChat")
     return None
 
@@ -165,7 +165,7 @@ def main():
         print("\n[warning] Automatic key extraction failed.")
         print("        Please ensure:")
         print("        1. WeChat version is compatible")
-        print("        2. wx_key.dll is in the lib/ directory")
+        print("        2. wx_key.dll is in the native/windows/ directory")
         print("        3. Follow the prompts to restart WeChat")
         return
 

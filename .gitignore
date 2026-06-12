@@ -59,8 +59,8 @@ skill/**/*.safetensors
 TRAIN_DONE.flag
 
 # macOS local key scanner build output
-tools/macos_keyscan/macscan-min
-tools/macos_chatlog/
+tools/macos/keyscan/macscan-min
+tools/macos/chatlog/
 
 # Runtime status
 data/bot_status.json
@@ -75,8 +75,8 @@ data/group_members.json
 # WeChat runtime binaries (not tracked in git)
 src/wechat/bin/
 
-# DLL binaries (tracked via releases)
-lib/*.dll
+# Native DLL binaries (tracked via releases)
+native/windows/*.dll
 
 # Ghidra reverse engineering
 ghidra_project/

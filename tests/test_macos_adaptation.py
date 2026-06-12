@@ -346,11 +346,11 @@ class MacOSAdaptationTests(unittest.TestCase):
         self.assertIn("all_keys.json", text)
         self.assertIn("WeFlow", text)
         self.assertIn("不需要额外启动消息读取服务", text)
-        self.assertIn("tools/macos_weflow_setup.py extract-keys", text)
-        self.assertIn("tools/macos_weflow_setup.py import-keys", text)
-        self.assertIn("tools/macos_weflow_setup.py diagnose", text)
-        self.assertIn("tools/macos_weflow_setup.py extract-keys-restart-hook", text)
-        self.assertNotIn("tools/macos_chatlog_setup.py", text)
+        self.assertIn("tools/macos/weflow_setup.py extract-keys", text)
+        self.assertIn("tools/macos/weflow_setup.py import-keys", text)
+        self.assertIn("tools/macos/weflow_setup.py diagnose", text)
+        self.assertIn("tools/macos/weflow_setup.py extract-keys-restart-hook", text)
+        self.assertNotIn("tools/macos/chatlog_setup.py", text)
         self.assertNotIn("CHATLOG_BASE_URL", text)
 
     def test_platform_dependency_report_for_macos_excludes_windows_deps(self):

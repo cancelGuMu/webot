@@ -53,14 +53,14 @@ def _find_wechat_pid():
 
 
 def _find_wx_key_dll():
-    """Locate wx_key.dll: bundled lib/ first, then fallbacks."""
+    """Locate wx_key.dll: bundled native/windows/ first, then fallbacks."""
     import sys as _s
     candidates = [
-        Path(__file__).resolve().parent.parent.parent / "lib" / "wx_key.dll",
+        Path(__file__).resolve().parent.parent.parent / "native" / "windows" / "wx_key.dll",
     ]
     if getattr(_s, "frozen", False):
-        candidates.insert(0, Path(_s._MEIPASS) / "lib" / "wx_key.dll")
-        candidates.insert(1, Path(_s.executable).resolve().parent / "lib" / "wx_key.dll")
+        candidates.insert(0, Path(_s._MEIPASS) / "native" / "windows" / "wx_key.dll")
+        candidates.insert(1, Path(_s.executable).resolve().parent / "native" / "windows" / "wx_key.dll")
     for c in candidates:
         if c.exists():
             return str(c)

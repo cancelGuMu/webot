@@ -1498,7 +1498,7 @@ MacHybridBackend
 #### macOS 构建 (`build-macos.spec`)
 
 - 输出: `dist/webot.app`
-- 捆绑 `libWCDB.dylib` → `resources/wcdb/macos/universal/`
+- 捆绑 `libWCDB.dylib` → `native/macos/`
 - hiddenimports 包含 `AppKit`, `Quartz`, `objc` 等 macOS 框架
 - excludes 排除 Windows 专用模块 (`uiautomation`, `win32api`, `comtypes` 等)
 - 权限声明: `NSAppleEventsUsageDescription` + `NSScreenCaptureUsageDescription`
@@ -1609,12 +1609,12 @@ WCDB_KEY=
 # 二进制:
 #   - WebView2Loader.dll → runtimes/win-x64/native
 #   - WebBrowserInterop.x64.dll → lib/
-#   - wcdb_api.dll → lib/
-#   - WCDB.dll → lib/
-#   - MSVCP140.dll → lib/
-#   - VCRUNTIME140.dll → lib/
-#   - VCRUNTIME140_1.dll → lib/
-#   - wx_key.dll → lib/
+#   - wcdb_api.dll → native/windows/
+#   - WCDB.dll → native/windows/
+#   - MSVCP140.dll → native/windows/
+#   - VCRUNTIME140.dll → native/windows/
+#   - VCRUNTIME140_1.dll → native/windows/
+#   - wx_key.dll → native/windows/
 # 数据:
 #   - ui/dist → ui/dist (前端构建产物)
 #   - .env.example → . (示例配置)

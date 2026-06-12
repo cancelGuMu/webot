@@ -332,16 +332,16 @@ def inject_and_capture_key(timeout_sec=30):
 
 
 def _find_hook_dll():
-    """Locate keyhook.dll: bundled lib/ first, then alongside this file."""
+    """Locate keyhook.dll: bundled native/windows/ first, then alongside this file."""
     candidates = [
-        Path(__file__).resolve().parent.parent.parent.parent / "lib" / "keyhook.dll",
+        Path(__file__).resolve().parent.parent.parent.parent / "native" / "windows" / "keyhook.dll",
         Path(__file__).resolve().parent / "keyhook.dll",
     ]
     # PyInstaller bundle
     import sys
     if getattr(sys, "frozen", False):
-        candidates.insert(0, Path(sys._MEIPASS) / "lib" / "keyhook.dll")
-        candidates.insert(1, Path(sys.executable).resolve().parent / "lib" / "keyhook.dll")
+        candidates.insert(0, Path(sys._MEIPASS) / "native" / "windows" / "keyhook.dll")
+        candidates.insert(1, Path(sys.executable).resolve().parent / "native" / "windows" / "keyhook.dll")
 
     for c in candidates:
         if c.exists():

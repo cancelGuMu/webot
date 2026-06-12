@@ -11,9 +11,9 @@ from pathlib import Path
 MACOS_CODESIGN_IDENTITY = os.getenv("MACOS_CODESIGN_IDENTITY") or None
 MACOS_ENTITLEMENTS_FILE = "macos-entitlements.plist"
 PROJECT_ROOT = Path(SPECPATH)
-WEFLOW_WCDB_DIR = PROJECT_ROOT / "resources" / "wcdb" / "macos" / "universal"
+WEFLOW_WCDB_DIR = PROJECT_ROOT / "native" / "macos"
 WEFLOW_WCDB_BINARIES = [
-    (str(path), "resources/wcdb/macos/universal")
+    (str(path), "native/macos")
     for path in (WEFLOW_WCDB_DIR / "libWCDB.dylib",)
     if path.exists()
 ]

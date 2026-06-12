@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def _load_scanner_module():
-    path = Path(__file__).resolve().parent.parent / "tools" / "macos_lldb_keyscan.py"
+    path = Path(__file__).resolve().parent.parent / "tools" / "macos" / "lldb_keyscan.py"
     spec = importlib.util.spec_from_file_location("macos_lldb_keyscan", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 
 def _load_setup_module():
-    path = Path(__file__).resolve().parent.parent / "tools" / "macos_chatlog_setup.py"
+    path = Path(__file__).resolve().parent.parent / "tools" / "macos" / "chatlog_setup.py"
     spec = importlib.util.spec_from_file_location("macos_chatlog_setup", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

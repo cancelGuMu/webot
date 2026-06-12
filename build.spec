@@ -43,12 +43,12 @@ a = Analysis(
     binaries=[
         (str(_webview_runtime), './runtimes/win-x64/native'),
         (str(_webview_interop), './lib'),
-        (str(PROJECT_ROOT / 'lib' / 'wcdb_api.dll'), 'lib'),
-        (str(PROJECT_ROOT / 'lib' / 'WCDB.dll'), 'lib'),
-        (str(PROJECT_ROOT / 'lib' / 'MSVCP140.dll'), 'lib'),
-        (str(PROJECT_ROOT / 'lib' / 'VCRUNTIME140.dll'), 'lib'),
-        (str(PROJECT_ROOT / 'lib' / 'VCRUNTIME140_1.dll'), 'lib'),
-        (str(PROJECT_ROOT / 'lib' / 'wx_key.dll'), 'lib'),
+        (str(PROJECT_ROOT / 'native' / 'windows' / 'wcdb_api.dll'), 'native/windows'),
+        (str(PROJECT_ROOT / 'native' / 'windows' / 'WCDB.dll'), 'native/windows'),
+        (str(PROJECT_ROOT / 'native' / 'windows' / 'MSVCP140.dll'), 'native/windows'),
+        (str(PROJECT_ROOT / 'native' / 'windows' / 'VCRUNTIME140.dll'), 'native/windows'),
+        (str(PROJECT_ROOT / 'native' / 'windows' / 'VCRUNTIME140_1.dll'), 'native/windows'),
+        (str(PROJECT_ROOT / 'native' / 'windows' / 'wx_key.dll'), 'native/windows'),
     ],
     datas=[
         ('ui/dist', 'ui/dist'),

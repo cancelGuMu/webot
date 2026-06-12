@@ -240,7 +240,7 @@ def import_lldb():
         import lldb  # type: ignore
     except Exception as exc:
         print(f"lldb_import=error: {exc}", file=sys.stderr)
-        print("hint=Run with: sudo env PYTHONPATH=$(lldb -P) /usr/bin/python3 tools/macos_lldb_keyscan.py", file=sys.stderr)
+        print("hint=Run with: sudo env PYTHONPATH=$(lldb -P) /usr/bin/python3 tools/macos/lldb_keyscan.py", file=sys.stderr)
         raise SystemExit(1) from exc
     return lldb
 

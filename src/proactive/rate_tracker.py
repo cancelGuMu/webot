@@ -63,7 +63,7 @@ class RateTracker:
 
         # Prune expired entries in-place
         while timestamps and timestamps[0] < cutoff:
-            timestamps.pop(0)
+            timestamps.popleft()
 
         if not timestamps:
             return 0.0

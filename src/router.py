@@ -112,10 +112,24 @@ class MessageRouter:
         ):
             return None
 
-        # Always persist the message
-        stored = self._store.insert_message(msg)
+        # Always persist the message.
+        # Wrap in try/except so a DB error (e.g. malformed system message)
+        # doesn't block welcome or other downstream processing.
+        try:
+            stored = self._store.insert_message(msg)
+        except Exception:
+            logger.exception(
+                "Failed to persist message (msg_id=%s, sender=%s)",
+                msg.get("message_id", "?"), msg.get("sender_id", "?"),
+            )
+            stored = False
+
         if not stored:
-            return None  # Duplicate — nothing more to do
+            # If it's a join event, still try to welcome — don't let a
+            # DB write failure suppress the welcome message.
+            if msg.get("is_system_join") and self._config.welcome_enabled:
+                return self._handle_welcome(msg)
+            return None  # Duplicate or DB error — nothing more to do
         self.messages_processed += 1
 
         # Check memory consolidation trigger (fast no-op unless threshold hit)

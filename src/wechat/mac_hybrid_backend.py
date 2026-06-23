@@ -213,7 +213,13 @@ class MacHybridBackend(AbstractWeChatBackend):
 
         # ── System message handling ───────────────────────────────
         # Detect "xxx joined the group" events for welcome feature.
-        _JOIN_PATTERN = re.compile(r'"(.+?)"(?:通过.+?)?加入了群聊')
+        # Pattern matches:
+        #   "张三"加入了群聊                    → 张三
+        #   "张三"通过扫描二维码加入了群聊      → 张三
+        #   "李四"邀请"张三"加入了群聊          → 张三 (last quoted name)
+        # Using [^"]+ (cannot cross quote boundaries) instead of .+?
+        # to avoid backtracking into the wrong quoted string.
+        _JOIN_PATTERN = re.compile(r'"([^"]+)"(?:通过[^"]*)?加入了群聊')
         join_match = _JOIN_PATTERN.search(content)
         new_member_id: str = ""
         is_system_join: bool = False

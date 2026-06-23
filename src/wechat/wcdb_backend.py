@@ -535,8 +535,13 @@ class WcdbBackend(AbstractWeChatBackend):
 
         # ── System message handling ───────────────────────────────
         # Extract "xxx joined the group" events → welcome feature.
-        # Pattern matches: "wxid_abc"加入了群聊 / "张三"通过扫描二维码加入了群聊
-        _JOIN_PATTERN = re.compile(r'"(.+?)"(?:通过.+?)?加入了群聊')
+        # Pattern matches:
+        #   "张三"加入了群聊                    → 张三
+        #   "张三"通过扫描二维码加入了群聊      → 张三
+        #   "李四"邀请"张三"加入了群聊          → 张三 (last quoted name)
+        # Using [^"]+ (cannot cross quote boundaries) instead of .+?
+        # to avoid backtracking into the wrong quoted string.
+        _JOIN_PATTERN = re.compile(r'"([^"]+)"(?:通过[^"]*)?加入了群聊')
         join_match = _JOIN_PATTERN.search(content)
         new_member_id: str = ""
         is_system_join: bool = False
@@ -590,12 +595,17 @@ class WcdbBackend(AbstractWeChatBackend):
             or f"@{self._bot_name}" in content
         )
 
-        # Generate stable message ID
-        raw_id = (
-            str(msg.get("server_id", ""))
-            or str(msg.get("local_id", ""))
-            or f"{sender}|{content}|{ts}"
-        )
+        # Generate stable message ID.
+        # For system join messages, use a content-based ID to avoid
+        # volatile WCDB server_id/local_id causing dedup misses.
+        if is_system_join:
+            raw_id = f"join|{talker}|{new_member_id}|{content}|{ts}"
+        else:
+            raw_id = (
+                str(msg.get("server_id", ""))
+                or str(msg.get("local_id", ""))
+                or f"{sender}|{content}|{ts}"
+            )
         msg_id = hashlib.md5(str(raw_id).encode()).hexdigest()
 
         return {

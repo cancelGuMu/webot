@@ -49,7 +49,7 @@ class MessageStore:
                     (message_id, chat_id, sender_id, sender_name,
                      content, msg_type, timestamp),
                 )
-                # Upsert the last-message cursor
+                # Upsert the last-message cursor (use coerced values)
                 self.conn.execute(
                     """INSERT INTO user_last_message
                        (chat_id, sender_id, sender_name, last_timestamp)
@@ -57,14 +57,18 @@ class MessageStore:
                        ON CONFLICT(chat_id, sender_id) DO UPDATE SET
                        sender_name = excluded.sender_name,
                        last_timestamp = excluded.last_timestamp""",
-                    (
-                        msg["chat_id"], msg["sender_id"],
-                        msg["sender_name"], msg["timestamp"],
-                    ),
+                    (chat_id, sender_id, sender_name, timestamp),
                 )
             return True
         except sqlite3.IntegrityError:
             # Duplicate message_id — silently skip
+            return False
+        except Exception:
+            logger.exception(
+                "Failed to insert message (msg_id=%s, chat=%s, sender=%s)",
+                msg.get("message_id", "?"), msg.get("chat_id", "?"),
+                msg.get("sender_id", "?"),
+            )
             return False
 
     def log_trigger(self, chat_id: str, requester_id: str,

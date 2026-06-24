@@ -364,6 +364,7 @@ todo_delete_keywords: list[str] = [
 | `extract_wcdb_key(require_restart=True, on_progress=None)` | 提取 WCDB 解密密钥(主入口) | `require_restart: bool, on_progress: Callable \| None` | `str \| None` (64字符hex) |
 | `_find_wechat_pid()` | 查找微信进程 PID(内部) | 无 | `int \| None` |
 | `_find_wx_key_dll()` | 定位 wx_key.dll(内部) | 无 | `str \| None` |
+| `_verify_dll_loadable(dll_path)` | 预检查 DLL 是否能加载(内部) | `dll_path: str` | `str \| None` (None=OK, str=错误信息) |
 | `_hook_and_poll(pid, dll_path, timeout=180)` | 安装 Hook 并轮询密钥(内部) | `pid: int, dll_path: str, timeout: int` | `str \| None` |
 | `extract_aes_key()` | 兼容包装 | 无 | `str \| None` |
 | `decrypt_wcdb_key(aes_hex)` | 验证hex密钥有效性 | `aes_hex: str` | `str \| None` |

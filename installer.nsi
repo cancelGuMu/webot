@@ -10,7 +10,7 @@ Unicode true
 !define PRODUCT_NAME "webot"
 !define PRODUCT_DESC "微信 AI 群聊助手"
 !ifndef PRODUCT_VERSION
-!define PRODUCT_VERSION "1.2.1"
+!define PRODUCT_VERSION "1.2.2"
 !endif
 !define PRODUCT_PUBLISHER "cancelGuMu"
 !define PRODUCT_URL "https://github.com/cancelGuMu/webot"
@@ -46,6 +46,16 @@ Section "Install"
   ; Main executable
   File "dist\webot.exe"
   File ".env.example"
+
+  ; Native DLLs (VC++ runtime + WCDB + wx_key hook)
+  SetOutPath "$INSTDIR\native\windows"
+  File "native\windows\wx_key.dll"
+  File "native\windows\wcdb_api.dll"
+  File "native\windows\WCDB.dll"
+  File "native\windows\MSVCP140.dll"
+  File "native\windows\VCRUNTIME140.dll"
+  File "native\windows\VCRUNTIME140_1.dll"
+  SetOutPath "$INSTDIR"
 
   ; Create data directory placeholder
   CreateDirectory "$INSTDIR\data"
@@ -95,6 +105,15 @@ Section "Uninstall"
   Delete "$INSTDIR\webot.exe"
   Delete "$INSTDIR\.env.example"
   Delete "$INSTDIR\uninstall.exe"
+  ; Native DLLs
+  Delete "$INSTDIR\native\windows\wx_key.dll"
+  Delete "$INSTDIR\native\windows\wcdb_api.dll"
+  Delete "$INSTDIR\native\windows\WCDB.dll"
+  Delete "$INSTDIR\native\windows\MSVCP140.dll"
+  Delete "$INSTDIR\native\windows\VCRUNTIME140.dll"
+  Delete "$INSTDIR\native\windows\VCRUNTIME140_1.dll"
+  RMDir "$INSTDIR\native\windows"
+  RMDir "$INSTDIR\native"
   ; data/ directory contains user data (messages.db, bot.log, lots.json, etc.)
   ; and is NOT removed -- the user keeps their chat history and configuration.
 

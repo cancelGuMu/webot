@@ -1023,7 +1023,8 @@ class _UIHandler(SimpleHTTPRequestHandler):
                          "/api/sandbox/test",
                          "/api/lots",
                          "/api/todos/action",
-                         "/api/voice/download-model"):
+                         "/api/voice/download-model",
+                         "/api/wechat-data-dir/detect"):
             self.do_GET()
         else:
             self.send_response(405)

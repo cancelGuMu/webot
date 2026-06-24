@@ -537,15 +537,16 @@ def _platform_dependency_report(system_name=None, import_checker=None, command_c
         })
 
     missing_reqs = []
-    ddgs_ok = import_checker("ddgs") or import_checker("duckduckgo_search")
-    if not ddgs_ok:
-        missing_reqs.append("ddgs")
-
     for mod, pkg in req_mapping.items():
         if not import_checker(mod):
             missing_reqs.append(pkg)
 
     if system == "Darwin":
+        # ddgs is a macOS-only dependency (DuckDuckGo integration)
+        ddgs_ok = import_checker("ddgs") or import_checker("duckduckgo_search")
+        if not ddgs_ok:
+            missing_reqs.append("ddgs")
+
         for command in ("osascript", "pbcopy"):
             if not command_checker(command):
                 missing_reqs.append(command)

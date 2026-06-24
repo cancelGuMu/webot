@@ -535,23 +535,26 @@ class WcdbBackend(AbstractWeChatBackend):
 
         # ── System message handling ───────────────────────────────
         # Extract "xxx joined the group" events → welcome feature.
-        # Pattern matches:
-        #   "张三"加入了群聊                    → 张三
-        #   "张三"通过扫描二维码加入了群聊      → 张三
-        #   "李四"邀请"张三"加入了群聊          → 张三 (last quoted name)
-        # Using [^"]+ (cannot cross quote boundaries) instead of .+?
-        # to avoid backtracking into the wrong quoted string.
+        # Only active when WELCOME_ENABLED=true; otherwise join messages
+        # are silently filtered out like other system messages.
         _JOIN_PATTERN = re.compile(r'"([^"]+)"(?:通过[^"]*)?加入了群聊')
         join_match = _JOIN_PATTERN.search(content)
         new_member_id: str = ""
         is_system_join: bool = False
-        if join_match:
+        welcome_on = (
+            self._voice_config is not None
+            and getattr(self._voice_config, "welcome_enabled", False)
+        )
+        if join_match and welcome_on:
             new_member_id = join_match.group(1)
             is_system_join = True
             logger.info(
                 "Join event detected: new_member=%s group=%s",
                 new_member_id, group_name[:20],
             )
+        elif join_match:
+            # Welcome disabled — silently drop join messages
+            return None
 
         # Filter other system messages (but NOT join events)
         if not is_system_join:

@@ -2161,7 +2161,6 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         state["error"] = str(exc).split("\n")[0][:300]
                         logger.exception("Voice model download/install failed")
 
-                import threading
                 t = threading.Thread(target=_run, daemon=True)
                 t.start()
                 self.send_json({"ok": True, "model": model, "message": "下载已在后台启动"})

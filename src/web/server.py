@@ -384,6 +384,15 @@ def _run_step1_extraction():
     Uses extract_wcdb_key's on_progress callback to push real-time phase
     updates to the frontend so the user sees exactly what's happening.
     """
+    # ── Ensure file logging is active during key extraction ──────────
+    # setup_logging() normally runs inside Bot.run(), but key extraction
+    # happens BEFORE the bot starts (during onboarding).  Without this,
+    # all log output from extract_key.py goes to stdout only, which is
+    # invisible in Windows GUI mode — making failures un-debuggable.
+    from src.utils.logging_config import setup_logging
+    from src.config import PROJECT_ROOT
+    setup_logging(level="INFO", log_file=str(PROJECT_ROOT / "data" / "bot.log"))
+
     from src.wechat.extract_key import extract_wcdb_key
 
     def _on_progress(phase, message):

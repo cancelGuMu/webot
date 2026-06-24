@@ -67,6 +67,35 @@ def _find_wx_key_dll():
     return None
 
 
+def _verify_dll_loadable(dll_path: str) -> str | None:
+    """Try to load wx_key.dll and return None if OK, or an error string."""
+    dll_dir = os.path.dirname(dll_path)
+    if dll_dir:
+        try:
+            os.add_dll_directory(dll_dir)
+        except AttributeError:
+            k32 = ct.WinDLL("kernel32", use_last_error=True)
+            k32.SetDllDirectoryW(dll_dir)
+    try:
+        ct.WinDLL(dll_path)
+        return None  # OK
+    except OSError as e:
+        err_code = ct.get_last_error()
+        if err_code == 126:
+            return (
+                f"wx_key.dll 加载失败：缺少依赖库（错误码 126）。"
+                f"请确认 native/windows/ 目录下的 VC++ 运行时 DLL 完整。\n"
+                f"详情: {e}"
+            )
+        elif err_code == 193:
+            return (
+                f"wx_key.dll 加载失败：不是有效的 Win32/Win64 程序（错误码 193）。"
+                f"请确认 DLL 架构与当前 Python 一致。\n详情: {e}"
+            )
+        else:
+            return f"wx_key.dll 加载失败（错误码 {err_code}）: {e}"
+
+
 def _log_console(msg):
     """Log a user-visible message (survives console=False in EXE).
 
@@ -104,6 +133,15 @@ def extract_wcdb_key(require_restart: bool = True,
     if not dll_path:
         logger.error("wx_key.dll not found")
         return None
+
+    # Pre-flight: verify the DLL actually loads before asking user
+    # to restart WeChat.  Missing VC++ runtimes or architecture
+    # mismatches are surfaced immediately rather than after a
+    # confusing timeout.
+    dll_err = _verify_dll_loadable(dll_path)
+    if dll_err:
+        logger.error(dll_err)
+        raise RuntimeError(dll_err)
 
     pid = _find_wechat_pid()
 
@@ -162,6 +200,20 @@ def extract_wcdb_key(require_restart: bool = True,
 def _hook_and_poll(pid: int, dll_path: str, timeout=180):
     """Install hook on WeChat process and poll for key."""
     try:
+        # Add the DLL's directory to the search path so Windows can
+        # find its dependencies (VCRUNTIME140.dll etc.) which are
+        # bundled alongside it.  Without this, LoadLibrary may fail
+        # with "The specified module could not be found" (error 126)
+        # even though the DLL file itself exists.
+        dll_dir = os.path.dirname(dll_path)
+        if dll_dir:
+            try:
+                os.add_dll_directory(dll_dir)
+            except AttributeError:
+                # Python < 3.8 — fall back to SetDllDirectoryW
+                k32 = ct.WinDLL("kernel32", use_last_error=True)
+                k32.SetDllDirectoryW(dll_dir)
+
         lib = ct.WinDLL(dll_path)
         lib.InitializeHook.argtypes = [wintypes.DWORD]
         lib.InitializeHook.restype = wintypes.BOOL
@@ -171,7 +223,11 @@ def _hook_and_poll(pid: int, dll_path: str, timeout=180):
         lib.CleanupHook.restype = wintypes.BOOL
 
         if not lib.InitializeHook(wintypes.DWORD(pid)):
-            logger.error("Hook 安装失败")
+            err = ct.get_last_error()
+            logger.error(
+                "Hook 安装失败 — InitializeHook 返回 False"
+                "（请确认微信版本兼容，错误码: %d）", err,
+            )
             return None
 
         logger.info("Hook 已安装，等待微信加载数据...")
@@ -203,11 +259,15 @@ def _hook_and_poll(pid: int, dll_path: str, timeout=180):
 
         if key:
             return key
-        logger.error("未在 60s 内捕获密钥")
+        logger.error("未在 %ds 内捕获密钥 — PollKeyData 始终未返回有效数据", timeout)
         return None
 
+    except OSError as e:
+        # DLL load failures — missing dependencies, corrupted file, etc.
+        logger.error("无法加载 wx_key.dll: %s（错误码: %d）", e, ct.get_last_error())
+        return None
     except Exception as e:
-        logger.error("Hook 失败: %s", e)
+        logger.error("Hook 失败: %s", e, exc_info=True)
         try:
             lib.CleanupHook()
         except Exception:

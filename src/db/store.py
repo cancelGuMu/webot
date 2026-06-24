@@ -63,6 +63,14 @@ class MessageStore:
         except sqlite3.IntegrityError:
             # Duplicate message_id — silently skip
             return False
+        except sqlite3.InterfaceError:
+            # Connection closed (typically during shutdown) — log at
+            # warning level instead of a full traceback to reduce noise.
+            logger.warning(
+                "DB insert skipped (connection closed): msg_id=%s, chat=%s",
+                msg.get("message_id", "?")[:20], msg.get("chat_id", "?"),
+            )
+            return False
         except Exception:
             logger.exception(
                 "Failed to insert message (msg_id=%s, chat=%s, sender=%s)",

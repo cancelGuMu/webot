@@ -106,6 +106,11 @@ class MemoryConsolidator:
                     new_messages=new_messages,
                 )
                 updated = future.result(timeout=30)
+        except RuntimeError:
+            # "cannot schedule new futures after interpreter shutdown" —
+            # the process is exiting and threading has been torn down.
+            # Don't log an error — this is normal shutdown noise.
+            return False
         except concurrent.futures.TimeoutError:
             logger.warning(
                 "Memory consolidation timed out after 30s for %s — skipping this cycle",

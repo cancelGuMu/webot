@@ -25,6 +25,7 @@ CHAT_CONTEXT_WINDOW_SEC = 600      # fetch last N seconds of chat as context for
 MAX_CONTENT_LENGTH = 997           # max chars per message sent to AI (997 + "..." = 1000)
 MAX_CONTENT_LINES = 20             # max context lines fed to AI chat prompt
 AT_MENTION_MAX_AGE_SEC = 300       # ignore @mentions older than 5 minutes (startup safety)
+WELCOME_MAX_AGE_SEC = 300          # ignore join events older than 5 minutes (startup safety)
 
 # Markdown patterns to strip before sending to WeChat.
 # These regexes may miss edge cases like nested formatting or asterisks at
@@ -128,7 +129,14 @@ class MessageRouter:
             # If it's a join event, still try to welcome — don't let a
             # DB write failure suppress the welcome message.
             if msg.get("is_system_join") and self._config.welcome_enabled:
-                return self._handle_welcome(msg)
+                msg_age = int(time.time()) - msg.get("timestamp", 0)
+                if msg_age <= WELCOME_MAX_AGE_SEC:
+                    return self._handle_welcome(msg)
+                else:
+                    logger.info(
+                        "Ignoring stale join event for '%s' (age=%ds, max=%ds)",
+                        msg.get("new_member_id", "?"), msg_age, WELCOME_MAX_AGE_SEC,
+                    )
             return None  # Duplicate or DB error — nothing more to do
         self.messages_processed += 1
 
@@ -137,7 +145,14 @@ class MessageRouter:
 
         # ── Welcome new member ────────────────────────────────────
         if msg.get("is_system_join") and self._config.welcome_enabled:
-            return self._handle_welcome(msg)
+            msg_age = int(time.time()) - msg.get("timestamp", 0)
+            if msg_age <= WELCOME_MAX_AGE_SEC:
+                return self._handle_welcome(msg)
+            else:
+                logger.info(
+                    "Ignoring stale join event for '%s' (age=%ds, max=%ds)",
+                    msg.get("new_member_id", "?"), msg_age, WELCOME_MAX_AGE_SEC,
+                )
 
         # ── Route: @mention vs proactive ─────────────────────────
         # Sticky mention: if the user previously sent an empty @mention,

@@ -99,19 +99,74 @@ def _apply_drm_patch(dll_handle, dll_path):
     )
 
 
+# VirtualQuery constants for pointer validation
+MEM_COMMIT = 0x1000
+PAGE_NOACCESS = 0x01
+PAGE_GUARD = 0x100
+
+
+class _MEMORY_BASIC_INFORMATION(ct.Structure):
+    _fields_ = [
+        ("BaseAddress", ct.c_void_p),
+        ("AllocationBase", ct.c_void_p),
+        ("AllocationProtect", wintypes.DWORD),
+        ("PartitionId", wintypes.WORD),
+        ("RegionSize", ct.c_size_t),
+        ("State", wintypes.DWORD),
+        ("Protect", wintypes.DWORD),
+        ("Type", wintypes.DWORD),
+    ]
+
+
 def _read_gbk_string(ptr):
     """Read null-terminated string from a raw pointer.
 
     The WCDB DLL may return GBK or UTF-8 depending on the data source.
     Since all DLL inputs are UTF-8, try UTF-8 first, then fall back to GBK.
     Validates with JSON parse to confirm the correct encoding was chosen.
+
+    Validates the pointer with VirtualQuery before reading to avoid
+    access violations from corrupted/garbage DLL return values.
     """
     if not ptr or ptr.value == 0:
         return ""
-    raw = bytearray()
     addr = ptr.value
+
+    # Validate pointer with VirtualQuery before attempting to read
+    try:
+        mbi = _MEMORY_BASIC_INFORMATION()
+        if not _kernel32.VirtualQuery(
+            ct.c_void_p(addr), ct.byref(mbi), ct.sizeof(mbi)
+        ):
+            logger.warning(
+                "VirtualQuery failed for ptr 0x%x — skipping", addr
+            )
+            return ""
+        if mbi.State != MEM_COMMIT:
+            logger.warning(
+                "Pointer 0x%x points to uncommitted memory (state=%d)",
+                addr, mbi.State,
+            )
+            return ""
+        if mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD):
+            logger.warning(
+                "Pointer 0x%x points to inaccessible memory (protect=0x%x)",
+                addr, mbi.Protect,
+            )
+            return ""
+    except Exception as exc:
+        logger.warning("Pointer validation failed for 0x%x: %s", addr, exc)
+        return ""
+
+    raw = bytearray()
     for _ in range(500000):
-        b = (ct.c_ubyte * 1).from_address(addr)[0]
+        try:
+            b = (ct.c_ubyte * 1).from_address(addr)[0]
+        except (OSError, ValueError):
+            logger.warning(
+                "Access violation reading 0x%x (ptr returned by DLL)", addr
+            )
+            break
         if b == 0:
             break
         raw.append(b)
@@ -492,13 +547,16 @@ class WcdbNativeClient:
             if username and display:
                 self._nicknames[username] = display
 
-        # Load contacts
-        contacts = self.get_contacts()
-        for c in contacts:
-            username = c.get("userName") or c.get("username") or ""
-            nick = (c.get("nickName") or c.get("remark") or c.get("displayName") or "").strip()
-            if username and nick:
-                self._nicknames[username] = nick
+        # Load contacts (best-effort — DLL may not fully support this)
+        try:
+            contacts = self.get_contacts()
+            for c in contacts:
+                username = c.get("userName") or c.get("username") or ""
+                nick = (c.get("nickName") or c.get("remark") or c.get("displayName") or "").strip()
+                if username and nick:
+                    self._nicknames[username] = nick
+        except Exception as e:
+            logger.warning("Failed to load contacts: %s", e)
 
         # Manual overrides from nicknames.json
         nick_file = Path("data/nicknames.json")
@@ -576,44 +634,64 @@ class WcdbNativeClient:
         if not self._handle or not usernames:
             return {}
         username_json = json.dumps(usernames, ensure_ascii=False).encode("utf-8")
-        result = self._call_json(
-            self._dll.wcdb_get_display_names,
-            self._handle,
-            username_json,
-        )
-        if isinstance(result, dict):
-            return result.get("names", result)
-        return {}
+        try:
+            result = self._call_json(
+                self._dll.wcdb_get_display_names,
+                self._handle,
+                username_json,
+            )
+            if isinstance(result, dict):
+                return result.get("names", result)
+            return {}
+        except Exception as e:
+            logger.warning(
+                "wcdb_get_display_names failed: %s", e
+            )
+            return {}
 
     def get_contacts(self, keyword="", limit=1000):
         """Get contacts list."""
         if not self._dll.wcdb_get_contacts_compact:
             return []
-        result = self._call_json(
-            self._dll.wcdb_get_contacts_compact,
-            self._handle,
-            json.dumps([keyword], ensure_ascii=False).encode("utf-8"),
-        )
-        if isinstance(result, list):
-            return result
-        if isinstance(result, dict):
-            return result.get("contacts", result.get("data", []))
-        return []
+        try:
+            result = self._call_json(
+                self._dll.wcdb_get_contacts_compact,
+                self._handle,
+                json.dumps([keyword], ensure_ascii=False).encode("utf-8"),
+            )
+            if isinstance(result, list):
+                return result
+            if isinstance(result, dict):
+                return result.get("contacts", result.get("data", []))
+            return []
+        except Exception as e:
+            logger.warning(
+                "wcdb_get_contacts_compact failed — disabling: %s", e
+            )
+            self._dll.wcdb_get_contacts_compact = None
+            return []
 
     def get_group_members(self, chat_id):
         """Get member list for a group chat. Returns list of {username, avatarUrl, ...}."""
         if not self._dll.wcdb_get_group_members:
             return []
-        result = self._call_json(
-            self._dll.wcdb_get_group_members,
-            self._handle,
-            chat_id.encode("utf-8"),
-        )
-        if isinstance(result, list):
-            return result
-        if isinstance(result, dict):
-            return result.get("members", result.get("data", []))
-        return []
+        try:
+            result = self._call_json(
+                self._dll.wcdb_get_group_members,
+                self._handle,
+                chat_id.encode("utf-8"),
+            )
+            if isinstance(result, list):
+                return result
+            if isinstance(result, dict):
+                return result.get("members", result.get("data", []))
+            return []
+        except Exception as e:
+            logger.warning(
+                "wcdb_get_group_members failed — disabling: %s", e
+            )
+            self._dll.wcdb_get_group_members = None
+            return []
 
     def resolve_nickname(self, wxid):
         """Get display name for a wxid from cache."""

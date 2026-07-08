@@ -89,7 +89,12 @@ a = Analysis(
     runtime_hooks=[],
     excludes=['tkinter', 'matplotlib', 'scipy', 'jedi', 'IPython',
               'faster_whisper', 'ctranslate2', 'numpy', 'onnxruntime',
-              'pysilk', 'av', 'sounddevice', 'soundfile'],
+              'pysilk', 'av', 'sounddevice', 'soundfile',
+              # Exclude packages that are NOT webot dependencies but may
+              # be installed in the local Python environment.  Bundling
+              # them bloats the EXE by hundreds of MB.
+              'torch', 'torchvision', 'transformers', 'pandas',
+              'cv2', 'sklearn', 'ultralytics', 'joblib'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=None,

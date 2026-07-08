@@ -117,7 +117,7 @@ jobs:
               main()
           '@ | Set-Content -Encoding UTF8 $extractor
 
-          python $extractor --archive $previousExe --dest lib
+          python $extractor --archive $previousExe --dest native/windows
 
       - name: Build executable
         shell: pwsh

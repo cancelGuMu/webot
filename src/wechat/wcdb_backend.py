@@ -465,8 +465,10 @@ class WcdbBackend(AbstractWeChatBackend):
                     "Reply ready: group='%s' sender='%s' len=%d",
                     group_name, standardized["sender_name"], len(reply),
                 )
-                with self._client_lock:
-                    success = self._send_and_confirm(group_name, talker, reply)
+                # _send_and_confirm uses window_controller (keyboard), not
+                # _client (WCDB).  Don't hold _client_lock during send —
+                # it blocks the poll loop from reading new messages.
+                success = self._send_and_confirm(group_name, talker, reply)
                 if success:
                     logger.info(
                         "Reply sent: group='%s' (%d chars)",
@@ -561,8 +563,12 @@ class WcdbBackend(AbstractWeChatBackend):
             _FILTER_KEYWORDS = (
                 "修改群名", "退出了群聊",
                 "撤回了一条消息", "被移除", "开启了朋友验证",
-                "邀请", "移出了群聊",
+                "移出了群聊",
             )
+            # NOTE: "邀请" intentionally NOT in this list — it would
+            # false-positive filter normal chat like "我邀请你参加活动".
+            # System invite messages ("xxx邀请yyy加入了群聊") are already
+            # caught by _JOIN_PATTERN above.
             if any(kw in content for kw in _FILTER_KEYWORDS):
                 return None
 

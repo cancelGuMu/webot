@@ -88,20 +88,26 @@ def _parse_summary_from_tool_call(response) -> SummaryResult:
     # Strategy 1: tool call with structured data
     if msg.tool_calls:
         args_json = msg.tool_calls[0].function.arguments
-        data = json.loads(args_json)
+        try:
+            data = json.loads(args_json)
+            participants = []
+            for p in data.get("participants", []):
+                if isinstance(p, dict):
+                    participants.append(p)
+                elif isinstance(p, str):
+                    participants.append({"name": p, "contributions": ""})
 
-        participants = []
-        for p in data.get("participants", []):
-            if isinstance(p, dict):
-                participants.append(p)
-            elif isinstance(p, str):
-                participants.append({"name": p, "contributions": ""})
-
-        return SummaryResult(
-            summary_text=data.get("summary_text", ""),
-            topics=data.get("topics", []),
-            participants=participants,
-        )
+            return SummaryResult(
+                summary_text=data.get("summary_text", ""),
+                topics=data.get("topics", []),
+                participants=participants,
+            )
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            logger.warning(
+                "DeepSeek tool-call arguments malformed — falling "
+                "through to fallback strategies. Error: %s", e
+            )
+            # Fall through to strategy 2/3 instead of crashing.
 
     # Strategy 2: JSON in message content
     content = msg.content or ""
@@ -117,6 +123,13 @@ def _parse_summary_from_tool_call(response) -> SummaryResult:
             pass
 
     # Strategy 3: plain text — wrap in minimal SummaryResult
+    if isinstance(content, list):
+        # OpenAI-compatible list content: extract text from first block
+        text_parts = [
+            block.get("text", "") for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        content = "\n".join(text_parts) if text_parts else ""
     content = (content or "").strip()
     if content:
         logger.info("DeepSeek returned plain text (no tool call), wrapping as summary")

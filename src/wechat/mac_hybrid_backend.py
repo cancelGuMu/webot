@@ -236,7 +236,7 @@ class MacHybridBackend(AbstractWeChatBackend):
             _FILTER_KEYWORDS = (
                 "修改群名", "退出了群聊",
                 "撤回了一条消息", "被移除", "开启了朋友验证",
-                "邀请", "移出了群聊",
+                "移出了群聊",
             )
             if any(kw in content for kw in _FILTER_KEYWORDS):
                 return None

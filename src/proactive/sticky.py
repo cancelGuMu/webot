@@ -11,6 +11,7 @@ Lost on restart — acceptable for a 30-60s TTL window.
 """
 
 import logging
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,8 @@ logger = logging.getLogger(__name__)
 class StickyMentionTracker:
     """One-shot sticky mention bridge.
 
-    Thread-safe for single-threaded use (the bot's polling loop).
+    Thread-safe: all public methods hold self._lock so concurrent calls
+    from ThreadPoolExecutor workers don't corrupt internal dicts.
     """
 
     def __init__(self, ttl_sec: int = 60):
@@ -28,6 +30,7 @@ class StickyMentionTracker:
             ttl_sec: Seconds before an unconsumed sticky entry expires.
         """
         self._ttl = ttl_sec
+        self._lock = threading.Lock()
         # (chat_id, sender_id) → expiry_timestamp (float)
         self._entries: dict[tuple[str, str], float] = {}
         # Per-entry re-registration count to prevent infinite whitespace loop
@@ -45,31 +48,32 @@ class StickyMentionTracker:
         and the count is stopped to prevent an infinite loop from a
         malfunctioning client.
         """
-        self._maybe_cleanup()
+        with self._lock:
+            self._maybe_cleanup()
 
-        key = (chat_id, sender_id)
-        existed = key in self._entries
+            key = (chat_id, sender_id)
+            existed = key in self._entries
 
-        # Re-registration cap: prevent infinite whitespace→register loop
-        if existed:
-            self._re_reg_count[key] = self._re_reg_count.get(key, 0) + 1
-            if self._re_reg_count[key] >= 3:
-                logger.warning(
-                    "Sticky: %d re-registrations without consume for "
-                    "chat=%s sender=%s — capping, entry will expire naturally",
-                    self._re_reg_count[key], chat_id[:20], sender_id[:20],
-                )
-                return  # Don't refresh TTL — let the original expiry stand
-        else:
-            self._re_reg_count.pop(key, None)
+            # Re-registration cap: prevent infinite whitespace→register loop
+            if existed:
+                self._re_reg_count[key] = self._re_reg_count.get(key, 0) + 1
+                if self._re_reg_count[key] >= 3:
+                    logger.warning(
+                        "Sticky: %d re-registrations without consume for "
+                        "chat=%s sender=%s — capping, entry will expire naturally",
+                        self._re_reg_count[key], chat_id[:20], sender_id[:20],
+                    )
+                    return  # Don't refresh TTL — let the original expiry stand
+            else:
+                self._re_reg_count.pop(key, None)
 
-        expiry = time.time() + self._ttl
-        self._entries[key] = expiry
-        logger.debug(
-            "Sticky mention %s: chat=%s sender=%s (expires in %ds)",
-            "extended" if existed else "registered",
-            chat_id[:20], sender_id[:20], self._ttl,
-        )
+            expiry = time.time() + self._ttl
+            self._entries[key] = expiry
+            logger.debug(
+                "Sticky mention %s: chat=%s sender=%s (expires in %ds)",
+                "extended" if existed else "registered",
+                chat_id[:20], sender_id[:20], self._ttl,
+            )
 
     def consume(self, chat_id: str, sender_id: str) -> bool:
         """Check and consume a sticky mention atomically.
@@ -78,10 +82,11 @@ class StickyMentionTracker:
         (chat_id, sender_id) — and clears it.  Returns False if no
         entry existed or it had already expired.
         """
-        self._maybe_cleanup()
+        with self._lock:
+            self._maybe_cleanup()
 
-        key = (chat_id, sender_id)
-        expiry = self._entries.get(key)
+            key = (chat_id, sender_id)
+            expiry = self._entries.get(key)
         if expiry is None:
             return False
 

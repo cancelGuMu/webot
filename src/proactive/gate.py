@@ -67,12 +67,12 @@ class ProactiveGate:
                 del self._last_eval[k]
                 self._consecutive_silence.pop(k, None)
 
-        # ── Always record for rate tracking ───────────────────────
-        self._tracker.record(chat_id)
-
         # ── Gate 1: master switch ─────────────────────────────────
         if not self._config.proactive_enabled:
             return False, None, "disabled"
+
+        # ── Record for rate tracking (only when proactive is on) ──
+        self._tracker.record(chat_id)
 
         # ── Gate 2: message rate ──────────────────────────────────
         rate = self._tracker.rate(chat_id)

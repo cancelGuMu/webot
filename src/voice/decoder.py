@@ -6,6 +6,7 @@ WeChat wraps SILK data with a custom header that must be stripped first.
 
 import io
 import logging
+import os
 import struct
 import subprocess
 import tempfile
@@ -112,7 +113,9 @@ class SilkDecoder:
 
     def _decode_amr(self, amr_path: Path) -> Path:
         """Decode .amr → .wav via ffmpeg subprocess."""
-        wav_path = Path(tempfile.mkstemp(suffix=".wav")[1])
+        fd, wav_path_str = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)  # close the fd — we only need the path
+        wav_path = Path(wav_path_str)
         try:
             subprocess.run(
                 [
@@ -142,7 +145,9 @@ class SilkDecoder:
     def _pcm_to_wav(pcm_data: bytes, sample_rate: int,
                     channels: int = 1, bits_per_sample: int = 16) -> Path:
         """Wrap raw PCM bytes in a WAV container → temporary file."""
-        wav_path = Path(tempfile.mkstemp(suffix=".wav")[1])
+        fd, wav_path_str = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)  # close the fd — we only need the path
+        wav_path = Path(wav_path_str)
         with wave.open(str(wav_path), "wb") as wf:
             wf.setnchannels(channels)
             wf.setsampwidth(bits_per_sample // 8)

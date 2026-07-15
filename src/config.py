@@ -269,6 +269,26 @@ class BotConfig:
     voice_asr_to_simplified: bool = True
 
 
+def _safe_float(raw: str, default: float, label: str) -> float:
+    """Parse env value to float, raising RuntimeError with a friendly message on failure."""
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        raise RuntimeError(
+            f"{label} 值 '{raw}' 不是有效的数字，请检查 .env 文件"
+        ) from None
+
+
+def _safe_int(raw: str, default: int, label: str) -> int:
+    """Parse env value to int, raising RuntimeError with a friendly message on failure."""
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        raise RuntimeError(
+            f"{label} 值 '{raw}' 不是有效的整数，请检查 .env 文件"
+        ) from None
+
+
 def _validate_config(kwargs: dict) -> None:
     """Validate numeric config values.  Prints clear errors and exits on bad values."""
     errors: list[str] = []
@@ -443,19 +463,19 @@ def load_config() -> BotConfig:
         "bot_display_name": _sanitize_display_name(os.getenv("BOT_DISPLAY_NAME", "群聊小助手")),
         "admin_wxid": os.getenv("ADMIN_WXID", "").strip(),
         "db_path": os.getenv("DB_PATH", "data/messages.db").strip(),
-        "poll_interval_sec": float(os.getenv("POLL_INTERVAL_SEC", "1.0")),
-        "dedup_window_sec": int(os.getenv("DEDUP_WINDOW_SEC", "60")),
-        "max_messages_for_summary": int(os.getenv("MAX_MESSAGES_FOR_SUMMARY", "5000")),
-        "chunk_size": int(os.getenv("CHUNK_SIZE", "400")),
-        "fallback_window_hours": int(os.getenv("FALLBACK_WINDOW_HOURS", "8")),
+        "poll_interval_sec": _safe_float(os.getenv("POLL_INTERVAL_SEC", "1.0"), 1.0, "POLL_INTERVAL_SEC"),
+        "dedup_window_sec": _safe_int(os.getenv("DEDUP_WINDOW_SEC", "60"), 60, "DEDUP_WINDOW_SEC"),
+        "max_messages_for_summary": _safe_int(os.getenv("MAX_MESSAGES_FOR_SUMMARY", "5000"), 5000, "MAX_MESSAGES_FOR_SUMMARY"),
+        "chunk_size": _safe_int(os.getenv("CHUNK_SIZE", "400"), 400, "CHUNK_SIZE"),
+        "fallback_window_hours": _safe_int(os.getenv("FALLBACK_WINDOW_HOURS", "8"), 8, "FALLBACK_WINDOW_HOURS"),
         "feishu_export_enabled": os.getenv("FEISHU_EXPORT_ENABLED", "false").strip().lower() == "true",
         "feishu_app_id": os.getenv("FEISHU_APP_ID", "").strip(),
         "feishu_app_secret": os.getenv("FEISHU_APP_SECRET", "").strip(),
         "feishu_export_mode": os.getenv("FEISHU_EXPORT_MODE", "knowledge").strip().lower(),
-        "feishu_export_window_hours": int(os.getenv("FEISHU_EXPORT_WINDOW_HOURS", "8")),
+        "feishu_export_window_hours": _safe_int(os.getenv("FEISHU_EXPORT_WINDOW_HOURS", "8"), 8, "FEISHU_EXPORT_WINDOW_HOURS"),
         "feishu_auto_sync_enabled": os.getenv("FEISHU_AUTO_SYNC_ENABLED", "false").strip().lower() == "true",
-        "feishu_auto_sync_min_messages": int(os.getenv("FEISHU_AUTO_SYNC_MIN_MESSAGES", "20")),
-        "feishu_auto_sync_cooldown_sec": int(os.getenv("FEISHU_AUTO_SYNC_COOLDOWN_SEC", "1800")),
+        "feishu_auto_sync_min_messages": _safe_int(os.getenv("FEISHU_AUTO_SYNC_MIN_MESSAGES", "20"), 20, "FEISHU_AUTO_SYNC_MIN_MESSAGES"),
+        "feishu_auto_sync_cooldown_sec": _safe_int(os.getenv("FEISHU_AUTO_SYNC_COOLDOWN_SEC", "1800"), 1800, "FEISHU_AUTO_SYNC_COOLDOWN_SEC"),
         "feishu_knowledge_base_name": os.getenv("FEISHU_KNOWLEDGE_BASE_NAME", "webot 群聊沉淀").strip(),
         "feishu_knowledge_folder_token": os.getenv("FEISHU_KNOWLEDGE_FOLDER_TOKEN", "").strip(),
         "feishu_spreadsheet_token": os.getenv("FEISHU_SPREADSHEET_TOKEN", "").strip(),
@@ -467,19 +487,19 @@ def load_config() -> BotConfig:
         "summarize_enabled": os.getenv("SUMMARIZE_ENABLED", "true").strip().lower() == "true",
         "proactive_enabled": os.getenv("PROACTIVE_ENABLED", "false").strip().lower() == "true",
         # proactive_rate_window_sec handled conditionally below (dataclass default)
-        "proactive_rate_quiet": float(os.getenv("PROACTIVE_RATE_QUIET", "1.5")),
-        "proactive_rate_casual": float(os.getenv("PROACTIVE_RATE_CASUAL", "4.0")),
-        "proactive_rate_lively": float(os.getenv("PROACTIVE_RATE_LIVELY", "6.5")),
-        "proactive_rate_burst": float(os.getenv("PROACTIVE_RATE_BURST", "8.5")),
+        "proactive_rate_quiet": _safe_float(os.getenv("PROACTIVE_RATE_QUIET", "1.5"), 1.5, "PROACTIVE_RATE_QUIET"),
+        "proactive_rate_casual": _safe_float(os.getenv("PROACTIVE_RATE_CASUAL", "4.0"), 4.0, "PROACTIVE_RATE_CASUAL"),
+        "proactive_rate_lively": _safe_float(os.getenv("PROACTIVE_RATE_LIVELY", "6.5"), 6.5, "PROACTIVE_RATE_LIVELY"),
+        "proactive_rate_burst": _safe_float(os.getenv("PROACTIVE_RATE_BURST", "8.5"), 8.5, "PROACTIVE_RATE_BURST"),
         "welcome_enabled": os.getenv("WELCOME_ENABLED", "false").strip().lower() == "true",
         "sticky_mention_enabled": os.getenv("STICKY_MENTION_ENABLED", "true").strip().lower() == "true",
-        "sticky_mention_ttl_sec": int(os.getenv("STICKY_MENTION_TTL_SEC", "60")),
+        "sticky_mention_ttl_sec": _safe_int(os.getenv("STICKY_MENTION_TTL_SEC", "60"), 60, "STICKY_MENTION_TTL_SEC"),
         # Group Todo
         "todo_enabled": os.getenv("TODO_ENABLED", "true").strip().lower() == "true",
         "todo_groups": [g.strip() for g in os.getenv("TODO_GROUPS", "*").split(",") if g.strip()],
-        "todo_max_per_group": int(os.getenv("TODO_MAX_PER_GROUP", "50")),
-        "todo_completed_retention_days": int(os.getenv("TODO_COMPLETED_RETENTION_DAYS", "30")),
-        "todo_deleted_retention_days": int(os.getenv("TODO_DELETED_RETENTION_DAYS", "30")),
+        "todo_max_per_group": _safe_int(os.getenv("TODO_MAX_PER_GROUP", "50"), 50, "TODO_MAX_PER_GROUP"),
+        "todo_completed_retention_days": _safe_int(os.getenv("TODO_COMPLETED_RETENTION_DAYS", "30"), 30, "TODO_COMPLETED_RETENTION_DAYS"),
+        "todo_deleted_retention_days": _safe_int(os.getenv("TODO_DELETED_RETENTION_DAYS", "30"), 30, "TODO_DELETED_RETENTION_DAYS"),
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),
         "log_file": os.getenv("LOG_FILE", "data/bot.log").strip(),
         # Voice recognition
@@ -493,11 +513,11 @@ def load_config() -> BotConfig:
     }
 
     deepseek_model = os.getenv("DEEPSEEK_MODEL")
-    if deepseek_model is not None:
+    if deepseek_model is not None and deepseek_model.strip():
         kwargs["deepseek_model"] = deepseek_model.strip()
 
     proactive_rate_window_sec = os.getenv("PROACTIVE_RATE_WINDOW_SEC")
-    if proactive_rate_window_sec is not None:
+    if proactive_rate_window_sec is not None and proactive_rate_window_sec.strip():
         kwargs["proactive_rate_window_sec"] = int(proactive_rate_window_sec)
 
     if trigger_keywords is not None:

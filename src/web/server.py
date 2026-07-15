@@ -329,9 +329,10 @@ def _set_env_key(env_path: Path, key: str, value: str) -> None:
         new_lines.append(line)
     if not found:
         new_lines.append(f"{key}={value}")
-    tmp = env_path.with_suffix(".tmp")
-    tmp.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-    os.replace(tmp, env_path)
+    tmp = env_path.with_suffix(f".tmp.{os.getpid()}.{threading.get_ident()}")
+    with _env_write_lock:
+        tmp.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        os.replace(tmp, env_path)
 
 
 def _write_onboarding_to_env(env_path):
@@ -793,6 +794,7 @@ class _ServerStartGuard:
 
 _status = _ServerStatus()
 _bot_control = _BotControl()
+_env_write_lock = threading.Lock()  # serialize all .env writes across threads
 _server_guard = _ServerStartGuard()
 _shutdown_event = threading.Event()
 _voice_downloads: dict[str, dict] = {}  # model → {active, msg}
@@ -1242,6 +1244,15 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 }
                 updates.update(_feishu_updates_from_config(config))
                 updates.update(_todo_updates_from_config(config))
+                # ── Safety: never overwrite real secrets with masked values.
+                #     load-config returns masked keys (e.g. "sk-r***t-k"); the
+                #     frontend sends them back unchanged.  Writing a masked
+                #     string to .env permanently destroys the real secret.
+                for masked_key in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY",
+                                   "FEISHU_APP_SECRET", "VOICE_OPENAI_API_KEY"):
+                    val = updates.get(masked_key)
+                    if isinstance(val, str) and "***" in val:
+                        updates[masked_key] = None  # skip → keep existing
                 seen = set()
                 for line in lines:
                     stripped = line.strip()
@@ -1255,10 +1266,14 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 for key, val in updates.items():
                     if key not in seen and val is not None:
                         new_lines.append(f"{key}={val}")
-                # Atomic write: temp file then os.replace
-                tmp_path = env_path.with_suffix(".tmp")
-                tmp_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-                os.replace(tmp_path, env_path)
+                # Atomic write: unique temp file + lock to prevent races
+                # across HTTP threads and background extraction thread.
+                tmp_path = env_path.with_suffix(
+                    f".tmp.{os.getpid()}.{threading.get_ident()}"
+                )
+                with _env_write_lock:
+                    tmp_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+                    os.replace(tmp_path, env_path)
                 for key, val in updates.items():
                     if val is not None:
                         os.environ[key] = str(val)
@@ -1336,10 +1351,13 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 for key, val in updates.items():
                     if key not in seen and val is not None:
                         new_lines.append(f"{key}={val}")
-                # Atomic write
-                tmp_path = env_path.with_suffix(".tmp")
-                tmp_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-                os.replace(tmp_path, env_path)
+                # Atomic write with unique temp file + lock
+                tmp_path = env_path.with_suffix(
+                    f".tmp.{os.getpid()}.{threading.get_ident()}"
+                )
+                with _env_write_lock:
+                    tmp_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+                    os.replace(tmp_path, env_path)
                 # Update in-process environment
                 for key, val in updates.items():
                     if val is not None:
@@ -1746,8 +1764,10 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 if data.get("summarize_model"):
                     sandbox_env_overrides["SUMMARIZE_MODEL"] = data["summarize_model"]
 
-                # Load .env first (without override), then apply sandbox
-                # overrides on top — sandbox values always win.
+                # Load .env first, then temporarily apply sandbox overrides
+                # to os.environ so load_config() picks them up.  Save and
+                # restore original values to prevent cross-request pollution
+                # (e.g. sandbox test key leaking into a subsequent /api/start).
                 from dotenv import load_dotenv
                 from src.config import find_env_file, load_config
                 from src.summarize import create_summarizer
@@ -1758,30 +1778,35 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 else:
                     load_dotenv(override=True)
 
-                # Apply sandbox overrides to os.environ so load_config()
-                # (which reads os.environ) picks them up.
+                # Save originals, apply overrides
+                _saved_env = {}
                 for key, value in sandbox_env_overrides.items():
+                    _saved_env[key] = os.environ.get(key)
                     os.environ[key] = str(value)
+                try:
+                    config = load_config()
 
-                config = load_config()
-
-                # Apply any remaining overrides that load_config() doesn't
-                # read from os.environ (future-proofing).
-                if sandbox_env_overrides:
-                    if "AI_BACKEND" in sandbox_env_overrides:
-                        config.ai_backend = sandbox_env_overrides["AI_BACKEND"]
-                    if "DEEPSEEK_API_KEY" in sandbox_env_overrides:
-                        config.deepseek_api_key = sandbox_env_overrides["DEEPSEEK_API_KEY"]
-                    if "DEEPSEEK_MODEL" in sandbox_env_overrides:
-                        config.deepseek_model = sandbox_env_overrides["DEEPSEEK_MODEL"]
-                    if "DEEPSEEK_BASE_URL" in sandbox_env_overrides:
-                        config.deepseek_base_url = sandbox_env_overrides["DEEPSEEK_BASE_URL"]
-                    if "ANTHROPIC_API_KEY" in sandbox_env_overrides:
-                        config.anthropic_api_key = sandbox_env_overrides["ANTHROPIC_API_KEY"]
-                    if "ANTHROPIC_BASE_URL" in sandbox_env_overrides:
-                        config.anthropic_base_url = sandbox_env_overrides["ANTHROPIC_BASE_URL"]
-                    if "SUMMARIZE_MODEL" in sandbox_env_overrides:
-                        config.summarize_model = sandbox_env_overrides["SUMMARIZE_MODEL"]
+                    # Apply remaining overrides to the config object directly
+                    # (covers fields load_config() reads but doesn't apply from env).
+                    if sandbox_env_overrides:
+                        _apply_override = lambda k, attr: (
+                            setattr(config, attr, sandbox_env_overrides[k])
+                            if k in sandbox_env_overrides else None
+                        )
+                        _apply_override("AI_BACKEND", "ai_backend")
+                        _apply_override("DEEPSEEK_API_KEY", "deepseek_api_key")
+                        _apply_override("DEEPSEEK_MODEL", "deepseek_model")
+                        _apply_override("DEEPSEEK_BASE_URL", "deepseek_base_url")
+                        _apply_override("ANTHROPIC_API_KEY", "anthropic_api_key")
+                        _apply_override("ANTHROPIC_BASE_URL", "anthropic_base_url")
+                        _apply_override("SUMMARIZE_MODEL", "summarize_model")
+                finally:
+                    # Restore original os.environ — prevent pollution
+                    for key, orig in _saved_env.items():
+                        if orig is None:
+                            os.environ.pop(key, None)
+                        else:
+                            os.environ[key] = orig
 
                 if not message:
                     self.send_json({

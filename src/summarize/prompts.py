@@ -192,7 +192,7 @@ def _format_messages_xml(messages: list[dict]) -> str:
     """Format a list of message dicts into XML blocks."""
     msg_blocks = []
     for msg in messages:
-        sender = msg.get("sender_name", "unknown")
+        sender = _escape_xml(msg.get("sender_name", "unknown"))
         ts = msg.get("timestamp", 0)
         time_str = _format_time(ts)
         content = msg.get("content", "")

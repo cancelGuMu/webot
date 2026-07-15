@@ -625,7 +625,7 @@ JSON.stringify([...new Set(values)]);
 
     @staticmethod
     def _send_key_script_line() -> str:
-        shortcut = os.getenv("MAC_WECHAT_SEND_SHORTCUT", "enter").strip().lower()
+        shortcut = os.getenv("MAC_WECHAT_SEND_SHORTCUT", "enter").strip().lower().replace(" ", "")
         if shortcut in {"cmd_enter", "command_enter", "command+enter", "cmd+enter"}:
             return "  key code 36 using command down"
         return "  key code 36"
@@ -1476,6 +1476,8 @@ class MacUIBackend(AbstractWeChatBackend):
                 if not msg or msg["message_id"] in self._seen_ids:
                     continue
                 self._seen_ids.add(msg["message_id"])
+                if len(self._seen_ids) > 10_000:
+                    self._seen_ids.clear()
                 reply = callback(msg)
                 if reply:
                     self.send_text(msg["chat_id"], reply)

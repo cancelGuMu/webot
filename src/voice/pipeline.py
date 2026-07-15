@@ -91,7 +91,7 @@ class VoiceCache:
             self._data = {}
 
     def _prune(self) -> None:
-        """Remove expired entries."""
+        """Remove expired entries, then evict oldest if still over limit."""
         now = time.time()
         stale = [
             k for k, v in self._data.items()
@@ -99,7 +99,21 @@ class VoiceCache:
         ]
         for k in stale:
             del self._data[k]
-        logger.debug("VoiceCache pruned %d expired entries", len(stale))
+        # If all entries are within TTL but we still exceed the limit,
+        # evict the oldest entries to prevent unbounded growth.
+        over = len(self._data) - _CACHE_MAX_ENTRIES
+        if over > 0:
+            oldest = sorted(
+                self._data.items(), key=lambda kv: kv[1].get("ts", 0)
+            )[:over]
+            for k, _ in oldest:
+                del self._data[k]
+            logger.debug(
+                "VoiceCache pruned %d expired + %d oldest entries",
+                len(stale), len(oldest),
+            )
+        else:
+            logger.debug("VoiceCache pruned %d expired entries", len(stale))
 
 
 # ---------------------------------------------------------------------------

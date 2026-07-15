@@ -156,11 +156,15 @@ class FeishuResourceStore:
             },
         }
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(
-            json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        tmp.replace(self.path)
+        try:
+            tmp.write_text(
+                json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            tmp.replace(self.path)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
 
 @dataclass(frozen=True)

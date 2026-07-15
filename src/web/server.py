@@ -138,6 +138,13 @@ def _int_env(raw: str, default: int) -> int:
         return default
 
 
+def _float_env(raw: str, default: float) -> float:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 def _feishu_config_from_raw(raw: dict[str, str]) -> dict:
     """Return UI-facing Feishu export config from env key/value pairs."""
     return {
@@ -1109,16 +1116,16 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 "wechat_groups": _decode_wechat_groups(raw.get("WECHAT_GROUPS", "*")),
                 "fun_enabled": raw.get("FUN_ENABLED", "true").lower() == "true",
                 "proactive_enabled": raw.get("PROACTIVE_ENABLED", "false").lower() == "true",
-                "proactive_rate_window_sec": int(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120")),
-                "proactive_rate_quiet": float(raw.get("PROACTIVE_RATE_QUIET", "1.5")),
-                "proactive_rate_casual": float(raw.get("PROACTIVE_RATE_CASUAL", "4.0")),
-                "proactive_rate_lively": float(raw.get("PROACTIVE_RATE_LIVELY", "6.5")),
-                "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
+                "proactive_rate_window_sec": _int_env(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120"), 120),
+                "proactive_rate_quiet": _float_env(raw.get("PROACTIVE_RATE_QUIET", "1.5"), 1.5),
+                "proactive_rate_casual": _float_env(raw.get("PROACTIVE_RATE_CASUAL", "4.0"), 4.0),
+                "proactive_rate_lively": _float_env(raw.get("PROACTIVE_RATE_LIVELY", "6.5"), 6.5),
+                "proactive_rate_burst": _float_env(raw.get("PROACTIVE_RATE_BURST", "8.5"), 8.5),
                 "welcome_enabled": raw.get("WELCOME_ENABLED", "false").lower() == "true",
                 "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
-                "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
+                "sticky_mention_ttl_sec": _int_env(raw.get("STICKY_MENTION_TTL_SEC", "60"), 60),
                 "summarize_enabled": raw.get("SUMMARIZE_ENABLED", "true").lower() == "true",
-                "fallback_window_hours": int(raw.get("FALLBACK_WINDOW_HOURS", "8")),
+                "fallback_window_hours": _int_env(raw.get("FALLBACK_WINDOW_HOURS", "8"), 8),
                 "trigger_keywords": [
                     kw.strip() for kw in raw.get("TRIGGER_KEYWORDS", "").split(",")
                     if kw.strip()
@@ -1166,16 +1173,16 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "wechat_groups": raw.get("WECHAT_GROUPS", "*"),
                     "fun_enabled": raw.get("FUN_ENABLED", "true").lower() == "true",
                     "proactive_enabled": raw.get("PROACTIVE_ENABLED", "false").lower() == "true",
-                    "proactive_rate_window_sec": int(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120")),
-                    "proactive_rate_quiet": float(raw.get("PROACTIVE_RATE_QUIET", "1.5")),
-                    "proactive_rate_casual": float(raw.get("PROACTIVE_RATE_CASUAL", "4.0")),
-                    "proactive_rate_lively": float(raw.get("PROACTIVE_RATE_LIVELY", "6.5")),
-                    "proactive_rate_burst": float(raw.get("PROACTIVE_RATE_BURST", "8.5")),
+                    "proactive_rate_window_sec": _int_env(raw.get("PROACTIVE_RATE_WINDOW_SEC", "120"), 120),
+                    "proactive_rate_quiet": _float_env(raw.get("PROACTIVE_RATE_QUIET", "1.5"), 1.5),
+                    "proactive_rate_casual": _float_env(raw.get("PROACTIVE_RATE_CASUAL", "4.0"), 4.0),
+                    "proactive_rate_lively": _float_env(raw.get("PROACTIVE_RATE_LIVELY", "6.5"), 6.5),
+                    "proactive_rate_burst": _float_env(raw.get("PROACTIVE_RATE_BURST", "8.5"), 8.5),
                     "welcome_enabled": raw.get("WELCOME_ENABLED", "false").lower() == "true",
                     "sticky_mention_enabled": raw.get("STICKY_MENTION_ENABLED", "true").lower() == "true",
-                    "sticky_mention_ttl_sec": int(raw.get("STICKY_MENTION_TTL_SEC", "60")),
+                    "sticky_mention_ttl_sec": _int_env(raw.get("STICKY_MENTION_TTL_SEC", "60"), 60),
                     "summarize_enabled": raw.get("SUMMARIZE_ENABLED", "true").lower() == "true",
-                    "fallback_window_hours": int(raw.get("FALLBACK_WINDOW_HOURS", "8")),
+                    "fallback_window_hours": _int_env(raw.get("FALLBACK_WINDOW_HOURS", "8"), 8),
                     "trigger_keywords": [
                         kw.strip() for kw in raw.get("TRIGGER_KEYWORDS", "").split(",")
                         if kw.strip()
@@ -1377,6 +1384,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
 
         # ── API: Get nickname groups ─────────────────────────────────────
         if self.path == "/api/nicknames/groups":
+            conn = None
             try:
                 from src.config import find_env_file, _decode_wechat_groups
                 env_path = find_env_file()
@@ -1402,10 +1410,6 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 conn.row_factory = sqlite3.Row
 
                 # ── Load persisted chat_id -> group info ─────────────────
-                # Written by WcdbBackend._save_group_names() when the bot
-                # resolves group names from WeChat's session DB via WCDB DLL.
-                # New format: {chat_id: {name, member_count}}
-                # Old format: {chat_id: "name"} (backward compatible)
                 group_names_path = Path("data/group_names.json")
                 group_info: dict[str, dict] = {}
                 if group_names_path.exists():
@@ -1418,23 +1422,18 @@ class _UIHandler(SimpleHTTPRequestHandler):
                                     "member_count": int(val.get("member_count", 0)),
                                 }
                             else:
-                                # Old format: plain string → name only, no member count
                                 group_info[chat_id] = {
                                     "name": str(val),
                                     "member_count": 0,
                                 }
                     except (json.JSONDecodeError, OSError):
                         pass
-                # ──────────────────────────────────────────────────────────
 
                 groups = []
-
-                # Primary source: group_names.json (from WCDB session scan)
                 if group_info:
                     for chat_id, info in group_info.items():
                         mc = info["member_count"]
                         if not mc:
-                            # Fall back to message-sender count if WCDB didn't provide one
                             cnt_row = conn.execute(
                                 "SELECT COUNT(DISTINCT sender_id) FROM messages WHERE chat_id=?",
                                 (chat_id,),
@@ -1446,7 +1445,6 @@ class _UIHandler(SimpleHTTPRequestHandler):
                             "member_count": mc,
                         })
 
-                # Secondary source: messages table (groups not yet in group_names.json)
                 if _messages_table_exists(conn):
                     existing_ids = set(group_info.keys())
                     rows = conn.execute(
@@ -1466,11 +1464,16 @@ class _UIHandler(SimpleHTTPRequestHandler):
                             "member_count": cnt_row[0] if cnt_row else 0,
                         })
 
-                conn.close()
                 self.send_json({"ok": True, "groups": groups})
             except Exception as e:
                 logger.exception("Failed to list nickname groups")
                 self.send_json({"ok": False, "error": str(e)})
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
             return
 
         # ── API: Get nicknames for a group ────────────────────────────────

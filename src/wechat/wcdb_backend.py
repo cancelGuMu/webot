@@ -91,7 +91,14 @@ class WcdbBackend(AbstractWeChatBackend):
             if isinstance(e, (KeyboardInterrupt, SystemExit)):
                 raise
             logger.error("Failed to initialize WCDB: %s", e)
-            # Push error to Web UI so the user sees a recovery path
+            # If init() allocated DLL/WCDB engine but open() failed,
+            # clean up native resources so repeated retries don't leak.
+            if self._client is not None:
+                try:
+                    self._client.close()
+                    self._client = None
+                except Exception:
+                    pass
             try:
                 from src.web.server import update_status
                 update_status(running=False, error=str(e))

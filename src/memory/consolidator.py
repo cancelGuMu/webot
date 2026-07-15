@@ -98,25 +98,32 @@ class MemoryConsolidator:
 
         # Call AI consolidation with a 30s timeout so a hung API
         # doesn't block the message-processing loop indefinitely.
+        # Use manual executor management — with-statement shutdown(wait=True)
+        # would block on a hung thread even after the timeout fires.
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(
-                    self._summarizer.consolidate_memory,
-                    existing_memory=existing_memory,
-                    new_messages=new_messages,
-                )
-                updated = future.result(timeout=30)
+            future = pool.submit(
+                self._summarizer.consolidate_memory,
+                existing_memory=existing_memory,
+                new_messages=new_messages,
+            )
+            updated = future.result(timeout=30)
         except RuntimeError:
-            # "cannot schedule new futures after interpreter shutdown" —
-            # the process is exiting and threading has been torn down.
-            # Don't log an error — this is normal shutdown noise.
+            pool.shutdown(wait=False)
             return False
         except concurrent.futures.TimeoutError:
             logger.warning(
                 "Memory consolidation timed out after 30s for %s — skipping this cycle",
                 chat_id[:30],
             )
+            pool.shutdown(wait=False)
             return False
+        finally:
+            # Only shutdown if we haven't already (success path)
+            if "updated" not in dir() or updated is not None:
+                pass  # will shutdown below
+        # On success, shut down cleanly
+        pool.shutdown(wait=True)
 
         if not updated or updated == existing_memory:
             logger.info(

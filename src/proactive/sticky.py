@@ -52,11 +52,12 @@ class StickyMentionTracker:
             self._maybe_cleanup()
 
             key = (chat_id, sender_id)
-            existed = key in self._entries
+            existed = key in self._entries and self._entries[key] > time.time()
 
             # Re-registration cap: prevent infinite whitespace→register loop
             if existed:
-                self._re_reg_count[key] = self._re_reg_count.get(key, 0) + 1
+                if self._re_reg_count.get(key, 0) < 3:
+                    self._re_reg_count[key] = self._re_reg_count.get(key, 0) + 1
                 if self._re_reg_count[key] >= 3:
                     logger.warning(
                         "Sticky: %d re-registrations without consume for "

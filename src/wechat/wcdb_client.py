@@ -304,11 +304,10 @@ class WcdbNativeClient:
             from src.config import load_config
             config = load_config()
             custom_dir = config.wechat_data_dir
-        except Exception:
-            # Config not yet available (e.g. during onboarding) — fall back
-            # to auto-detection.  load_config may raise if required keys are
-            # missing, but _find_wxid_and_dbpath still works without them.
-            pass
+        except Exception as e:
+            logger.warning(
+                "Config load failed — falling back to auto-detection: %s", e
+            )
 
         wxid, db_path = _find_wxid_and_dbpath(custom_dir)
         self._config = {
@@ -688,9 +687,8 @@ class WcdbNativeClient:
             return []
         except Exception as e:
             logger.warning(
-                "wcdb_get_group_members failed — disabling: %s", e
+                "wcdb_get_group_members failed: %s", e
             )
-            self._dll.wcdb_get_group_members = None
             return []
 
     def resolve_nickname(self, wxid):

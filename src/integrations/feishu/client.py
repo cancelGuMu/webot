@@ -253,6 +253,6 @@ class FeishuClient:
     @staticmethod
     def _raise_for_error(data: dict) -> None:
         code = data.get("code", 0)
-        if code not in (0, None):
+        if code not in (0, "0", None) and str(code) != "0":
             msg = data.get("msg") or data.get("message") or "unknown error"
             raise FeishuError(f"Feishu OpenAPI error {code}: {msg}")

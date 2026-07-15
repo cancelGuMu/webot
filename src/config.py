@@ -546,6 +546,6 @@ def is_onboarding_done() -> bool:
         for line in env_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line.startswith("ONBOARDING_DONE="):
-                return line.split("=", 1)[1].strip().lower() == "true"
+                return line.split("=", 1)[1].strip().strip("\"'").lower() == "true"
         return False  # .env exists but no ONBOARDING_DONE key
     return False  # No .env found

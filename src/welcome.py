@@ -83,7 +83,7 @@ class WelcomeManager:
             if "default_template" not in data:
                 data["default_template"] = "tpl_default"
             # Ensure the default_template actually exists
-            template_ids = {t["id"] for t in data["templates"]}
+            template_ids = {t.get("id") for t in data["templates"]}
             if data["default_template"] not in template_ids and data["templates"]:
                 data["default_template"] = data["templates"][0]["id"]
             return data

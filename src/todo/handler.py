@@ -43,28 +43,10 @@ class TodoHandler:
         """
         content = clean_content.strip()
 
-        # Priority 1: View active
-        if self._contains_any(content, _VIEW_KEYWORDS):
-            return self._store.list_active(chat_id)
-
-        # Priority 2: View completed
-        if self._contains_any(content, _COMPLETED_LIST_KEYWORDS):
-            return self._store.list_completed(chat_id)
-
-        # Priority 3: View deleted
-        if self._contains_any(content, _DELETED_LIST_KEYWORDS):
-            return self._store.list_deleted(chat_id)
-
-        # Priority 4: Clear (admin only)
-        if self._contains_any(content, _CLEAR_KEYWORDS):
-            if not is_admin:
-                return TodoResult(ok=False, reply="仅群管理员可以执行清空操作。")
-            if "清空已完成" in content:
-                return self._store.clear_completed(chat_id)
-            if "清空已删除" in content:
-                return self._store.clear_deleted(chat_id)
-
-        # Priority 5: Add (prefix match)
+        # Priority 1-3: Explicit prefix-match commands (add/complete/delete).
+        # These must be checked BEFORE substring-match view keywords to
+        # prevent hijacking: "记一下 查看待办的事情" should ADD a todo,
+        # not return the todo list.
         kw, arg = self._match_prefix(content, self._config.todo_add_keywords)
         if kw:
             if not arg:
@@ -77,7 +59,6 @@ class TodoHandler:
                 max_per_group=self._config.todo_max_per_group,
             )
 
-        # Priority 6: Complete (prefix match)
         kw, arg = self._match_prefix(content, self._config.todo_complete_keywords)
         if kw:
             if not arg:
@@ -87,7 +68,6 @@ class TodoHandler:
                 )
             return self._store.complete(chat_id, arg, sender_id, sender_name)
 
-        # Priority 7: Delete (prefix match)
         kw, arg = self._match_prefix(content, self._config.todo_delete_keywords)
         if kw:
             if not arg:
@@ -96,6 +76,27 @@ class TodoHandler:
                     reply="请指定要删除的待办编号，例如：删掉 2",
                 )
             return self._store.delete(chat_id, arg, sender_id, sender_name)
+
+        # Priority 4: View active (substring match, safe now — commands checked first)
+        if self._contains_any(content, _VIEW_KEYWORDS):
+            return self._store.list_active(chat_id)
+
+        # Priority 5: View completed
+        if self._contains_any(content, _COMPLETED_LIST_KEYWORDS):
+            return self._store.list_completed(chat_id)
+
+        # Priority 6: View deleted
+        if self._contains_any(content, _DELETED_LIST_KEYWORDS):
+            return self._store.list_deleted(chat_id)
+
+        # Priority 7: Clear (admin only)
+        if self._contains_any(content, _CLEAR_KEYWORDS):
+            if not is_admin:
+                return TodoResult(ok=False, reply="仅群管理员可以执行清空操作。")
+            if "清空已完成" in content:
+                return self._store.clear_completed(chat_id)
+            if "清空已删除" in content:
+                return self._store.clear_deleted(chat_id)
 
         # Priority 8: Restore (prefix match, admin only)
         kw, arg = self._match_prefix(content, _RESTORE_KEYWORDS)

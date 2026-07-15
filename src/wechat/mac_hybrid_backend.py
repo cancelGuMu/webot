@@ -165,6 +165,9 @@ class MacHybridBackend(AbstractWeChatBackend):
             if msg_id in self._seen_ids:
                 continue
             self._seen_ids.add(msg_id)
+            # Prevent unbounded growth: evict oldest half when over 100k
+            if len(self._seen_ids) > 100_000:
+                self._seen_ids = set(list(self._seen_ids)[-50_000:])
 
             if self._bot_name and self._bot_name in msg["sender_name"]:
                 continue

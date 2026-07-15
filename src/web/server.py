@@ -1727,7 +1727,27 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 group_memory = data.get("group_memory", "").strip()
                 context_messages = data.get("context_messages", [])
 
-                # Load config
+                # ── Apply frontend overrides to os.environ BEFORE
+                #     load_config() so validation sees the sandbox values
+                #     rather than whatever is (or isn't) in .env.
+                sandbox_env_overrides = {}
+                if data.get("ai_backend"):
+                    sandbox_env_overrides["AI_BACKEND"] = data["ai_backend"]
+                if data.get("deepseek_api_key"):
+                    sandbox_env_overrides["DEEPSEEK_API_KEY"] = data["deepseek_api_key"]
+                if data.get("deepseek_model"):
+                    sandbox_env_overrides["DEEPSEEK_MODEL"] = data["deepseek_model"]
+                if data.get("deepseek_base_url"):
+                    sandbox_env_overrides["DEEPSEEK_BASE_URL"] = data["deepseek_base_url"]
+                if data.get("anthropic_api_key"):
+                    sandbox_env_overrides["ANTHROPIC_API_KEY"] = data["anthropic_api_key"]
+                if data.get("anthropic_base_url"):
+                    sandbox_env_overrides["ANTHROPIC_BASE_URL"] = data["anthropic_base_url"]
+                if data.get("summarize_model"):
+                    sandbox_env_overrides["SUMMARIZE_MODEL"] = data["summarize_model"]
+
+                # Load .env first (without override), then apply sandbox
+                # overrides on top — sandbox values always win.
                 from dotenv import load_dotenv
                 from src.config import find_env_file, load_config
                 from src.summarize import create_summarizer
@@ -1738,19 +1758,37 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 else:
                     load_dotenv(override=True)
 
+                # Apply sandbox overrides to os.environ so load_config()
+                # (which reads os.environ) picks them up.
+                for key, value in sandbox_env_overrides.items():
+                    os.environ[key] = str(value)
+
                 config = load_config()
 
-                # Allow overrides from frontend sandbox inputs
-                if data.get("ai_backend"):
-                    config.ai_backend = data["ai_backend"]
-                if data.get("deepseek_api_key"):
-                    config.deepseek_api_key = data["deepseek_api_key"]
-                if data.get("deepseek_model"):
-                    config.deepseek_model = data["deepseek_model"]
-                if data.get("anthropic_api_key"):
-                    config.anthropic_api_key = data["anthropic_api_key"]
-                if data.get("summarize_model"):
-                    config.summarize_model = data["summarize_model"]
+                # Apply any remaining overrides that load_config() doesn't
+                # read from os.environ (future-proofing).
+                if sandbox_env_overrides:
+                    if "AI_BACKEND" in sandbox_env_overrides:
+                        config.ai_backend = sandbox_env_overrides["AI_BACKEND"]
+                    if "DEEPSEEK_API_KEY" in sandbox_env_overrides:
+                        config.deepseek_api_key = sandbox_env_overrides["DEEPSEEK_API_KEY"]
+                    if "DEEPSEEK_MODEL" in sandbox_env_overrides:
+                        config.deepseek_model = sandbox_env_overrides["DEEPSEEK_MODEL"]
+                    if "DEEPSEEK_BASE_URL" in sandbox_env_overrides:
+                        config.deepseek_base_url = sandbox_env_overrides["DEEPSEEK_BASE_URL"]
+                    if "ANTHROPIC_API_KEY" in sandbox_env_overrides:
+                        config.anthropic_api_key = sandbox_env_overrides["ANTHROPIC_API_KEY"]
+                    if "ANTHROPIC_BASE_URL" in sandbox_env_overrides:
+                        config.anthropic_base_url = sandbox_env_overrides["ANTHROPIC_BASE_URL"]
+                    if "SUMMARIZE_MODEL" in sandbox_env_overrides:
+                        config.summarize_model = sandbox_env_overrides["SUMMARIZE_MODEL"]
+
+                if not message:
+                    self.send_json({
+                        "ok": False,
+                        "error": "请输入测试消息内容",
+                    })
+                    return
 
                 # Create summarizer
                 summarizer = create_summarizer(config)
@@ -1770,10 +1808,17 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "reply": reply,
                 })
             except Exception as e:
+                # Log full traceback for diagnosis, but return a clean
+                # error message to the frontend.
                 logger.exception("Failed to run sandbox test")
+                err_msg = str(e)
+                # Surface the HTTP status code if present in the exception.
+                status_code = getattr(e, "status_code", None)
+                if status_code:
+                    err_msg = f"[HTTP {status_code}] {err_msg}"
                 self.send_json({
                     "ok": False,
-                    "error": str(e),
+                    "error": err_msg,
                 })
             return
 

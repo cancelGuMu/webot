@@ -10,7 +10,13 @@ Docs: https://platform.deepseek.com/api-docs
 import json
 import logging
 
-from openai import OpenAI, RateLimitError, APIConnectionError, APIStatusError
+from openai import (
+    OpenAI,
+    RateLimitError,
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+)
 
 from .base import AbstractSummarizer
 from .models import SummaryResult
@@ -142,7 +148,15 @@ class DeepSeekSummarizer(AbstractSummarizer):
     # 1M context window → 900K safe budget
     token_budget = 900_000
 
-    retry_exceptions = (RateLimitError, APIConnectionError, APIStatusError)
+    # Only retry on transient errors (network, timeout, server overload, rate-limit).
+    # 4xx errors (401/403/404/etc.) are permanent — retrying wastes time and
+    # confuses users with "Failed after 3 retries" noise.
+    retry_exceptions = (
+        RateLimitError,
+        APIConnectionError,
+        APITimeoutError,
+        InternalServerError,
+    )
 
     def __init__(self, api_key: str,
                  model: str = MODEL_PRO,

@@ -1668,7 +1668,9 @@ function SandboxSection({ form }) {
           ai_backend: form.ai_backend,
           deepseek_api_key: form.deepseek_api_key,
           deepseek_model: form.deepseek_model,
+          deepseek_base_url: form.deepseek_base_url,
           anthropic_api_key: form.anthropic_api_key,
+          anthropic_base_url: form.anthropic_base_url,
           summarize_model: form.summarize_model,
         })
       })

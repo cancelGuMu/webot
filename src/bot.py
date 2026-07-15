@@ -242,7 +242,10 @@ class Bot:
             )
             self._update_status = update_status
         except Exception as e:
-            logger.debug("Web UI status: %s", e)
+            logger.warning(
+                "Web UI health monitoring unavailable — status updates "
+                "will not appear in dashboard: %s", e,
+            )
             self._update_status = lambda **kw: None
 
         # ── 5. WeChat backend ───────────────────────────────────

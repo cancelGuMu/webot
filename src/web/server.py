@@ -337,22 +337,23 @@ def _set_env_key(env_path: Path, key: str, value: str) -> None:
 
 def _write_onboarding_to_env(env_path):
     """Write accumulated onboarding data to .env file atomically."""
-    env_map = {
-        "AI_BACKEND": _onboarding_data.get("ai_backend", "deepseek"),
-        "DEEPSEEK_API_KEY": _onboarding_data.get("deepseek_api_key", ""),
-        "DEEPSEEK_BASE_URL": _onboarding_data.get("deepseek_base_url", "https://api.deepseek.com"),
-        "DEEPSEEK_MODEL": _onboarding_data.get("deepseek_model", "deepseek-v4-flash"),
-        "ANTHROPIC_API_KEY": _onboarding_data.get("anthropic_api_key", ""),
-        "ANTHROPIC_BASE_URL": _onboarding_data.get("anthropic_base_url", "https://api.anthropic.com"),
-        "SUMMARIZE_MODEL": _onboarding_data.get("summarize_model", "claude-haiku-4-5-20251001"),
-        "WECHAT_BACKEND": _onboarding_data.get("wechat_backend", "wcdb"),
-        "WECHAT_GROUPS": _onboarding_data.get("wechat_groups", "*"),
-        "BOT_DISPLAY_NAME": _onboarding_data.get("bot_display_name", "群聊小助手"),
-        "PROACTIVE_ENABLED": str(_onboarding_data.get("proactive_enabled", False)).lower(),
-        "STICKY_MENTION_ENABLED": str(_onboarding_data.get("sticky_mention_enabled", True)).lower(),
-        "WCDB_KEY": _onboarding_data.get("key", ""),
-        "ONBOARDING_DONE": "true",
-    }
+    with _onboarding_lock:
+        env_map = {
+            "AI_BACKEND": _onboarding_data.get("ai_backend", "deepseek"),
+            "DEEPSEEK_API_KEY": _onboarding_data.get("deepseek_api_key", ""),
+            "DEEPSEEK_BASE_URL": _onboarding_data.get("deepseek_base_url", "https://api.deepseek.com"),
+            "DEEPSEEK_MODEL": _onboarding_data.get("deepseek_model", "deepseek-v4-flash"),
+            "ANTHROPIC_API_KEY": _onboarding_data.get("anthropic_api_key", ""),
+            "ANTHROPIC_BASE_URL": _onboarding_data.get("anthropic_base_url", "https://api.anthropic.com"),
+            "SUMMARIZE_MODEL": _onboarding_data.get("summarize_model", "claude-haiku-4-5-20251001"),
+            "WECHAT_BACKEND": _onboarding_data.get("wechat_backend", "wcdb"),
+            "WECHAT_GROUPS": _onboarding_data.get("wechat_groups", "*"),
+            "BOT_DISPLAY_NAME": _onboarding_data.get("bot_display_name", "群聊小助手"),
+            "PROACTIVE_ENABLED": str(_onboarding_data.get("proactive_enabled", False)).lower(),
+            "STICKY_MENTION_ENABLED": str(_onboarding_data.get("sticky_mention_enabled", True)).lower(),
+            "WCDB_KEY": _onboarding_data.get("key", ""),
+            "ONBOARDING_DONE": "true",
+        }
     # Preserve existing keys not managed by onboarding
     if env_path.exists():
         lines = []

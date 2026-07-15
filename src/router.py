@@ -432,18 +432,15 @@ class MessageRouter:
                 content = self._nicks.resolve_wxids(m.get("content", ""))
                 # Trim single messages over 1000 chars to save tokens.
                 #
-                # Python 3 string slicing operates on code points, not bytes,
-                # so content[:997] will never split a multi-byte UTF-8
-                # sequence.  However, surrogate escapes from the Windows
-                # clipboard can leak lone surrogates (U+D800–U+DFFF) into
-                # strings; slicing between a high/low surrogate pair would
-                # produce an invalid lone surrogate at the cut point.
-                # Pre-sanitise with surrogateescape→replace to squash any
-                # lone surrogates into U+FFFD before slicing.
-                if len(content) > 1000:
-                    content = content.encode(
-                        "utf-8", errors="surrogateescape",
-                    ).decode("utf-8", errors="replace")
+                # Sanitise lone surrogates (U+D800–U+DFFF) that leak from
+                # the Windows clipboard.  These corrupt JSON serialization
+                # and confuse LLMs.  Always clean — not just for long
+                # messages — because even short surrogate-corrupted text
+                # breaks the AI API call.
+                content = content.encode(
+                    "utf-8", errors="surrogateescape",
+                ).decode("utf-8", errors="replace")
+                if len(content) > MAX_CONTENT_LENGTH:
                     content = content[:MAX_CONTENT_LENGTH] + "..."
                 m["content"] = content
 

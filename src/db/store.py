@@ -118,7 +118,9 @@ class MessageStore:
         """Reclaim disk space from deleted trigger_log rows (caller must hold lock)."""
         logger.info("Running VACUUM to reclaim disk space.")
         with self.conn:
-            self.conn.execute("PRAGMA optimize")
+            # VACUUM rebuilds the database file, reclaiming freed pages.
+            # PRAGMA optimize only runs ANALYZE — it doesn't shrink the file.
+            self.conn.execute("VACUUM")
 
     # ── Query operations ───────────────────────────────────────────
 
@@ -217,37 +219,44 @@ class MessageStore:
 
     def get_group_memory(self, chat_id: str) -> dict | None:
         """Retrieve the memory record for a group."""
-        with self._lock:
-            row = self.conn.execute(
-                """SELECT chat_id, memory_text, message_count,
-                          last_message_id, last_consolidated,
-                          created_at, updated_at
-                   FROM group_memory
-                   WHERE chat_id = ?""",
-                (chat_id,),
-            ).fetchone()
-            return dict(row) if row else None
+        try:
+            with self._lock:
+                row = self.conn.execute(
+                    """SELECT chat_id, memory_text, message_count,
+                              last_message_id, last_consolidated,
+                              created_at, updated_at
+                       FROM group_memory
+                       WHERE chat_id = ?""",
+                    (chat_id,),
+                ).fetchone()
+                return dict(row) if row else None
+        except sqlite3.InterfaceError:
+            logger.debug("get_group_memory skipped: connection closed (shutting down)")
+            return None
 
     def upsert_group_memory(self, chat_id: str, memory_text: str,
                             message_count: int, last_message_id: str) -> None:
         """Insert or update a group's memory record."""
-        with self._lock:
-            now = time.time()
-            with self.conn:
-                self.conn.execute(
-                    """INSERT INTO group_memory
-                       (chat_id, memory_text, message_count, last_message_id,
-                        last_consolidated, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(chat_id) DO UPDATE SET
-                       memory_text = excluded.memory_text,
-                       message_count = excluded.message_count,
-                       last_message_id = excluded.last_message_id,
-                       last_consolidated = excluded.last_consolidated,
-                       updated_at = excluded.updated_at""",
-                    (chat_id, memory_text, message_count, last_message_id,
-                     now, now, now),
-                )
+        try:
+            with self._lock:
+                now = time.time()
+                with self.conn:
+                    self.conn.execute(
+                        """INSERT INTO group_memory
+                           (chat_id, memory_text, message_count, last_message_id,
+                            last_consolidated, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)
+                           ON CONFLICT(chat_id) DO UPDATE SET
+                           memory_text = excluded.memory_text,
+                           message_count = excluded.message_count,
+                           last_message_id = excluded.last_message_id,
+                           last_consolidated = excluded.last_consolidated,
+                           updated_at = excluded.updated_at""",
+                        (chat_id, memory_text, message_count, last_message_id,
+                         now, now, now),
+                    )
+        except sqlite3.InterfaceError:
+            logger.debug("upsert_group_memory skipped: connection closed (shutting down)")
 
     def get_new_message_count(self, chat_id: str,
                               since_message_id: str | None) -> int:

@@ -151,11 +151,12 @@ def main():
         if not logger_available:
             _write_crash_log(f"WebView2 unavailable: {e}\nFalling back to browser.")
         webbrowser.open("http://127.0.0.1:7327")
+        print("webot 已在浏览器中打开。按 Ctrl+C 退出。", flush=True)
         try:
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
-            pass
+            print("\n正在退出...", flush=True)
 
 
 if __name__ == "__main__":

@@ -188,7 +188,10 @@ class FeishuClient:
 
         children = self._markdown_to_text_blocks(markdown)
         if children:
-            self.create_docx_blocks(document_id, document_id, children)
+            max_batch = 50  # Feishu blocks/children API limit
+            for i in range(0, len(children), max_batch):
+                batch = children[i : i + max_batch]
+                self.create_docx_blocks(document_id, document_id, batch)
         return created
 
     @staticmethod

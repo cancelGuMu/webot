@@ -299,6 +299,27 @@ class TestConfig(unittest.TestCase):
             tmp_env.unlink(missing_ok=True)
             tmp_dir.rmdir()
 
+    def test_save_key_to_env_persists_wcdb_key(self):
+        """WcdbNativeClient._save_key_to_env must actually write the key to .env.
+
+        Regression guard: it previously referenced an undefined ``_os`` and
+        silently swallowed the NameError, so the key was never persisted.
+        """
+        from src.wechat.wcdb_client import WcdbNativeClient
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        tmp_env = tmp_dir / ".env"
+        try:
+            with patch.dict("os.environ", {"WEBOT_ENV_FILE": str(tmp_env)}):
+                WcdbNativeClient._save_key_to_env("deadbeef" * 8)
+            self.assertTrue(tmp_env.exists(), ".env was not created")
+            content = tmp_env.read_text(encoding="utf-8")
+            self.assertIn("WCDB_KEY=", content)
+            self.assertIn("deadbeef", content)
+        finally:
+            tmp_env.unlink(missing_ok=True)
+            tmp_dir.rmdir()
+
     # -- is_onboarding_done --------------------------------------------
 
     def test_is_onboarding_done_true(self):

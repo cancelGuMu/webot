@@ -511,7 +511,7 @@ class WcdbNativeClient:
             env_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = env_path.with_suffix(".tmp")
             tmp.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-            _os.replace(tmp, env_path)
+            os.replace(tmp, env_path)
             logger.debug("Persisted WCDB_KEY to %s", env_path)
         except Exception as e:
             logger.debug("Failed to persist WCDB_KEY: %s", e)

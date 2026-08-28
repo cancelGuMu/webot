@@ -207,22 +207,18 @@ class FindEnvFileTests(unittest.TestCase):
             result = find_env_file()
             self.assertIsNone(result)
 
-    def test_frozen_includes_exe_dir_in_search(self):
-        """In frozen mode, EXE directory is included as a search location."""
-        from src.config import find_env_file, PROJECT_ROOT
+    def test_resolve_env_file_returns_project_root_by_default(self):
+        """resolve_env_file() defaults to PROJECT_ROOT/.env — the canonical path."""
+        from src.config import resolve_env_file, PROJECT_ROOT
 
-        exe_dir = Path(sys.executable).resolve().parent
-        exe_env = exe_dir / ".env"
+        self.assertEqual(resolve_env_file(), PROJECT_ROOT / ".env")
 
-        with (
-            patch.object(sys, "frozen", True, create=True),
-            patch.object(Path, "exists", return_value=True),
-        ):
-            result = find_env_file()
-            # When all locations exist, EXE dir is checked first (inserted at
-            # position 0) and returned.
-            self.assertIsNotNone(result)
-            self.assertEqual(result, exe_env)
+    def test_resolve_env_file_honors_explicit_override(self):
+        """resolve_env_file() honors the WEBOT_ENV_FILE override."""
+        from src.config import resolve_env_file
+
+        with patch.dict("os.environ", {"WEBOT_ENV_FILE": "/custom/.env"}):
+            self.assertEqual(resolve_env_file(), Path("/custom/.env").resolve())
 
     def test_frozen_returns_none_when_no_env_anywhere(self):
         """Frozen mode with no .env anywhere → None."""

@@ -147,7 +147,7 @@ grep "文件名" CODEBASE_REFERENCE.md
 | `FEISHU_EXPORT_TRIGGER_KEYWORDS` | `list[str]` | `["同步到飞书","导出到飞书","写到飞书","沉淀到飞书"]` | `src/config.py` | `src/integrations/feishu/exporter.py:is_export_command()` |
 | `FEISHU_*` (其他) | — | — | `src/config.py` | `src/integrations/feishu/` (spreadsheet/bitable/doc 模式) |
 | `WEBOT_APP_HOME` | `str` | `""` (自动检测) | `src/config.py:_resolve_project_root()` | `src/config.py`, `src/web/server.py`, `desktop.py` |
-| `WEBOT_ENV_FILE` | `str` | `""` | `src/config.py:find_env_file()` | `src/config.py` (显式指定 .env 路径) |
+| `WEBOT_ENV_FILE` | `str` | `""` | `src/config.py:resolve_env_file()` | `src/config.py` (显式指定 .env 路径) |
 | `ONBOARDING_DONE` | `bool` | `False` | `.env` 写入 | `src/config.py:is_onboarding_done()`, `src/web/server.py`, `desktop.py` |
 | `WCDB_KEY` | `str` | `""` | `.env` / 引导流程写入 | `src/wechat/wcdb_client.py` |
 | `MAC_WECHAT_SEND_SHORTCUT` | `str` | `"enter"` | `desktop_mac.py` | `src/wechat/mac_ui_backend.py` |
@@ -219,7 +219,8 @@ todo_delete_keywords: list[str] = [
 | `_decode_wechat_groups(raw)` | ~20 | URL解码微信群名称 | `raw: str` | `str` (逗号分隔的解码后群名) |
 | `_sanitize_display_name(name)` | ~40 | 清理机器人显示名中的危险字符 | `name: str` | `str` |
 | `_resolve_project_root()` | ~70 | 解析项目根目录(支持 EXE frozen 模式) | 无 | `Path` |
-| `find_env_file()` | ~85 | 按优先级查找 .env 文件 | 无 | `Path \| None` |
+| `resolve_env_file()` | ~85 | 返回 .env 的权威路径(单一来源, 读写统一) | 无 | `Path` |
+| `find_env_file()` | ~100 | 返回实际存在的 .env 路径(canonical 优先, 向后兼容 cwd) | 无 | `Path \| None` |
 | `load_config()` | ~180 | 从环境变量加载并验证配置 | 无 | `BotConfig` |
 | `_validate_config(kwargs)` | ~240 | 验证数值配置范围 | `kwargs: dict` | `None` (无效时抛 RuntimeError) |
 | `is_onboarding_done()` | ~370 | 检查引导流程是否完成 | 无 | `bool` |
@@ -615,7 +616,7 @@ todo_delete_keywords: list[str] = [
 | `_send_ws_frame(sock, text)` | 发送 WebSocket 文本帧 | `sock, text: str` | `None` |
 | `_read_ws_frame(sock)` | 读取 WebSocket 帧 | `sock` | `bytes \| None` |
 | `_recv_exactly(sock, n)` | 精确接收 n 字节 | `sock, n: int` | `bytes \| None` |
-| `_find_or_create_env()` | 查找或创建 .env 文件 | 无 | `Path` |
+| `_find_or_create_env()` | 查找或创建 .env 文件(统一写到 resolve_env_file() 权威路径) | 无 | `Path` |
 | `_detect_wxid_and_db_path()` | 自动检测微信 wxid 和数据库路径 | 无 | `tuple[str \| None, str \| None]` |
 | `_set_env_key(env_path, key, value)` | 原子设置 .env 键值 | `env_path: Path, key: str, value: str` | `None` |
 | `_detect_default_data_dir()` | 检测默认微信数据目录 | 无 | `str` |

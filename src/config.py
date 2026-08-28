@@ -80,29 +80,40 @@ def _resolve_project_root() -> Path:
 PROJECT_ROOT = _resolve_project_root()
 
 
-def find_env_file() -> Path | None:
-    """Find the .env file using a consistent search order.
+def resolve_env_file() -> Path:
+    """Return the canonical .env path — the single source of truth.
 
-    Order: WEBOT_ENV_FILE override → EXE directory (frozen) → project root → current working directory.
-    Returns the Path if found, or None if no .env exists anywhere.
+    Does NOT require the file to exist.  Every read AND write of .env must
+    resolve through this function so config never splits across two files
+    (the original persistence bug came from reads checking one directory
+    while writes created .env in the current working directory).
+
+    Precedence:
+      1. WEBOT_ENV_FILE (explicit override, e.g. the macOS bundle)
+      2. PROJECT_ROOT / ".env" (EXE dir when frozen, project root in dev)
     """
     explicit_env = os.getenv("WEBOT_ENV_FILE", "").strip()
     if explicit_env:
-        explicit_path = Path(explicit_env).expanduser()
-        if explicit_path.exists():
-            return explicit_path
+        return Path(explicit_env).expanduser().resolve()
+    return PROJECT_ROOT / ".env"
 
-    locations = [
-        PROJECT_ROOT / ".env",
-        Path.cwd() / ".env",
-    ]
-    if getattr(sys, "frozen", False):
-        exe_dir = Path(sys.executable).resolve().parent
-        locations.insert(0, exe_dir / ".env")
 
-    for loc in locations:
-        if loc.exists():
-            return loc
+def find_env_file() -> Path | None:
+    """Return the .env path that actually exists, or None.
+
+    The canonical location is resolve_env_file().  For backward
+    compatibility with older installs whose .env landed in the working
+    directory, a read-only fallback to CWD/.env is kept — but writes always
+    go to resolve_env_file().
+    """
+    canonical = resolve_env_file()
+    if canonical.exists():
+        return canonical
+
+    legacy = Path.cwd() / ".env"
+    if legacy != canonical and legacy.exists():
+        return legacy
+
     return None
 
 
@@ -119,15 +130,8 @@ _log = _logging.getLogger(__name__)
 if _env_path:
     _log.info("Loaded .env from: %s", _env_path)
 else:
-    _search_locations = [
-        PROJECT_ROOT / ".env",
-        Path.cwd() / ".env",
-    ]
-    if getattr(sys, "frozen", False):
-        _search_locations.insert(0, Path(sys.executable).resolve().parent / ".env")
     _log.warning(
-        ".env not found in any search path (%s). Using defaults.",
-        ", ".join(str(p) for p in _search_locations),
+        ".env not found (canonical: %s). Using defaults.", resolve_env_file()
     )
 
 

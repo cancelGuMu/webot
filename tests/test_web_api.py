@@ -265,11 +265,12 @@ class TestConfig(unittest.TestCase):
             self.assertIsNone(find_env_file())
 
     def test_find_env_file_frozen_mode(self):
-        """In frozen mode, EXE directory is searched first and returned
-        when .env is present there."""
-        from src.config import find_env_file
+        """In frozen mode, .env resolves to the canonical PROJECT_ROOT/.env.
 
-        exe_dir = Path(sys.executable).resolve().parent
+        (PROJECT_ROOT is already the EXE directory when frozen via
+        _resolve_project_root, so there is no separate EXE-dir search.)
+        """
+        from src.config import find_env_file, PROJECT_ROOT
 
         with (
             patch.object(sys, "frozen", True, create=True),
@@ -277,8 +278,26 @@ class TestConfig(unittest.TestCase):
         ):
             result = find_env_file()
             self.assertIsNotNone(result)
-            # In frozen mode, EXE dir is checked first — it wins
-            self.assertEqual(result, exe_dir / ".env")
+            self.assertEqual(result, PROJECT_ROOT / ".env")
+
+    def test_find_or_create_env_creates_at_canonical_path(self):
+        """When .env is missing, _find_or_create_env writes it to
+        resolve_env_file() (the canonical location), never to the CWD."""
+        from src.web.server import _find_or_create_env
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        tmp_env = tmp_dir / ".env"
+        try:
+            with (
+                patch("src.config.find_env_file", return_value=None),
+                patch("src.config.resolve_env_file", return_value=tmp_env),
+            ):
+                result = _find_or_create_env()
+            self.assertEqual(result, tmp_env)
+            self.assertTrue(tmp_env.exists())
+        finally:
+            tmp_env.unlink(missing_ok=True)
+            tmp_dir.rmdir()
 
     # -- is_onboarding_done --------------------------------------------
 

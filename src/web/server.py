@@ -43,19 +43,23 @@ def _messages_table_exists(conn) -> bool:
 
 
 def _find_or_create_env() -> Path:
-    """Find .env file, using the canonical search order from config.py.
+    """Find .env, or create it at the canonical location from config.py.
 
     If .env is not found but .env.example is, copy it to create a new .env.
+    The created file ALWAYS goes to resolve_env_file() — never CWD-relative —
+    so reads and writes can't drift apart.
     """
     import sys
 
     # 1. Use the canonical search from config.py (consistent across the app)
-    from src.config import find_env_file, _decode_wechat_groups
+    from src.config import find_env_file, resolve_env_file
     existing = find_env_file()
     if existing:
         return existing
 
-    # 2. Not found — try to create from .env.example
+    # 2. Not found — create at the canonical path.
+    env_path = resolve_env_file()
+
     # .env.example is bundled into _MEIPASS in frozen mode.
     if getattr(sys, "frozen", False):
         env_example = Path(sys._MEIPASS) / ".env.example"
@@ -63,14 +67,13 @@ def _find_or_create_env() -> Path:
         env_example = Path(__file__).resolve().parent.parent.parent / ".env.example"
 
     if env_example.exists():
-        # Create .env in app home (CWD already set to EXE dir / project root)
-        env_path = Path(".env")
+        env_path.parent.mkdir(parents=True, exist_ok=True)
         env_path.write_text(env_example.read_text(encoding="utf-8"), encoding="utf-8")
         logger.info("Created .env from .env.example at %s", env_path.resolve())
         return env_path
 
-    # 3. Last resort: create minimal .env in app home
-    env_path = Path(".env")
+    # 3. Last resort: create minimal .env
+    env_path.parent.mkdir(parents=True, exist_ok=True)
     env_path.write_text(
         "AI_BACKEND=deepseek\n"
         "DEEPSEEK_API_KEY=\n"

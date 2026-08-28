@@ -484,20 +484,19 @@ class WcdbNativeClient:
 
     @staticmethod
     def _save_key_to_env(key: str):
-        """Persist a working WCDB key to .env for next cold start."""
-        # Find .env — use PROJECT_ROOT which resolves to EXE dir (frozen)
-        # or project root (dev).  No __file__-based fallback because that
-        # would point to the temp extraction dir in frozen mode.
-        from src.config import PROJECT_ROOT
-        env_path = PROJECT_ROOT / ".env"
-        if not env_path.exists():
-            env_path = None
-        if not env_path:
-            logger.debug("No .env found for key persistence — key in memory only")
-            return
+        """Persist a working WCDB key to .env for next cold start.
 
+        Writes to resolve_env_file() (the canonical .env location), creating
+        the file if missing, so the key lands exactly where config reads it.
+        """
+        from src.config import resolve_env_file
+        env_path = resolve_env_file()
         try:
-            lines = env_path.read_text(encoding="utf-8").splitlines()
+            lines = (
+                env_path.read_text(encoding="utf-8").splitlines()
+                if env_path.exists()
+                else []
+            )
             new_lines = []
             found = False
             for line in lines:
@@ -509,6 +508,7 @@ class WcdbNativeClient:
                     new_lines.append(line)
             if not found:
                 new_lines.append(f"WCDB_KEY={key}")
+            env_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = env_path.with_suffix(".tmp")
             tmp.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
             _os.replace(tmp, env_path)

@@ -136,7 +136,7 @@ class BotConfig:
     """All configuration for the WeChat summarizer bot."""
 
     # === AI Backend ===
-    # "claude" or "deepseek"
+    # "claude" | "deepseek" | "openai"
     ai_backend: str = "claude"
 
     # === Claude (Anthropic) ===
@@ -148,6 +148,12 @@ class BotConfig:
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_base_url: str = "https://api.deepseek.com"
+
+    # === OpenAI (compatible) ===
+    # Any OpenAI-compatible provider: OpenAI / GLM (Zhipu) / Moonshot / Qwen ...
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o-mini"
 
     # === WeChat Backend ===
     wechat_backend: str = "wcdb"
@@ -414,6 +420,11 @@ def load_config() -> BotConfig:
         if not api_key:
             msg = "DEEPSEEK_API_KEY 未设置，请在 .env 文件中配置或通过引导页完成设置"
             raise RuntimeError(msg)
+    elif ai_backend == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        if not api_key:
+            msg = "OPENAI_API_KEY 未设置，请在 .env 文件中配置或通过引导页完成设置"
+            raise RuntimeError(msg)
     else:
         api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
         if not api_key:
@@ -456,6 +467,9 @@ def load_config() -> BotConfig:
         "summarize_model": os.getenv("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001").strip(),
         "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
         "deepseek_base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip(),
+        "openai_api_key": os.getenv("OPENAI_API_KEY", "").strip(),
+        "openai_base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip(),
+        "openai_model": os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip(),
         # deepseek_model handled conditionally below (dataclass default)
         "wechat_backend": os.getenv("WECHAT_BACKEND", "wcdb").strip(),
         "wechat_groups": _decode_wechat_groups(os.getenv("WECHAT_GROUPS", "*")),

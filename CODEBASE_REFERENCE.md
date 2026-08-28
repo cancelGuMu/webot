@@ -92,6 +92,9 @@ grep "文件名" CODEBASE_REFERENCE.md
 | `DEEPSEEK_API_KEY` | `str` | `""` | `src/config.py` | `src/summarize/deepseek_backend.py:DeepSeekSummarizer.__init__()` |
 | `DEEPSEEK_MODEL` | `str` | `"deepseek-v4-flash"` | `src/config.py` | `src/summarize/deepseek_backend.py`, `src/bot.py:_log_banner()` |
 | `DEEPSEEK_BASE_URL` | `str` | `"https://api.deepseek.com"` | `src/config.py` | `src/summarize/deepseek_backend.py` |
+| `OPENAI_API_KEY` | `str` | `""` | `src/config.py` | `src/summarize/openai_backend.py:OpenAISummarizer.__init__()` |
+| `OPENAI_BASE_URL` | `str` | `"https://api.openai.com/v1"` | `src/config.py` | `src/summarize/openai_backend.py` |
+| `OPENAI_MODEL` | `str` | `"gpt-4o-mini"` | `src/config.py` | `src/summarize/openai_backend.py`, `src/bot.py:_log_banner()` |
 | `WECHAT_BACKEND` | `str` | `"wcdb"` | `src/config.py` | `src/bot.py:_create_wechat_backend()` |
 | `WECHAT_GROUPS` | `str` | `"*"` | `src/config.py` (经 `_decode_wechat_groups` URL解码) | `src/bot.py:_create_wechat_backend()`, `src/wechat/wcdb_backend.py:_resolve_groups()` |
 | `WECHAT_DATA_DIR` | `str` | `""` | `src/config.py` | `src/wechat/wcdb_client.py`, `src/voice/file_locator.py`, `src/web/server.py` |
@@ -286,15 +289,33 @@ todo_delete_keywords: list[str] = [
 
 ### 2.6 `src/summarize/deepseek_backend.py` (DeepSeekSummarizer)
 
+> 已重构：所有 OpenAI 兼容逻辑迁至 `openai_backend.py`，本文件仅保留 DeepSeek 专属默认值。
+
+| 常量/函数 | 描述 |
+|---|---|
+| `MODEL_PRO` / `MODEL_FLASH` / `MODEL_DEFAULT` | `deepseek-v4-pro` / `deepseek-v4-flash` / 默认 `MODEL_PRO` |
+| `DEEPSEEK_BASE_URL` | `"https://api.deepseek.com"` |
+| `token_budget = 900_000` | 1M 上下文安全预算 |
+| `disable_thinking = True` | 发送 `thinking: disabled` |
+| `__init__(api_key, model, base_url, chunk_size, max_retries)` | 调用 `super().__init__()` 初始化 OpenAI 客户端 |
+
+其余方法 (`_call_chat_api` / `_summarize_direct` / `_summarize_chunk` / `_merge_chunk_summaries` / `consolidate_memory`) 继承自 `OpenAISummarizer`。
+
+### 2.6b `src/summarize/openai_backend.py` (OpenAISummarizer)
+
+> 通用 OpenAI 兼容后端，可接入 OpenAI / GLM(智谱) / Moonshot / Qwen 等。GLM: `OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4/`, `OPENAI_MODEL=glm-4-flash`。
+
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
-| `__init__(api_key, model, base_url, chunk_size, max_retries)` | 初始化 DeepSeek 客户端 | API配置 | `None` |
-| `_call_chat_api(system_prompt, messages)` | DeepSeek 对话 API (thinking disabled) | prompt + messages | `str` |
+| `__init__(api_key, model, base_url, chunk_size, max_retries)` | 初始化 OpenAI 客户端 (默认 `gpt-4o-mini` / `https://api.openai.com/v1`) | API配置 | `None` |
+| `_extra_body()` | 返回 provider 专属 extra_body；`disable_thinking` 时返回 `{"thinking":{"type":"disabled"}}` 否则 `None` | — | `dict \| None` |
+| `_call_chat_api(system_prompt, messages)` | OpenAI 兼容对话 API | prompt + messages | `str` |
 | `_summarize_direct(messages, requester_name)` | 直接总结(tool calling) | 消息列表 | `SummaryResult` |
 | `_summarize_chunk(chunk, chunk_num, total, requester_name)` | 分块提取 | 分块消息 | `str` |
 | `_merge_chunk_summaries(chunk_summaries, requester_name)` | 合并分块(tool calling) | 摘要列表 | `SummaryResult` |
-| `consolidate_memory(existing_memory, new_messages)` | 记忆合并(Flash model) | 现有记忆 + 新消息 | `str` |
-| `_parse_summary_from_tool_call(response)` | 解析 DeepSeek tool call 响应(模块级) | `response` | `SummaryResult` |
+| `consolidate_memory(existing_memory, new_messages)` | 记忆合并 | 现有记忆 + 新消息 | `str` |
+| `_parse_summary_from_tool_call(response)` | 解析 tool call 响应(模块级) | `response` | `SummaryResult` |
+| `STORE_SUMMARY_TOOL` | 结构化输出 tool schema(模块级) | — | `dict` |
 
 ### 2.7 `src/summarize/prompts.py`
 
@@ -653,7 +674,8 @@ desktop.py  (桌面入口)
             ├── src/summarize/  (AI 后端)
             │     ├── base.py           → AbstractSummarizer
             │     ├── claude_backend.py  → ClaudeSummarizer
-            │     ├── deepseek_backend.py → DeepSeekSummarizer
+            │     ├── deepseek_backend.py → DeepSeekSummarizer (继承 OpenAISummarizer)
+            │     ├── openai_backend.py  → OpenAISummarizer (通用 OpenAI 兼容)
             │     ├── models.py         → SummaryResult (Pydantic)
             │     └── prompts.py        → Prompt 模板
             └── src/wechat/  (微信后端)
@@ -681,7 +703,8 @@ Bot.run()
   ├── TriggerDetector()                  [src/trigger/detector.py]
   ├── create_summarizer()                [src/summarize/__init__.py]
   │     ├── ClaudeSummarizer()            [src/summarize/claude_backend.py]
-  │     └── DeepSeekSummarizer()          [src/summarize/deepseek_backend.py]
+  │     ├── DeepSeekSummarizer()          [src/summarize/deepseek_backend.py]
+  │     └── OpenAISummarizer()            [src/summarize/openai_backend.py]
   ├── NicknameService()                  [src/nickname.py]
   ├── AdminCommandHandler()              [src/admin.py]
   ├── FeishuExportService()              [src/integrations/feishu/exporter.py]
@@ -757,12 +780,16 @@ AbstractSummarizer (base.py)
     │     ├── _merge_chunk_summaries()   — client.messages.parse() + Pydantic
     │     └── consolidate_memory()       — client.messages.create() (Haiku)
     │
-    └── DeepSeekSummarizer (deepseek_backend.py)
-          ├── _call_chat_api()           — client.chat.completions.create() (thinking disabled)
+    ├── DeepSeekSummarizer (deepseek_backend.py) — 继承 OpenAISummarizer
+    │         token_budget=900_000, disable_thinking=True
+    │
+    └── OpenAISummarizer (openai_backend.py) — 通用 OpenAI 兼容实现
+          ├── _extra_body()             — disable_thinking 时返回 thinking: disabled
+          ├── _call_chat_api()           — client.chat.completions.create()
           ├── _summarize_direct()        — tool calling → _parse_summary_from_tool_call()
           ├── _summarize_chunk()         — client.chat.completions.create()
           ├── _merge_chunk_summaries()   — tool calling
-          └── consolidate_memory()       — client.chat.completions.create() (Flash)
+          └── consolidate_memory()       — client.chat.completions.create()
 ```
 
 ### 3.3 数据流: 消息从微信到AI总结到前端展示的完整链路
@@ -911,7 +938,8 @@ WcdbBackend.start(callback)
 |---|---|---|
 | `base.py` | `src/summarize/base.py` | 抽象基类 (chat, proactive_chat, summarize, format) |
 | `claude_backend.py` | `src/summarize/claude_backend.py` | Claude API (Pydantic parse) |
-| `deepseek_backend.py` | `src/summarize/deepseek_backend.py` | DeepSeek API (tool calling) |
+| `deepseek_backend.py` | `src/summarize/deepseek_backend.py` | DeepSeek API (继承 OpenAISummarizer) |
+| `openai_backend.py` | `src/summarize/openai_backend.py` | 通用 OpenAI 兼容 API (OpenAI / GLM / Moonshot 等) |
 | `prompts.py` | `src/summarize/prompts.py` | Prompt 模板 (XML格式, Map-Reduce, 记忆合并) |
 | `models.py` | `src/summarize/models.py` | Pydantic 数据模型 |
 | `__init__.py` | `src/summarize/__init__.py` | 工厂函数 create_summarizer() |
@@ -956,6 +984,7 @@ MessageRouter.handle(msg)
 |---|---|---|
 | `token_budget` (Claude) | `150000` | Claude 上下文窗口安全预算 |
 | `token_budget` (DeepSeek) | `900000` | DeepSeek 上下文窗口安全预算 |
+| `token_budget` (OpenAI) | `100000` | 通用 OpenAI 兼容上下文窗口安全预算 |
 | `chunk_size` | `400` | 每个分块的消息数 |
 | `merge_batch_size` | `5` | 合并批次大小 |
 | `max_retries` | `3` | API 调用最大重试次数 |
@@ -1512,12 +1541,17 @@ MacHybridBackend
 
 ```ini
 # === AI 后端 ===
-AI_BACKEND=deepseek                           # "deepseek" 或 "claude"
+AI_BACKEND=deepseek                           # "deepseek" | "claude" | "openai"
 
 # === DeepSeek ===
 DEEPSEEK_API_KEY=sk-xxx                        # DeepSeek API 密钥
 DEEPSEEK_MODEL=deepseek-v4-flash               # 模型 ID
 DEEPSEEK_BASE_URL=https://api.deepseek.com     # API 地址
+
+# === OpenAI 兼容 (GLM / Moonshot / Qwen 等) ===
+OPENAI_API_KEY=sk-xxx                          # OpenAI 兼容 API 密钥
+OPENAI_BASE_URL=https://api.openai.com/v1      # GLM: https://open.bigmodel.cn/api/paas/v4/
+OPENAI_MODEL=gpt-4o-mini                       # 模型 ID (如 glm-4-flash)
 
 # === Claude (Anthropic) ===
 ANTHROPIC_API_KEY=sk-ant-xxx                   # Anthropic API 密钥

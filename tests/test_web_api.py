@@ -1054,6 +1054,27 @@ class ApiConfigEndpointTests(unittest.TestCase):
             self.assertEqual(config["bot_display_name"], "MyBot")
             self.assertFalse(config["fun_enabled"])
 
+    def test_load_config_reads_openai_values(self):
+        """GET /api/load-config returns openai fields (masked key + base_url/model)."""
+        with patch("src.web.server._find_or_create_env") as mock_find:
+            fake_env = MagicMock()
+            fake_env.exists.return_value = True
+            fake_env.read_text.return_value = (
+                "AI_BACKEND=openai\n"
+                "OPENAI_API_KEY=sk-glm-test-key\n"
+                "OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4/\n"
+                "OPENAI_MODEL=glm-4-flash\n"
+            )
+            mock_find.return_value = fake_env
+            handler, sock = _build_handler("/api/load-config")
+            parts = sock.get_response_text().split("\r\n\r\n", 1)
+            body = json.loads(parts[1])
+            config = body["config"]
+            self.assertEqual(config["ai_backend"], "openai")
+            self.assertNotIn("sk-glm-test-key", config["openai_api_key"])
+            self.assertEqual(config["openai_base_url"], "https://open.bigmodel.cn/api/paas/v4/")
+            self.assertEqual(config["openai_model"], "glm-4-flash")
+
     def test_load_config_reads_feishu_export_values(self):
         """GET /api/load-config reads Feishu export settings from .env."""
         with patch("src.web.server._find_or_create_env") as mock_find:
@@ -1199,6 +1220,76 @@ class ApiConfigEndpointTests(unittest.TestCase):
             self.assertIn("BOT_DISPLAY_NAME=new-name", saved_content)
             self.assertIn("FUN_ENABLED=false", saved_content)
             self.assertIn("AI_BACKEND=deepseek", saved_content)
+        finally:
+            tmp_env.unlink(missing_ok=True)
+            for f in tmp_dir.glob("*"):
+                f.unlink(missing_ok=True)
+            tmp_dir.rmdir()
+
+    def test_save_config_roundtrip_openai(self):
+        """POST /api/config persists OPENAI_* values and load-config reads them."""
+        tmp_dir = Path(tempfile.mkdtemp())
+        tmp_env = tmp_dir / ".env"
+        tmp_env.write_text("AI_BACKEND=deepseek\n", encoding="utf-8")
+        try:
+            save_body = json.dumps({
+                "ai_backend": "openai",
+                "openai_api_key": "sk-glm-new-key",
+                "openai_base_url": "https://open.bigmodel.cn/api/paas/v4/",
+                "openai_model": "glm-4-flash",
+            }).encode()
+            with patch("src.web.server._find_or_create_env",
+                       return_value=tmp_env):
+                handler, sock = _build_handler(
+                    "/api/config", method="POST",
+                    body=save_body,
+                    headers={"Content-Type": "application/json",
+                             "Content-Length": str(len(save_body))},
+                )
+                parts = sock.get_response_text().split("\r\n\r\n", 1)
+                result = json.loads(parts[1])
+                self.assertTrue(result["ok"])
+
+            saved_content = tmp_env.read_text(encoding="utf-8")
+            self.assertIn("AI_BACKEND=openai", saved_content)
+            self.assertIn("OPENAI_API_KEY=sk-glm-new-key", saved_content)
+            self.assertIn("OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4/", saved_content)
+            self.assertIn("OPENAI_MODEL=glm-4-flash", saved_content)
+        finally:
+            tmp_env.unlink(missing_ok=True)
+            for f in tmp_dir.glob("*"):
+                f.unlink(missing_ok=True)
+            tmp_dir.rmdir()
+
+    def test_save_config_does_not_overwrite_masked_openai_key(self):
+        """Saving a masked OPENAI_API_KEY must not clobber the real secret."""
+        tmp_dir = Path(tempfile.mkdtemp())
+        tmp_env = tmp_dir / ".env"
+        tmp_env.write_text(
+            "AI_BACKEND=openai\nOPENAI_API_KEY=sk-real-secret-key\n",
+            encoding="utf-8",
+        )
+        try:
+            save_body = json.dumps({
+                "ai_backend": "openai",
+                "openai_api_key": "sk-r***t-key",
+                "openai_model": "glm-4-flash",
+            }).encode()
+            with patch("src.web.server._find_or_create_env",
+                       return_value=tmp_env):
+                handler, sock = _build_handler(
+                    "/api/config", method="POST",
+                    body=save_body,
+                    headers={"Content-Type": "application/json",
+                             "Content-Length": str(len(save_body))},
+                )
+                parts = sock.get_response_text().split("\r\n\r\n", 1)
+                result = json.loads(parts[1])
+                self.assertTrue(result["ok"])
+
+            saved_content = tmp_env.read_text(encoding="utf-8")
+            self.assertIn("OPENAI_API_KEY=sk-real-secret-key", saved_content)
+            self.assertNotIn("sk-r***t-key", saved_content)
         finally:
             tmp_env.unlink(missing_ok=True)
             for f in tmp_dir.glob("*"):

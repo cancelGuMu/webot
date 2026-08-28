@@ -350,6 +350,9 @@ def _write_onboarding_to_env(env_path):
             "DEEPSEEK_API_KEY": _onboarding_data.get("deepseek_api_key", ""),
             "DEEPSEEK_BASE_URL": _onboarding_data.get("deepseek_base_url", "https://api.deepseek.com"),
             "DEEPSEEK_MODEL": _onboarding_data.get("deepseek_model", "deepseek-v4-flash"),
+            "OPENAI_API_KEY": _onboarding_data.get("openai_api_key", ""),
+            "OPENAI_BASE_URL": _onboarding_data.get("openai_base_url", "https://api.openai.com/v1"),
+            "OPENAI_MODEL": _onboarding_data.get("openai_model", "gpt-4o-mini"),
             "ANTHROPIC_API_KEY": _onboarding_data.get("anthropic_api_key", ""),
             "ANTHROPIC_BASE_URL": _onboarding_data.get("anthropic_base_url", "https://api.anthropic.com"),
             "SUMMARIZE_MODEL": _onboarding_data.get("summarize_model", "claude-haiku-4-5-20251001"),
@@ -1108,6 +1111,9 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 "deepseek_api_key": _mask_key(raw.get("DEEPSEEK_API_KEY", "")),
                 "deepseek_base_url": raw.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
                 "deepseek_model": raw.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+                "openai_api_key": _mask_key(raw.get("OPENAI_API_KEY", "")),
+                "openai_base_url": raw.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                "openai_model": raw.get("OPENAI_MODEL", "gpt-4o-mini"),
                 "anthropic_api_key": _mask_key(raw.get("ANTHROPIC_API_KEY", "")),
                 "anthropic_base_url": raw.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
                 "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
@@ -1165,6 +1171,9 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "deepseek_api_key": _mask_key(raw.get("DEEPSEEK_API_KEY", "")),
                     "deepseek_base_url": raw.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
                     "deepseek_model": raw.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+                    "openai_api_key": _mask_key(raw.get("OPENAI_API_KEY", "")),
+                    "openai_base_url": raw.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                    "openai_model": raw.get("OPENAI_MODEL", "gpt-4o-mini"),
                     "anthropic_api_key": _mask_key(raw.get("ANTHROPIC_API_KEY", "")),
                     "anthropic_base_url": raw.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
                     "summarize_model": raw.get("SUMMARIZE_MODEL", "claude-haiku-4-5-20251001"),
@@ -1221,6 +1230,9 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "DEEPSEEK_API_KEY": config.get("deepseek_api_key"),
                     "DEEPSEEK_BASE_URL": config.get("deepseek_base_url"),
                     "DEEPSEEK_MODEL": config.get("deepseek_model"),
+                    "OPENAI_API_KEY": config.get("openai_api_key"),
+                    "OPENAI_BASE_URL": config.get("openai_base_url"),
+                    "OPENAI_MODEL": config.get("openai_model"),
                     "ANTHROPIC_API_KEY": config.get("anthropic_api_key"),
                     "ANTHROPIC_BASE_URL": config.get("anthropic_base_url"),
                     "SUMMARIZE_MODEL": config.get("summarize_model"),
@@ -1256,8 +1268,9 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 #     load-config returns masked keys (e.g. "sk-r***t-k"); the
                 #     frontend sends them back unchanged.  Writing a masked
                 #     string to .env permanently destroys the real secret.
-                for masked_key in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY",
-                                   "FEISHU_APP_SECRET", "VOICE_OPENAI_API_KEY"):
+                for masked_key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY",
+                                   "ANTHROPIC_API_KEY", "FEISHU_APP_SECRET",
+                                   "VOICE_OPENAI_API_KEY"):
                     val = updates.get(masked_key)
                     if isinstance(val, str) and "***" in val:
                         updates[masked_key] = None  # skip → keep existing
@@ -1315,6 +1328,9 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "DEEPSEEK_API_KEY": config.get("deepseek_api_key"),
                     "DEEPSEEK_BASE_URL": config.get("deepseek_base_url"),
                     "DEEPSEEK_MODEL": config.get("deepseek_model"),
+                    "OPENAI_API_KEY": config.get("openai_api_key"),
+                    "OPENAI_BASE_URL": config.get("openai_base_url"),
+                    "OPENAI_MODEL": config.get("openai_model"),
                     "ANTHROPIC_API_KEY": config.get("anthropic_api_key"),
                     "ANTHROPIC_BASE_URL": config.get("anthropic_base_url"),
                     "SUMMARIZE_MODEL": config.get("summarize_model"),
@@ -1761,6 +1777,12 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     sandbox_env_overrides["DEEPSEEK_MODEL"] = data["deepseek_model"]
                 if data.get("deepseek_base_url"):
                     sandbox_env_overrides["DEEPSEEK_BASE_URL"] = data["deepseek_base_url"]
+                if data.get("openai_api_key"):
+                    sandbox_env_overrides["OPENAI_API_KEY"] = data["openai_api_key"]
+                if data.get("openai_model"):
+                    sandbox_env_overrides["OPENAI_MODEL"] = data["openai_model"]
+                if data.get("openai_base_url"):
+                    sandbox_env_overrides["OPENAI_BASE_URL"] = data["openai_base_url"]
                 if data.get("anthropic_api_key"):
                     sandbox_env_overrides["ANTHROPIC_API_KEY"] = data["anthropic_api_key"]
                 if data.get("anthropic_base_url"):
@@ -1801,6 +1823,9 @@ class _UIHandler(SimpleHTTPRequestHandler):
                         _apply_override("DEEPSEEK_API_KEY", "deepseek_api_key")
                         _apply_override("DEEPSEEK_MODEL", "deepseek_model")
                         _apply_override("DEEPSEEK_BASE_URL", "deepseek_base_url")
+                        _apply_override("OPENAI_API_KEY", "openai_api_key")
+                        _apply_override("OPENAI_MODEL", "openai_model")
+                        _apply_override("OPENAI_BASE_URL", "openai_base_url")
                         _apply_override("ANTHROPIC_API_KEY", "anthropic_api_key")
                         _apply_override("ANTHROPIC_BASE_URL", "anthropic_base_url")
                         _apply_override("SUMMARIZE_MODEL", "summarize_model")

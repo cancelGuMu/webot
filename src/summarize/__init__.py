@@ -12,6 +12,7 @@ import logging
 from .base import AbstractSummarizer
 from .claude_backend import ClaudeSummarizer
 from .deepseek_backend import DeepSeekSummarizer
+from .openai_backend import OpenAISummarizer
 from .models import ParticipantContribution, SummaryResult
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ __all__ = [
     "AbstractSummarizer",
     "ClaudeSummarizer",
     "DeepSeekSummarizer",
+    "OpenAISummarizer",
     "SummaryResult",
     "ParticipantContribution",
     "create_summarizer",
@@ -33,7 +35,7 @@ def create_summarizer(config) -> AbstractSummarizer:
         config: BotConfig instance with ai_backend, api keys, model, etc.
 
     Returns:
-        An AbstractSummarizer implementation (Claude or DeepSeek).
+        An AbstractSummarizer implementation (Claude, DeepSeek, or OpenAI).
 
     Raises:
         ValueError: If the configured backend is unknown.
@@ -58,8 +60,17 @@ def create_summarizer(config) -> AbstractSummarizer:
             chunk_size=config.chunk_size,
         )
 
+    elif backend == "openai":
+        logger.info("Creating OpenAISummarizer (model=%s)", config.openai_model)
+        return OpenAISummarizer(
+            api_key=config.openai_api_key,
+            model=config.openai_model,
+            base_url=config.openai_base_url,
+            chunk_size=config.chunk_size,
+        )
+
     else:
         raise ValueError(
             f"Unknown AI_BACKEND: '{config.ai_backend}'. "
-            f"Supported: 'claude', 'deepseek'."
+            f"Supported: 'claude', 'deepseek', 'openai'."
         )

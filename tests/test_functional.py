@@ -217,6 +217,38 @@ class TestSummarizerBaseUrl:
         assert captured["base_url"] == "https://claude-proxy.example.com"
         assert captured["chunk_size"] == 123
 
+    def test_openai_factory_passes_openai_base_url(self, monkeypatch):
+        from src.config import BotConfig
+        import src.summarize as summarize
+
+        captured = {}
+
+        class FakeOpenAISummarizer:
+            def __init__(self, api_key, model, base_url, chunk_size):
+                captured.update({
+                    "api_key": api_key,
+                    "model": model,
+                    "base_url": base_url,
+                    "chunk_size": chunk_size,
+                })
+
+        monkeypatch.setattr(summarize, "OpenAISummarizer", FakeOpenAISummarizer)
+
+        config = BotConfig(
+            ai_backend="openai",
+            openai_api_key="sk-glm-test",
+            openai_base_url="https://open.bigmodel.cn/api/paas/v4/",
+            openai_model="glm-4-flash",
+            chunk_size=123,
+        )
+
+        summarize.create_summarizer(config)
+
+        assert captured["api_key"] == "sk-glm-test"
+        assert captured["model"] == "glm-4-flash"
+        assert captured["base_url"] == "https://open.bigmodel.cn/api/paas/v4/"
+        assert captured["chunk_size"] == 123
+
 
 class TestPostAllowlist:
     """Verify /api/sandbox/test is in POST allowlist (doesn't return 405)."""

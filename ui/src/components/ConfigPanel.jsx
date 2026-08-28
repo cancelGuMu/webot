@@ -31,12 +31,14 @@ function TypewriterText({ text, speed = 15 }) {
 
 function AiSection({ form, update }) {
   const isDeepSeek = form.ai_backend === 'deepseek'
+  const isOpenAI = form.ai_backend === 'openai'
 
   return (
     <div>
-      <Field label="AI 服务商" hint="推荐使用 DeepSeek，中文群聊效果更好；Claude 需要 Anthropic API Key">
+      <Field label="AI 服务商" hint="推荐使用 DeepSeek，中文群聊效果更好；OpenAI 兼容支持 GLM / Moonshot 等">
         <Select value={form.ai_backend} onChange={v => update('ai_backend', v)} options={[
           { value: 'deepseek', desc: 'DeepSeek', hint: '推荐 · 中文效果好' },
+          { value: 'openai', desc: 'OpenAI 兼容', hint: 'OpenAI / GLM / Moonshot 等' },
           { value: 'claude', desc: 'Claude', hint: 'Anthropic' },
         ]} />
       </Field>
@@ -54,6 +56,18 @@ function AiSection({ form, update }) {
               { value: 'deepseek-v4-flash', desc: 'DeepSeek-V4-Flash', hint: '¥1 输入 · ¥2 输出 /M' },
               { value: 'deepseek-v4-pro',   desc: 'DeepSeek-V4-Pro',   hint: '¥3 输入 · ¥6 输出 /M' },
             ]} />
+          </Field>
+        </>
+      ) : isOpenAI ? (
+        <>
+          <Field label="OpenAI API Key" hint="OpenAI / GLM / Moonshot 等服务商的 API Key" error={!form.openai_api_key ? '请填写 API Key' : null}>
+            <Input type="password" value={form.openai_api_key} onChange={v => update('openai_api_key', v)} placeholder="sk-xxxxxxxxxxxxxxxx" />
+          </Field>
+          <Field label="API Base URL" hint="GLM 填 https://open.bigmodel.cn/api/paas/v4/；OpenAI 官方填 https://api.openai.com/v1">
+            <Input value={form.openai_base_url} onChange={v => update('openai_base_url', v)} placeholder="https://api.openai.com/v1" />
+          </Field>
+          <Field label="模型名" hint="填写服务商提供的模型名，如 glm-4-flash / gpt-4o-mini">
+            <Input value={form.openai_model} onChange={v => update('openai_model', v)} placeholder="gpt-4o-mini" />
           </Field>
         </>
       ) : (
@@ -1669,6 +1683,9 @@ function SandboxSection({ form }) {
           deepseek_api_key: form.deepseek_api_key,
           deepseek_model: form.deepseek_model,
           deepseek_base_url: form.deepseek_base_url,
+          openai_api_key: form.openai_api_key,
+          openai_model: form.openai_model,
+          openai_base_url: form.openai_base_url,
           anthropic_api_key: form.anthropic_api_key,
           anthropic_base_url: form.anthropic_base_url,
           summarize_model: form.summarize_model,
@@ -1801,6 +1818,7 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
   const [form, setForm] = useState({
     ai_backend: 'deepseek', deepseek_api_key: '', deepseek_model: 'deepseek-v4-flash',
     deepseek_base_url: 'https://api.deepseek.com',
+    openai_api_key: '', openai_base_url: 'https://api.openai.com/v1', openai_model: 'gpt-4o-mini',
     anthropic_api_key: '', anthropic_base_url: 'https://api.anthropic.com',
     summarize_model: 'claude-haiku-4-5-20251001',
     bot_display_name: '', wechat_backend: 'wcdb', wechat_groups: '*',
@@ -1920,6 +1938,9 @@ export default function ConfigPanel({ activeSection, onNavigate }) {
           deepseek_api_key: form.deepseek_api_key,
           deepseek_base_url: form.deepseek_base_url,
           deepseek_model: form.deepseek_model,
+          openai_api_key: form.openai_api_key,
+          openai_base_url: form.openai_base_url,
+          openai_model: form.openai_model,
           anthropic_api_key: form.anthropic_api_key,
           anthropic_base_url: form.anthropic_base_url,
           summarize_model: form.summarize_model,

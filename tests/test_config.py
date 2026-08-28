@@ -374,6 +374,45 @@ class LoadConfigTests(unittest.TestCase):
             self.assertEqual(config.ai_backend, "deepseek")
             self.assertEqual(config.deepseek_api_key, "sk-ds-test-key")
 
+    def test_load_config_with_openai_backend(self):
+        """When AI_BACKEND=openai, OPENAI_API_KEY is required and loaded."""
+        from src.config import load_config
+
+        with patch.dict(os.environ, {
+            "AI_BACKEND": "openai",
+            "OPENAI_API_KEY": "sk-openai-test-key",
+        }, clear=True):
+            config = load_config()
+            self.assertEqual(config.ai_backend, "openai")
+            self.assertEqual(config.openai_api_key, "sk-openai-test-key")
+            self.assertEqual(config.openai_base_url, "https://api.openai.com/v1")
+            self.assertEqual(config.openai_model, "gpt-4o-mini")
+
+    def test_load_config_openai_custom_base_url_and_model(self):
+        """OPENAI_BASE_URL / OPENAI_MODEL override their defaults (e.g. GLM)."""
+        from src.config import load_config
+
+        with patch.dict(os.environ, {
+            "AI_BACKEND": "openai",
+            "OPENAI_API_KEY": "sk-glm-test-key",
+            "OPENAI_BASE_URL": "https://open.bigmodel.cn/api/paas/v4/",
+            "OPENAI_MODEL": "glm-4-flash",
+        }, clear=True):
+            config = load_config()
+            self.assertEqual(config.openai_base_url, "https://open.bigmodel.cn/api/paas/v4/")
+            self.assertEqual(config.openai_model, "glm-4-flash")
+
+    def test_load_config_raises_when_api_key_missing_openai(self):
+        """load_config() with openai backend and no API key → RuntimeError."""
+        from src.config import load_config
+
+        with patch.dict(os.environ, {
+            "AI_BACKEND": "openai",
+        }, clear=True):
+            with self.assertRaises(RuntimeError) as ctx:
+                load_config()
+            self.assertIn("OPENAI_API_KEY", str(ctx.exception))
+
     def test_load_config_raises_when_api_key_missing_claude(self):
         """load_config() with default (claude) backend and no API key → RuntimeError."""
         from src.config import load_config
